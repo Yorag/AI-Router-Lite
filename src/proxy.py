@@ -108,7 +108,7 @@ class RequestProxy:
             
             try:
                 response = await self._do_request(provider, request, actual_model)
-                self.provider_manager.mark_success(provider.config.name)
+                self.provider_manager.mark_success(provider.config.name, model_name=actual_model)
                 
                 # 将响应中的模型名替换回用户请求的模型名
                 if "model" in response:
@@ -120,6 +120,7 @@ class RequestProxy:
                 last_error = e
                 self.provider_manager.mark_failure(
                     provider.config.name,
+                    model_name=actual_model,
                     status_code=e.status_code,
                     error_message=e.message
                 )
@@ -180,13 +181,14 @@ class RequestProxy:
                 async for chunk in self._do_stream_request(provider, request, actual_model, original_model):
                     yield chunk
                 
-                self.provider_manager.mark_success(provider.config.name)
+                self.provider_manager.mark_success(provider.config.name, model_name=actual_model)
                 return  # 成功完成，退出重试循环
                 
             except ProxyError as e:
                 last_error = e
                 self.provider_manager.mark_failure(
                     provider.config.name,
+                    model_name=actual_model,
                     status_code=e.status_code,
                     error_message=e.message
                 )
@@ -197,6 +199,14 @@ class RequestProxy:
         
         # 所有重试都失败
         raise last_error or ProxyError("流式请求失败", status_code=500)
+    
+    def _get_timeout(self, provider: ProviderState) -> float:
+        """
+        获取 Provider 的超时时间
+        
+        如果 Provider 配置了 timeout 则使用，否则使用全局 request_timeout
+        """
+        return provider.config.timeout if provider.config.timeout is not None else self.config.request_timeout
     
     async def _do_request(
         self,
@@ -225,7 +235,7 @@ class RequestProxy:
                 url,
                 json=body,
                 headers=headers,
-                timeout=provider.config.timeout
+                timeout=self._get_timeout(provider)
             )
             
             if response.status_code != 200:
@@ -280,7 +290,7 @@ class RequestProxy:
                 url,
                 json=body,
                 headers=headers,
-                timeout=provider.config.timeout
+                timeout=self._get_timeout(provider)
             ) as response:
                 if response.status_code != 200:
                     error_body = await response.aread()

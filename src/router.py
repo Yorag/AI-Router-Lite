@@ -42,7 +42,7 @@ class ModelRouter:
         exclude: Optional[set[str]] = None
     ) -> list[tuple[ProviderState, str]]:
         """
-        查找支持指定模型的可用 Provider 列表
+        查找支持指定模型的可用 Provider 列表（双层熔断检查）
         
         Args:
             requested_model: 用户请求的模型名
@@ -51,12 +51,17 @@ class ModelRouter:
         Returns:
             列表：[(Provider 状态, 实际模型名), ...]
             按权重排序（高权重优先）
+            
+        Note:
+            此方法会同时检查：
+            1. Provider 渠道级是否可用
+            2. Provider + Model 组合是否可用（模型级熔断）
         """
         exclude = exclude or set()
         actual_models = self.resolve_model(requested_model)
         candidates: list[tuple[ProviderState, str, int]] = []
         
-        # 遍历所有可用的 Provider
+        # 遍历所有渠道级可用的 Provider
         for provider in self.provider_manager.get_available():
             # 跳过被排除的 Provider
             if provider.config.name in exclude:
@@ -65,8 +70,10 @@ class ModelRouter:
             # 检查 Provider 支持的模型
             for actual_model in actual_models:
                 if actual_model in provider.config.supported_models:
-                    candidates.append((provider, actual_model, provider.config.weight))
-                    break  # 每个 Provider 只加入一次
+                    # 双层检查：还需检查该 Provider + Model 组合是否可用
+                    if self.provider_manager.is_model_available(provider.config.name, actual_model):
+                        candidates.append((provider, actual_model, provider.config.weight))
+                        break  # 每个 Provider 只加入一次
         
         # 按权重降序排序
         candidates.sort(key=lambda x: x[2], reverse=True)

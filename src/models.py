@@ -4,7 +4,7 @@
 定义 OpenAI 兼容的请求和响应数据结构
 """
 
-from typing import Optional, Literal, Any
+from typing import Optional, Literal, Any, Union, List, Dict
 from pydantic import BaseModel, Field
 
 
@@ -29,7 +29,7 @@ class ChatCompletionRequest(BaseModel):
     top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Top-p 采样")
     n: Optional[int] = Field(default=1, ge=1, description="生成数量")
     stream: Optional[bool] = Field(default=False, description="是否流式输出")
-    stop: Optional[str | list[str]] = Field(default=None, description="停止序列")
+    stop: Optional[Union[str, List[str]]] = Field(default=None, description="停止序列")
     max_tokens: Optional[int] = Field(default=None, ge=1, description="最大 token 数")
     presence_penalty: Optional[float] = Field(default=None, ge=-2.0, le=2.0)
     frequency_penalty: Optional[float] = Field(default=None, ge=-2.0, le=2.0)

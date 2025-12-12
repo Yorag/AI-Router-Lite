@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Router-Lite 管理面板</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>🚀 AI-Router</h1>
+                <span class="version">v0.4.0</span>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-page="dashboard">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">仪表板</span>
+                </a>
+                <a href="#" class="nav-item" data-page="api-keys">
+                    <span class="nav-icon">🔑</span>
+                    <span class="nav-text">密钥管理</span>
+                </a>
+                <a href="#" class="nav-item" data-page="providers">
+                    <span class="nav-icon">🌐</span>
+                    <span class="nav-text">服务站管理</span>
+                </a>
+                <a href="#" class="nav-item" data-page="model-map">
+                    <span class="nav-icon">🔄</span>
+                    <span class="nav-text">模型映射</span>
+                </a>
+                <a href="#" class="nav-item" data-page="logs">
+                    <span class="nav-icon">📜</span>
+                    <span class="nav-text">日志监控</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="status-dot online"></span>
+                    <span>服务运行中</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 仪表板页面 -->
+            <div id="page-dashboard" class="page active">
+                <div class="page-header">
+                    <h2>仪表板</h2>
+                    <button class="btn btn-primary" onclick="Dashboard.refresh()">
+                        🔄 刷新
+                    </button>
+                </div>
+                
+                <!-- 统计卡片 -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📡</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-providers">-</span>
+                            <span class="stat-label">活跃服务站</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🔑</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-keys">-</span>
+                            <span class="stat-label">API 密钥</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📨</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-requests">-</span>
+                            <span class="stat-label">今日请求</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">✅</div>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-success-rate">-</span>
+                            <span class="stat-label">成功率</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 图表区域 -->
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <h3>请求趋势</h3>
+                        <canvas id="requestsChart"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h3>模型使用分布</h3>
+                        <canvas id="modelUsageChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Provider 状态 -->
+                <div class="card">
+                    <h3>服务站状态</h3>
+                    <div id="provider-status-list" class="provider-status-list">
+                        <!-- 动态生成 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 密钥管理页面 -->
+            <div id="page-api-keys" class="page">
+                <div class="page-header">
+                    <h2>API 密钥管理</h2>
+                    <button class="btn btn-primary" onclick="APIKeys.showCreateModal()">
+                        ➕ 创建密钥
+                    </button>
+                </div>
+
+                <div class="card">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>密钥 ID</th>
+                                <th>名称</th>
+                                <th>状态</th>
+                                <th>速率限制</th>
+                                <th>总请求</th>
+                                <th>最后使用</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="api-keys-table">
+                            <!-- 动态生成 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 服务站管理页面 -->
+            <div id="page-providers" class="page">
+                <div class="page-header">
+                    <h2>服务站管理</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="Providers.testAll()">
+                            🧪 测试全部
+                        </button>
+                        <button class="btn btn-primary" onclick="Providers.showCreateModal()">
+                            ➕ 添加服务站
+                        </button>
+                    </div>
+                </div>
+
+                <div class="auto-refresh-control">
+                    <label>
+                        <input type="checkbox" id="auto-refresh-providers" onchange="Providers.toggleAutoRefresh()">
+                        自动刷新测试（每60秒）
+                    </label>
+                </div>
+
+                <div id="providers-list" class="providers-grid">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+
+            <!-- 模型映射页面 -->
+            <div id="page-model-map" class="page">
+                <div class="page-header">
+                    <h2>模型映射配置</h2>
+                    <button class="btn btn-primary" onclick="ModelMap.showCreateModal()">
+                        ➕ 添加映射
+                    </button>
+                </div>
+
+                <div class="card">
+                    <p class="help-text">
+                        模型映射允许您将统一的模型名称映射到多个实际模型ID。
+                        当用户请求统一名称时，系统会自动选择可用的实际模型。
+                    </p>
+                    
+                    <div id="model-map-list" class="model-map-list">
+                        <!-- 动态生成 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 日志监控页面 -->
+            <div id="page-logs" class="page">
+                <div class="page-header">
+                    <h2>日志监控</h2>
+                    <div class="header-actions">
+                        <label class="realtime-toggle">
+                            <input type="checkbox" id="realtime-logs" onchange="Logs.toggleRealtime()">
+                            实时更新
+                        </label>
+                        <button class="btn btn-secondary" onclick="Logs.clear()">
+                            🗑️ 清空显示
+                        </button>
+                        <button class="btn btn-primary" onclick="Logs.refresh()">
+                            🔄 刷新
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 过滤器 -->
+                <div class="card filters-card">
+                    <div class="filters-row">
+                        <div class="filter-group">
+                            <label>级别</label>
+                            <select id="filter-level" onchange="Logs.applyFilters()">
+                                <option value="">全部</option>
+                                <option value="info">Info</option>
+                                <option value="warning">Warning</option>
+                                <option value="error">Error</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>类型</label>
+                            <select id="filter-type" onchange="Logs.applyFilters()">
+                                <option value="">全部</option>
+                                <option value="request">Request</option>
+                                <option value="response">Response</option>
+                                <option value="error">Error</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>模型</label>
+                            <input type="text" id="filter-model" placeholder="输入模型名" onchange="Logs.applyFilters()">
+                        </div>
+                        <div class="filter-group">
+                            <label>数量</label>
+                            <select id="filter-limit" onchange="Logs.applyFilters()">
+                                <option value="50">50条</option>
+                                <option value="100" selected>100条</option>
+                                <option value="200">200条</option>
+                                <option value="500">500条</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card logs-card">
+                    <div id="logs-container" class="logs-container">
+                        <!-- 动态生成 -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 模态框容器 -->
+    <div id="modal-overlay" class="modal-overlay" onclick="Modal.close()">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3 id="modal-title">标题</h3>
+                <button class="modal-close" onclick="Modal.close()">&times;</button>
+            </div>
+            <div id="modal-content" class="modal-content">
+                <!-- 动态内容 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 容器 -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="js/api.js"></script>
+    <script src="js/modal.js"></script>
+    <script src="js/toast.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script src="js/api-keys.js"></script>
+    <script src="js/providers.js"></script>
+    <script src="js/model-map.js"></script>
+    <script src="js/logs.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

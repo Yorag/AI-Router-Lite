@@ -1,0 +1,338 @@
+"""
+日志记录模块
+
+负责记录和存储 API 请求日志，支持实时推送和历史查询
+"""
+
+import json
+import time
+import asyncio
+from pathlib import Path
+from typing import Optional, AsyncIterator
+from dataclasses import dataclass, asdict
+from datetime import datetime
+from collections import deque
+from enum import Enum
+
+
+class LogLevel(Enum):
+    """日志级别"""
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+@dataclass
+class RequestLog:
+    """请求日志"""
+    id: str
+    timestamp: float
+    level: str
+    type: str  # request, response, error, system
+    method: str
+    path: str
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    status_code: Optional[int] = None
+    duration_ms: Optional[float] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
+    client_ip: Optional[str] = None
+    api_key_id: Optional[str] = None
+    request_tokens: Optional[int] = None
+    response_tokens: Optional[int] = None
+    
+    def to_dict(self) -> dict:
+        """转换为字典"""
+        data = asdict(self)
+        data["timestamp_str"] = datetime.fromtimestamp(self.timestamp).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        return data
+
+
+class LogManager:
+    """日志管理器"""
+    
+    def __init__(self, 
+                 storage_dir: str = "data/logs",
+                 max_memory_logs: int = 1000,
+                 max_file_size_mb: int = 10):
+        self.storage_dir = Path(storage_dir)
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.max_memory_logs = max_memory_logs
+        self.max_file_size_mb = max_file_size_mb
+        
+        # 内存中的日志缓存（用于实时查看）
+        self._logs: deque[RequestLog] = deque(maxlen=max_memory_logs)
+        
+        # SSE 订阅者
+        self._subscribers: list[asyncio.Queue] = []
+        
+        # 日志计数器
+        self._log_counter = 0
+        
+        # 统计数据
+        self._stats = {
+            "total_requests": 0,
+            "successful_requests": 0,
+            "failed_requests": 0,
+            "total_tokens": 0,
+            "hourly_requests": {},  # hour -> count
+            "model_usage": {},  # model -> count
+            "provider_usage": {},  # provider -> count
+        }
+        
+        # 加载今天的统计数据
+        self._load_today_stats()
+    
+    def _get_log_file_path(self, date: Optional[str] = None) -> Path:
+        """获取日志文件路径"""
+        if date is None:
+            date = datetime.now().strftime("%Y-%m-%d")
+        return self.storage_dir / f"requests_{date}.jsonl"
+    
+    def _get_stats_file_path(self, date: Optional[str] = None) -> Path:
+        """获取统计文件路径"""
+        if date is None:
+            date = datetime.now().strftime("%Y-%m-%d")
+        return self.storage_dir / f"stats_{date}.json"
+    
+    def _load_today_stats(self) -> None:
+        """加载今天的统计数据"""
+        stats_file = self._get_stats_file_path()
+        if stats_file.exists():
+            try:
+                with open(stats_file, "r", encoding="utf-8") as f:
+                    self._stats = json.load(f)
+            except Exception:
+                pass
+    
+    def _save_stats(self) -> None:
+        """保存统计数据"""
+        stats_file = self._get_stats_file_path()
+        try:
+            with open(stats_file, "w", encoding="utf-8") as f:
+                json.dump(self._stats, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[LogManager] 保存统计数据失败: {e}")
+    
+    def _generate_log_id(self) -> str:
+        """生成日志 ID"""
+        self._log_counter += 1
+        return f"log_{int(time.time() * 1000)}_{self._log_counter}"
+    
+    def log(self,
+            level: LogLevel,
+            log_type: str,
+            method: str,
+            path: str,
+            model: Optional[str] = None,
+            provider: Optional[str] = None,
+            status_code: Optional[int] = None,
+            duration_ms: Optional[float] = None,
+            message: Optional[str] = None,
+            error: Optional[str] = None,
+            client_ip: Optional[str] = None,
+            api_key_id: Optional[str] = None,
+            request_tokens: Optional[int] = None,
+            response_tokens: Optional[int] = None) -> RequestLog:
+        """记录日志"""
+        log_entry = RequestLog(
+            id=self._generate_log_id(),
+            timestamp=time.time(),
+            level=level.value,
+            type=log_type,
+            method=method,
+            path=path,
+            model=model,
+            provider=provider,
+            status_code=status_code,
+            duration_ms=duration_ms,
+            message=message,
+            error=error,
+            client_ip=client_ip,
+            api_key_id=api_key_id,
+            request_tokens=request_tokens,
+            response_tokens=response_tokens
+        )
+        
+        # 添加到内存缓存
+        self._logs.append(log_entry)
+        
+        # 写入文件
+        self._write_to_file(log_entry)
+        
+        # 更新统计
+        self._update_stats(log_entry)
+        
+        # 推送给订阅者
+        self._notify_subscribers(log_entry)
+        
+        return log_entry
+    
+    def _write_to_file(self, log_entry: RequestLog) -> None:
+        """写入日志文件"""
+        try:
+            log_file = self._get_log_file_path()
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(log_entry.to_dict(), ensure_ascii=False) + "\n")
+        except Exception as e:
+            print(f"[LogManager] 写入日志失败: {e}")
+    
+    def _update_stats(self, log_entry: RequestLog) -> None:
+        """更新统计数据"""
+        if log_entry.type in ("request", "response"):
+            self._stats["total_requests"] += 1
+            
+            if log_entry.status_code and 200 <= log_entry.status_code < 400:
+                self._stats["successful_requests"] += 1
+            elif log_entry.status_code and log_entry.status_code >= 400:
+                self._stats["failed_requests"] += 1
+            
+            # 小时统计
+            hour = datetime.fromtimestamp(log_entry.timestamp).strftime("%H")
+            self._stats["hourly_requests"][hour] = self._stats["hourly_requests"].get(hour, 0) + 1
+            
+            # 模型使用统计
+            if log_entry.model:
+                self._stats["model_usage"][log_entry.model] = \
+                    self._stats["model_usage"].get(log_entry.model, 0) + 1
+            
+            # Provider 使用统计
+            if log_entry.provider:
+                self._stats["provider_usage"][log_entry.provider] = \
+                    self._stats["provider_usage"].get(log_entry.provider, 0) + 1
+            
+            # Token 统计
+            if log_entry.request_tokens:
+                self._stats["total_tokens"] += log_entry.request_tokens
+            if log_entry.response_tokens:
+                self._stats["total_tokens"] += log_entry.response_tokens
+        
+        # 定期保存统计
+        if self._stats["total_requests"] % 10 == 0:
+            self._save_stats()
+    
+    def _notify_subscribers(self, log_entry: RequestLog) -> None:
+        """通知所有订阅者"""
+        dead_subscribers = []
+        for queue in self._subscribers:
+            try:
+                queue.put_nowait(log_entry)
+            except asyncio.QueueFull:
+                dead_subscribers.append(queue)
+        
+        # 清理死亡的订阅者
+        for queue in dead_subscribers:
+            self._subscribers.remove(queue)
+    
+    async def subscribe(self) -> AsyncIterator[RequestLog]:
+        """订阅日志流"""
+        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        self._subscribers.append(queue)
+        
+        try:
+            while True:
+                log_entry = await queue.get()
+                yield log_entry
+        finally:
+            if queue in self._subscribers:
+                self._subscribers.remove(queue)
+    
+    def get_recent_logs(self, 
+                        limit: int = 100,
+                        level: Optional[str] = None,
+                        log_type: Optional[str] = None,
+                        model: Optional[str] = None,
+                        provider: Optional[str] = None) -> list[dict]:
+        """获取最近的日志"""
+        logs = list(self._logs)
+        
+        # 过滤
+        if level:
+            logs = [l for l in logs if l.level == level]
+        if log_type:
+            logs = [l for l in logs if l.type == log_type]
+        if model:
+            logs = [l for l in logs if l.model == model]
+        if provider:
+            logs = [l for l in logs if l.provider == provider]
+        
+        # 限制数量并按时间倒序
+        logs = sorted(logs, key=lambda x: x.timestamp, reverse=True)[:limit]
+        
+        return [l.to_dict() for l in logs]
+    
+    def get_logs_by_date(self, date: str, limit: int = 1000) -> list[dict]:
+        """获取指定日期的日志"""
+        log_file = self._get_log_file_path(date)
+        logs = []
+        
+        if log_file.exists():
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip():
+                            logs.append(json.loads(line))
+                            if len(logs) >= limit:
+                                break
+            except Exception as e:
+                print(f"[LogManager] 读取日志失败: {e}")
+        
+        return logs
+    
+    def get_stats(self, date: Optional[str] = None) -> dict:
+        """获取统计数据"""
+        if date is None:
+            return self._stats.copy()
+        
+        stats_file = self._get_stats_file_path(date)
+        if stats_file.exists():
+            try:
+                with open(stats_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        
+        return {}
+    
+    def get_hourly_stats(self, days: int = 7) -> dict:
+        """获取小时级别的统计数据（用于图表）"""
+        from datetime import timedelta
+        
+        result = {}
+        now = datetime.now()
+        
+        for i in range(days):
+            date = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+            stats = self.get_stats(date)
+            if stats:
+                result[date] = stats.get("hourly_requests", {})
+        
+        return result
+    
+    def clear_old_logs(self, keep_days: int = 30) -> int:
+        """清理旧日志"""
+        from datetime import timedelta
+        
+        cutoff = datetime.now() - timedelta(days=keep_days)
+        deleted = 0
+        
+        for file in self.storage_dir.glob("*.jsonl"):
+            try:
+                # 从文件名提取日期
+                date_str = file.stem.split("_")[-1]
+                file_date = datetime.strptime(date_str, "%Y-%m-%d")
+                
+                if file_date < cutoff:
+                    file.unlink()
+                    deleted += 1
+            except Exception:
+                pass
+        
+        return deleted
+
+
+# 全局实例
+log_manager = LogManager()
