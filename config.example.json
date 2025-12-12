@@ -1,0 +1,39 @@
+{
+  "server_port": 8000,
+  "server_host": "0.0.0.0",
+  "max_retries": 3,
+  "request_timeout": 120,
+  "model_map": {
+    "gpt-4": ["gpt-4", "gpt-4-0613", "gpt-4-turbo", "gpt-4-turbo-preview"],
+    "gpt-3.5": ["gpt-3.5-turbo", "gpt-3.5-turbo-0125", "gpt-3.5-turbo-16k"],
+    "claude-3": ["claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
+    "claude-3-opus": ["claude-3-opus-20240229"],
+    "gemini-pro": ["gemini-pro", "gemini-1.0-pro"]
+  },
+  "providers": [
+    {
+      "name": "Provider_A",
+      "base_url": "https://api.example-a.com/v1",
+      "api_key": "sk-your-api-key-here",
+      "weight": 10,
+      "timeout": 60,
+      "supported_models": ["gpt-4", "gpt-3.5-turbo", "gpt-4-turbo"]
+    },
+    {
+      "name": "Provider_B",
+      "base_url": "https://api.example-b.com/v1",
+      "api_key": "sk-another-api-key",
+      "weight": 5,
+      "timeout": 90,
+      "supported_models": ["gpt-4", "claude-3-opus-20240229", "claude-3-sonnet-20240229"]
+    },
+    {
+      "name": "Provider_C_Backup",
+      "base_url": "https://api.backup-site.com/v1",
+      "api_key": "sk-backup-key",
+      "weight": 1,
+      "timeout": 120,
+      "supported_models": ["gpt-3.5-turbo", "gemini-pro"]
+    }
+  ]
+}
