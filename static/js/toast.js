@@ -2,6 +2,14 @@
  * Toast 通知模块
  */
 
+// Toast 通知配置（毫秒）
+const TOAST_CONSTANTS = {
+    DURATION_DEFAULT: 3000,   // 默认/成功/信息通知
+    DURATION_WARNING: 4000,   // 警告通知
+    DURATION_ERROR: 5000,     // 错误通知
+    ANIMATION_DURATION: 300   // 滑出动画时长
+};
+
 const Toast = {
     container: null,
 
@@ -9,7 +17,7 @@ const Toast = {
         this.container = document.getElementById('toast-container');
     },
 
-    show(message, type = 'info', duration = 3000) {
+    show(message, type = 'info', duration = TOAST_CONSTANTS.DURATION_DEFAULT) {
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
         
@@ -31,26 +39,26 @@ const Toast = {
         // 自动移除
         setTimeout(() => {
             if (toast.parentElement) {
-                toast.style.animation = 'slideOut 0.3s ease forwards';
-                setTimeout(() => toast.remove(), 300);
+                toast.style.animation = `slideOut ${TOAST_CONSTANTS.ANIMATION_DURATION / 1000}s ease forwards`;
+                setTimeout(() => toast.remove(), TOAST_CONSTANTS.ANIMATION_DURATION);
             }
         }, duration);
     },
 
     success(message) {
-        this.show(message, 'success');
+        this.show(message, 'success', TOAST_CONSTANTS.DURATION_DEFAULT);
     },
 
     error(message) {
-        this.show(message, 'error', 5000);
+        this.show(message, 'error', TOAST_CONSTANTS.DURATION_ERROR);
     },
 
     warning(message) {
-        this.show(message, 'warning', 4000);
+        this.show(message, 'warning', TOAST_CONSTANTS.DURATION_WARNING);
     },
 
     info(message) {
-        this.show(message, 'info');
+        this.show(message, 'info', TOAST_CONSTANTS.DURATION_DEFAULT);
     }
 };
 

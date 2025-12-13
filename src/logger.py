@@ -14,6 +14,18 @@ from datetime import datetime
 from collections import deque
 from enum import Enum
 
+from .constants import (
+    LOG_STORAGE_DIR,
+    LOG_MAX_MEMORY_ENTRIES,
+    LOG_MAX_FILE_SIZE_MB,
+    LOG_RETENTION_DAYS,
+    LOG_STATS_SAVE_INTERVAL,
+    LOG_SUBSCRIBE_QUEUE_SIZE,
+    LOG_RECENT_LIMIT_DEFAULT,
+    LOG_DATE_LIMIT_DEFAULT,
+    LOG_HOURLY_STATS_DEFAULT_DAYS,
+)
+
 
 class LogLevel(Enum):
     """日志级别"""
@@ -53,10 +65,10 @@ class RequestLog:
 class LogManager:
     """日志管理器"""
     
-    def __init__(self, 
-                 storage_dir: str = "data/logs",
-                 max_memory_logs: int = 1000,
-                 max_file_size_mb: int = 10):
+    def __init__(self,
+                 storage_dir: str = LOG_STORAGE_DIR,
+                 max_memory_logs: int = LOG_MAX_MEMORY_ENTRIES,
+                 max_file_size_mb: int = LOG_MAX_FILE_SIZE_MB):
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         
@@ -211,7 +223,7 @@ class LogManager:
                 self._stats["total_tokens"] += log_entry.response_tokens
         
         # 定期保存统计
-        if self._stats["total_requests"] % 10 == 0:
+        if self._stats["total_requests"] % LOG_STATS_SAVE_INTERVAL == 0:
             self._save_stats()
     
     def _notify_subscribers(self, log_entry: RequestLog) -> None:
@@ -229,7 +241,7 @@ class LogManager:
     
     async def subscribe(self) -> AsyncIterator[RequestLog]:
         """订阅日志流"""
-        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        queue: asyncio.Queue = asyncio.Queue(maxsize=LOG_SUBSCRIBE_QUEUE_SIZE)
         self._subscribers.append(queue)
         
         try:
@@ -240,8 +252,8 @@ class LogManager:
             if queue in self._subscribers:
                 self._subscribers.remove(queue)
     
-    def get_recent_logs(self, 
-                        limit: int = 100,
+    def get_recent_logs(self,
+                        limit: int = LOG_RECENT_LIMIT_DEFAULT,
                         level: Optional[str] = None,
                         log_type: Optional[str] = None,
                         model: Optional[str] = None,
@@ -264,7 +276,7 @@ class LogManager:
         
         return [l.to_dict() for l in logs]
     
-    def get_logs_by_date(self, date: str, limit: int = 1000) -> list[dict]:
+    def get_logs_by_date(self, date: str, limit: int = LOG_DATE_LIMIT_DEFAULT) -> list[dict]:
         """获取指定日期的日志"""
         log_file = self._get_log_file_path(date)
         logs = []
@@ -297,7 +309,7 @@ class LogManager:
         
         return {}
     
-    def get_hourly_stats(self, days: int = 7) -> dict:
+    def get_hourly_stats(self, days: int = LOG_HOURLY_STATS_DEFAULT_DAYS) -> dict:
         """获取小时级别的统计数据（用于图表）"""
         from datetime import timedelta
         
@@ -312,7 +324,7 @@ class LogManager:
         
         return result
     
-    def clear_old_logs(self, keep_days: int = 30) -> int:
+    def clear_old_logs(self, keep_days: int = LOG_RETENTION_DAYS) -> int:
         """清理旧日志"""
         from datetime import timedelta
         

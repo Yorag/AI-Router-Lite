@@ -2,6 +2,13 @@
  * 主应用程序模块
  */
 
+// 时间相关常量（秒）
+const TIME_CONSTANTS = {
+    SECONDS_PER_MINUTE: 60,
+    SECONDS_PER_HOUR: 3600,
+    SECONDS_PER_DAY: 86400
+};
+
 const App = {
     currentPage: 'dashboard',
 
@@ -92,10 +99,10 @@ const App = {
         const now = Date.now() / 1000;
         const diff = now - timestamp;
         
-        if (diff < 60) return '刚刚';
-        if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
-        if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
-        return `${Math.floor(diff / 86400)} 天前`;
+        if (diff < TIME_CONSTANTS.SECONDS_PER_MINUTE) return '刚刚';
+        if (diff < TIME_CONSTANTS.SECONDS_PER_HOUR) return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_MINUTE)} 分钟前`;
+        if (diff < TIME_CONSTANTS.SECONDS_PER_DAY) return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_HOUR)} 小时前`;
+        return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_DAY)} 天前`;
     },
 
     // 工具函数：复制到剪贴板

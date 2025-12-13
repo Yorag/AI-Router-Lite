@@ -13,6 +13,14 @@ from typing import Optional
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 
+from .constants import (
+    API_KEYS_STORAGE_PATH,
+    API_KEY_DEFAULT_RATE_LIMIT,
+    API_KEY_PREFIX,
+    API_KEY_ID_RANDOM_BYTES,
+    API_KEY_SECRET_BYTES,
+)
+
 
 @dataclass
 class APIKey:
@@ -23,7 +31,7 @@ class APIKey:
     created_at: float
     last_used: Optional[float] = None
     enabled: bool = True
-    rate_limit: int = 60  # 每分钟请求限制
+    rate_limit: int = API_KEY_DEFAULT_RATE_LIMIT  # 每分钟请求限制
     total_requests: int = 0
     
     def to_dict(self) -> dict:
@@ -44,7 +52,7 @@ class APIKey:
 class APIKeyManager:
     """API 密钥管理器"""
     
-    def __init__(self, storage_path: str = "data/api_keys.json"):
+    def __init__(self, storage_path: str = API_KEYS_STORAGE_PATH):
         self.storage_path = Path(storage_path)
         self._keys: dict[str, APIKey] = {}  # key_id -> APIKey
         self._key_lookup: dict[str, str] = {}  # key_hash -> key_id
@@ -80,12 +88,12 @@ class APIKeyManager:
     @staticmethod
     def _generate_key() -> tuple[str, str]:
         """生成新的 API 密钥，返回 (key_id, full_key)"""
-        key_id = f"sk-{secrets.token_hex(4)}"
-        key_secret = secrets.token_hex(24)
+        key_id = f"{API_KEY_PREFIX}{secrets.token_hex(API_KEY_ID_RANDOM_BYTES)}"
+        key_secret = secrets.token_hex(API_KEY_SECRET_BYTES)
         full_key = f"{key_id}-{key_secret}"
         return key_id, full_key
     
-    def create_key(self, name: str, rate_limit: int = 60) -> tuple[str, dict]:
+    def create_key(self, name: str, rate_limit: int = API_KEY_DEFAULT_RATE_LIMIT) -> tuple[str, dict]:
         """
         创建新的 API 密钥
         

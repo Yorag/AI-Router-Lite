@@ -2,6 +2,11 @@
  * API 密钥管理模块
  */
 
+// API 密钥相关常量 - 与 API_CONSTANTS 保持一致
+const API_KEY_CONSTANTS = {
+    DEFAULT_RATE_LIMIT: 60  // 默认速率限制（每分钟请求数）
+};
+
 const APIKeys = {
     keys: [],
 
@@ -75,7 +80,7 @@ const APIKeys = {
                 </div>
                 <div class="form-group">
                     <label>速率限制</label>
-                    <input type="number" id="key-rate-limit" value="60" min="1" max="1000">
+                    <input type="number" id="key-rate-limit" value="${API_KEY_CONSTANTS.DEFAULT_RATE_LIMIT}" min="1" max="1000">
                     <div class="hint">每分钟允许的最大请求数</div>
                 </div>
                 <div class="form-actions">
@@ -91,7 +96,7 @@ const APIKeys = {
         event.preventDefault();
         
         const name = document.getElementById('key-name').value.trim();
-        const rateLimit = parseInt(document.getElementById('key-rate-limit').value) || 60;
+        const rateLimit = parseInt(document.getElementById('key-rate-limit').value) || API_KEY_CONSTANTS.DEFAULT_RATE_LIMIT;
         
         if (!name) {
             Toast.warning('请输入密钥名称');
@@ -139,7 +144,7 @@ const APIKeys = {
         event.preventDefault();
         
         const name = document.getElementById('edit-key-name').value.trim();
-        const rateLimit = parseInt(document.getElementById('edit-key-rate-limit').value) || 60;
+        const rateLimit = parseInt(document.getElementById('edit-key-rate-limit').value) || API_KEY_CONSTANTS.DEFAULT_RATE_LIMIT;
         
         try {
             await API.updateAPIKey(keyId, { name, rate_limit: rateLimit });

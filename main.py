@@ -19,6 +19,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from src.config import config_manager, get_config
+from src.constants import (
+    APP_NAME,
+    APP_VERSION,
+    APP_DESCRIPTION,
+    DEFAULT_SERVER_HOST,
+    DEFAULT_SERVER_PORT,
+    API_KEY_DEFAULT_RATE_LIMIT,
+)
 from src.models import (
     ChatCompletionRequest,
     ErrorResponse,
@@ -48,8 +56,8 @@ def print_banner():
     banner = f"""
 {Fore.CYAN}╔══════════════════════════════════════════════════════════╗
 ║                                                          ║
-║   {Fore.WHITE}🚀 AI-Router-Lite v0.4.0{Fore.CYAN}                              ║
-║   {Fore.WHITE}轻量级 AI 聚合路由 + 管理面板{Fore.CYAN}                          ║
+║   {Fore.WHITE}🚀 {APP_NAME} v{APP_VERSION}{Fore.CYAN}                              ║
+║   {Fore.WHITE}{APP_DESCRIPTION}{Fore.CYAN}                          ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝{Style.RESET_ALL}
 """
@@ -92,6 +100,9 @@ async def lifespan(app: FastAPI):
     # 注册 Provider
     provider_manager.register_all(config.providers)
     
+    # 将 provider_manager 注入到 admin_manager，用于统一健康状态管理
+    admin_manager.set_provider_manager(provider_manager)
+    
     # 初始化路由器和代理
     router = ModelRouter(config, provider_manager)
     proxy = RequestProxy(config, provider_manager, router)
@@ -109,9 +120,9 @@ async def lifespan(app: FastAPI):
 
 # 创建 FastAPI 应用
 app = FastAPI(
-    title="AI-Router-Lite",
-    description="轻量级 AI 聚合路由 + 管理面板",
-    version="0.4.0",
+    title=APP_NAME,
+    description=APP_DESCRIPTION,
+    version=APP_VERSION,
     lifespan=lifespan
 )
 
@@ -129,7 +140,7 @@ app.add_middleware(
 
 class CreateAPIKeyRequest(BaseModel):
     name: str
-    rate_limit: int = 60
+    rate_limit: int = API_KEY_DEFAULT_RATE_LIMIT
 
 class UpdateAPIKeyRequest(BaseModel):
     name: Optional[str] = None
@@ -163,8 +174,8 @@ class ModelMappingRequest(BaseModel):
 async def root():
     """根路径"""
     return {
-        "service": "AI-Router-Lite",
-        "version": "0.4.0",
+        "service": APP_NAME,
+        "version": APP_VERSION,
         "status": "running",
         "admin_panel": "/admin"
     }
@@ -446,6 +457,41 @@ async def list_providers():
     return {"providers": admin_manager.list_providers()}
 
 
+@app.get("/api/providers/test-results")
+async def get_test_results():
+    """获取测试结果"""
+    return {"results": admin_manager.get_test_results()}
+
+
+@app.get("/api/providers/all-models")
+async def fetch_all_provider_models():
+    """获取所有中转站的模型列表"""
+    result = await admin_manager.fetch_all_provider_models()
+    return {"provider_models": result}
+
+
+@app.post("/api/providers/test-all")
+async def test_all_providers():
+    """测试所有 Provider（手动触发，不跳过任何模型）"""
+    results = await admin_manager.test_all_providers(skip_recent=False)
+    return {"results": [r.to_dict() for r in results]}
+
+
+@app.post("/api/providers/test-all-auto")
+async def test_all_providers_auto():
+    """
+    自动健康检测（跳过近期有活动的模型）
+    
+    用于自动定时健康检测，会跳过近6小时内有调用记录的模型，
+    以减少不必要的测试请求和 token 消耗。
+    """
+    results = await admin_manager.test_all_providers(skip_recent=True)
+    return {
+        "results": [r.to_dict() for r in results],
+        "message": "已跳过近期有活动的模型"
+    }
+
+
 @app.post("/api/providers")
 async def add_provider(request: ProviderRequest):
     """添加 Provider"""
@@ -497,17 +543,13 @@ async def test_provider(name: str, model: Optional[str] = None):
     return {"results": [r.to_dict() for r in results]}
 
 
-@app.post("/api/providers/test-all")
-async def test_all_providers():
-    """测试所有 Provider"""
-    results = await admin_manager.test_all_providers()
-    return {"results": [r.to_dict() for r in results]}
-
-
-@app.get("/api/providers/test-results")
-async def get_test_results():
-    """获取测试结果"""
-    return {"results": admin_manager.get_test_results()}
+@app.get("/api/providers/{name}/models")
+async def fetch_provider_models(name: str):
+    """从中转站获取可用模型列表"""
+    success, models, error = await admin_manager.fetch_provider_models(name)
+    if not success:
+        raise HTTPException(status_code=400, detail=error or "获取模型列表失败")
+    return {"models": models}
 
 
 # ==================== 模型映射管理 ====================
@@ -629,8 +671,8 @@ if __name__ == "__main__":
         host = config.server_host
         port = config.server_port
     except:
-        host = "0.0.0.0"
-        port = 8000
+        host = DEFAULT_SERVER_HOST
+        port = DEFAULT_SERVER_PORT
     
     uvicorn.run(
         "main:app",

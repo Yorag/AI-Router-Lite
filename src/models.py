@@ -7,6 +7,8 @@
 from typing import Optional, Literal, Any, Union, List, Dict
 from pydantic import BaseModel, Field
 
+from .constants import MODEL_OWNED_BY
+
 
 # ==================== 请求模型 ====================
 
@@ -122,7 +124,7 @@ class ModelInfo(BaseModel):
     id: str = Field(..., description="模型 ID")
     object: str = Field(default="model", description="对象类型")
     created: int = Field(default=0, description="创建时间")
-    owned_by: str = Field(default="ai-router-lite", description="所有者")
+    owned_by: str = Field(default=MODEL_OWNED_BY, description="所有者")
 
 
 class ModelListResponse(BaseModel):

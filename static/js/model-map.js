@@ -4,6 +4,7 @@
 
 const ModelMap = {
     modelMap: {},
+    providerModels: {},  // 缓存各中转站的模型列表
 
     async init() {
         await this.load();
@@ -55,7 +56,21 @@ const ModelMap = {
         `).join('');
     },
 
-    showCreateModal() {
+    async showCreateModal() {
+        // 先获取所有中转站的模型
+        Toast.info('正在获取中转站模型列表...');
+        try {
+            const data = await API.fetchAllProviderModels();
+            this.providerModels = data.provider_models || {};
+        } catch (error) {
+            console.error('Fetch provider models error:', error);
+            this.providerModels = {};
+        }
+
+        const providerOptions = Object.keys(this.providerModels).map(name => 
+            `<option value="${name}">${name} (${this.providerModels[name].length} 个模型)</option>`
+        ).join('');
+
         const content = `
             <form onsubmit="ModelMap.create(event)">
                 <div class="form-group">
@@ -63,11 +78,34 @@ const ModelMap = {
                     <input type="text" id="mapping-unified-name" required placeholder="例如：gpt-4">
                     <div class="hint">用户在调用时使用的模型名称</div>
                 </div>
+                
                 <div class="form-group">
-                    <label>实际模型列表</label>
-                    <textarea id="mapping-actual-models" rows="4" required placeholder="每行一个模型名称&#10;例如：&#10;gpt-4-0613&#10;gpt-4-turbo&#10;gpt-4-turbo-preview"></textarea>
+                    <label>从中转站选择模型</label>
+                    <select id="mapping-provider-select" onchange="ModelMap.onProviderChange()">
+                        <option value="">-- 选择中转站 --</option>
+                        ${providerOptions}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>关键字筛选</label>
+                    <input type="text" id="mapping-keyword" placeholder="输入关键字筛选模型，如 gpt-4" oninput="ModelMap.filterModels()">
+                    <div class="hint">输入关键字自动筛选匹配的模型</div>
+                </div>
+                
+                <div class="form-group">
+                    <label>可选模型 <span id="model-count">(0)</span></label>
+                    <div id="available-models" class="model-selector">
+                        <div class="hint">请先选择中转站</div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>已选模型</label>
+                    <textarea id="mapping-actual-models" rows="4" required placeholder="每行一个模型名称，或从上方点击选择"></textarea>
                     <div class="hint">当用户请求统一名称时，系统会从这些模型中选择可用的</div>
                 </div>
+                
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
                     <button type="submit" class="btn btn-primary">添加映射</button>
@@ -75,6 +113,46 @@ const ModelMap = {
             </form>
         `;
         Modal.show('添加模型映射', content);
+    },
+
+    onProviderChange() {
+        const providerName = document.getElementById('mapping-provider-select').value;
+        this.currentProviderModels = this.providerModels[providerName] || [];
+        this.filterModels();
+    },
+
+    currentProviderModels: [],
+
+    filterModels() {
+        const keyword = document.getElementById('mapping-keyword').value.toLowerCase();
+        const container = document.getElementById('available-models');
+        const countEl = document.getElementById('model-count');
+        
+        let models = this.currentProviderModels;
+        if (keyword) {
+            models = models.filter(m => m.toLowerCase().includes(keyword));
+        }
+        
+        countEl.textContent = `(${models.length})`;
+        
+        if (models.length === 0) {
+            container.innerHTML = '<div class="hint">没有匹配的模型</div>';
+            return;
+        }
+        
+        container.innerHTML = models.map(model => `
+            <span class="model-tag clickable" onclick="ModelMap.selectModel('${model}')">${model}</span>
+        `).join('');
+    },
+
+    selectModel(model) {
+        const textarea = document.getElementById('mapping-actual-models');
+        const currentModels = textarea.value.split('\n').map(m => m.trim()).filter(m => m);
+        
+        if (!currentModels.includes(model)) {
+            currentModels.push(model);
+            textarea.value = currentModels.join('\n');
+        }
     },
 
     async create(event) {
@@ -106,9 +184,23 @@ const ModelMap = {
         }
     },
 
-    showEditModal(unifiedName) {
+    async showEditModal(unifiedName) {
         const actualModels = this.modelMap[unifiedName] || [];
         const modelsText = actualModels.join('\n');
+        
+        // 获取所有中转站的模型
+        Toast.info('正在获取中转站模型列表...');
+        try {
+            const data = await API.fetchAllProviderModels();
+            this.providerModels = data.provider_models || {};
+        } catch (error) {
+            console.error('Fetch provider models error:', error);
+            this.providerModels = {};
+        }
+
+        const providerOptions = Object.keys(this.providerModels).map(name => 
+            `<option value="${name}">${name} (${this.providerModels[name].length} 个模型)</option>`
+        ).join('');
         
         const content = `
             <form onsubmit="ModelMap.update(event, '${unifiedName}')">
@@ -117,11 +209,33 @@ const ModelMap = {
                     <input type="text" value="${unifiedName}" disabled>
                     <div class="hint">名称不可修改，如需更改请删除后重新创建</div>
                 </div>
+                
                 <div class="form-group">
-                    <label>实际模型列表</label>
+                    <label>从中转站选择模型</label>
+                    <select id="mapping-provider-select" onchange="ModelMap.onProviderChange()">
+                        <option value="">-- 选择中转站 --</option>
+                        ${providerOptions}
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>关键字筛选</label>
+                    <input type="text" id="mapping-keyword" placeholder="输入关键字筛选模型" oninput="ModelMap.filterModels()">
+                </div>
+                
+                <div class="form-group">
+                    <label>可选模型 <span id="model-count">(0)</span></label>
+                    <div id="available-models" class="model-selector">
+                        <div class="hint">请先选择中转站</div>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>已选模型</label>
                     <textarea id="edit-mapping-models" rows="6" required>${modelsText}</textarea>
                     <div class="hint">每行一个模型名称</div>
                 </div>
+                
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
                     <button type="submit" class="btn btn-primary">保存</button>

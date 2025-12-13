@@ -2,6 +2,12 @@
  * API 模块 - 处理所有后端 API 调用
  */
 
+// API 相关常量配置
+const API_CONSTANTS = {
+    DEFAULT_RATE_LIMIT: 60,      // 默认速率限制（每分钟请求数）
+    DEFAULT_HOURLY_STATS_DAYS: 7 // 默认小时统计天数
+};
+
 const API = {
     baseUrl: '',  // 使用相对路径
 
@@ -59,7 +65,7 @@ const API = {
         return this.request('GET', '/api/keys');
     },
 
-    async createAPIKey(name, rateLimit = 60) {
+    async createAPIKey(name, rateLimit = API_CONSTANTS.DEFAULT_RATE_LIMIT) {
         return this.request('POST', '/api/keys', { name, rate_limit: rateLimit });
     },
 
@@ -94,7 +100,7 @@ const API = {
         return this.request('GET', `/api/logs/stats${params}`);
     },
 
-    async getHourlyStats(days = 7) {
+    async getHourlyStats(days = API_CONSTANTS.DEFAULT_HOURLY_STATS_DAYS) {
         return this.request('GET', `/api/logs/hourly?days=${days}`);
     },
 
@@ -129,8 +135,21 @@ const API = {
         return this.request('POST', '/api/providers/test-all');
     },
 
+    async testAllProvidersAuto() {
+        // 自动健康检测，跳过近期有活动的模型
+        return this.request('POST', '/api/providers/test-all-auto');
+    },
+
     async getTestResults() {
         return this.request('GET', '/api/providers/test-results');
+    },
+
+    async fetchProviderModels(name) {
+        return this.request('GET', `/api/providers/${encodeURIComponent(name)}/models`);
+    },
+
+    async fetchAllProviderModels() {
+        return this.request('GET', '/api/providers/all-models');
     },
 
     async resetProvider(name) {

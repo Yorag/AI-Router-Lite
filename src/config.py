@@ -10,6 +10,15 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+# 从统一常量模块导入健康检测相关常量
+from .constants import (
+    HEALTH_CHECK_SKIP_THRESHOLD_HOURS,
+    AUTO_HEALTH_CHECK_INTERVAL_HOURS,
+    HEALTH_TEST_FAILURE_COOLDOWN_SECONDS,
+    DEFAULT_SERVER_PORT,
+    DEFAULT_SERVER_HOST,
+)
+
 
 class ProviderConfig(BaseModel):
     """单个 Provider 的配置"""
