@@ -28,6 +28,7 @@ class ProviderConfig(BaseModel):
     weight: int = Field(default=1, ge=1, description="权重，数值越高优先级越高")
     supported_models: list[str] = Field(default_factory=list, description="支持的模型列表")
     timeout: Optional[float] = Field(default=None, ge=1.0, description="请求超时时间（秒），未配置时使用全局 request_timeout")
+    enabled: bool = Field(default=True, description="是否启用该服务站")
 
 
 class AppConfig(BaseModel):

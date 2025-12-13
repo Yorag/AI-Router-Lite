@@ -10,6 +10,7 @@ from colorama import Fore, Style
 
 from .config import AppConfig
 from .provider import ProviderManager, ProviderState
+from .model_mapping import model_mapping_manager
 
 
 class ModelRouter:
@@ -18,11 +19,12 @@ class ModelRouter:
     def __init__(self, config: AppConfig, provider_manager: ProviderManager):
         self.config = config
         self.provider_manager = provider_manager
-        self._model_map = config.model_map
     
     def resolve_model(self, requested_model: str) -> list[str]:
         """
         解析用户请求的模型名，返回实际模型名列表
+        
+        使用增强型模型映射，如果没有匹配则直接返回原始模型名。
         
         Args:
             requested_model: 用户请求的模型名（可能是映射名）
@@ -30,9 +32,11 @@ class ModelRouter:
         Returns:
             实际模型名列表
         """
-        # 如果是映射的模型名，返回映射的列表
-        if requested_model in self._model_map:
-            return self._model_map[requested_model]
+        # 从增强型模型映射获取
+        resolved = model_mapping_manager.get_resolved_models_for_unified(requested_model)
+        if resolved:
+            return resolved
+        
         # 否则直接返回原始模型名
         return [requested_model]
     
@@ -151,8 +155,10 @@ class ModelRouter:
         """
         models = set()
         
-        # 添加所有映射的模型名
-        models.update(self._model_map.keys())
+        # 添加增强型模型映射的统一名称
+        model_mapping_manager.load()
+        mappings = model_mapping_manager.get_all_mappings()
+        models.update(mappings.keys())
         
         # 添加所有 Provider 支持的原始模型名
         for provider in self.provider_manager.get_available():

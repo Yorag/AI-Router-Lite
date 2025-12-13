@@ -4,14 +4,13 @@
 
 // 从后端同步的常量配置
 const PROVIDER_CONSTANTS = {
-    // 自动健康检测间隔（毫秒）- 与后端 AUTO_HEALTH_CHECK_INTERVAL_HOURS 对应
-    AUTO_HEALTH_CHECK_INTERVAL_MS: 6 * 60 * 60 * 1000  // 6小时
+    // 自动更新模型间隔（毫秒）- 6小时
+    AUTO_UPDATE_MODELS_INTERVAL_MS: 6 * 60 * 60 * 1000
 };
 
 const Providers = {
     providers: [],
-    testResults: {},
-    autoRefreshInterval: null,
+    autoUpdateInterval: null,
 
     async init() {
         await this.load();
@@ -21,11 +20,6 @@ const Providers = {
         try {
             const data = await API.listProviders();
             this.providers = data.providers || [];
-            
-            // 加载测试结果
-            const results = await API.getTestResults();
-            this.testResults = results.results || {};
-            
             this.render();
         } catch (error) {
             console.error('Load providers error:', error);
@@ -50,54 +44,78 @@ const Providers = {
         container.innerHTML = this.providers.map(provider => this.renderProviderCard(provider)).join('');
     },
 
+    // 模型显示阈值
+    MODEL_DISPLAY_LIMIT: 5,
+
     renderProviderCard(provider) {
         const models = provider.supported_models || [];
-        const testResults = provider.test_results || [];
         const providerName = provider.name;
+        const providerId = this.escapeId(providerName);
         
-        // 创建模型标签（带测试结果和能力提示）
-        const modelTags = models.map(model => {
-            const result = testResults.find(r => r.model === model);
-            let statusClass = '';
-            let latencyText = '';
-            
-            if (result) {
-                statusClass = result.success ? 'success' : 'error';
-                if (result.latency_ms) {
-                    latencyText = `<span class="latency">${Math.round(result.latency_ms)}ms</span>`;
-                }
-            }
-            
-            // 获取模型能力提示
+        // 创建模型标签（带能力提示）
+        const createModelTag = (model) => {
             const tooltip = this.getModelTooltip(providerName, model);
             const titleAttr = tooltip ? `title="${tooltip}"` : '';
+            return `<span class="model-tag" ${titleAttr}>${model}</span>`;
+        };
+
+        let modelTagsHtml = '';
+        if (models.length === 0) {
+            modelTagsHtml = '<span class="model-tag">暂无模型</span>';
+        } else if (models.length <= this.MODEL_DISPLAY_LIMIT) {
+            // 模型数量不超过阈值，全部显示
+            modelTagsHtml = models.map(createModelTag).join('');
+        } else {
+            // 超过阈值，显示前N个 + "more"按钮
+            const visibleModels = models.slice(0, this.MODEL_DISPLAY_LIMIT);
+            const hiddenModels = models.slice(this.MODEL_DISPLAY_LIMIT);
+            const hiddenCount = hiddenModels.length;
             
-            return `<span class="model-tag ${statusClass}" ${titleAttr}>${model}${latencyText}</span>`;
-        }).join('');
+            modelTagsHtml = `
+                <div class="model-tags-visible">
+                    ${visibleModels.map(createModelTag).join('')}
+                    <span class="model-tag model-more-btn" onclick="Providers.toggleModelExpand('${providerId}')">
+                        +${hiddenCount} more
+                    </span>
+                </div>
+                <div class="model-tags-hidden" id="models-hidden-${providerId}" style="display: none;">
+                    ${hiddenModels.map(createModelTag).join('')}
+                    <span class="model-tag model-less-btn" onclick="Providers.toggleModelExpand('${providerId}')">
+                        收起
+                    </span>
+                </div>
+            `;
+        }
+
+        const isEnabled = provider.enabled !== false;
+        const statusBadgeClass = isEnabled ? 'info' : 'warning';
+        const statusText = isEnabled ? `权重: ${provider.weight}` : '已禁用';
+        const toggleBtnText = isEnabled ? '⏸️ 禁用' : '▶️ 启用';
+        const toggleBtnClass = isEnabled ? 'btn-warning' : 'btn-success';
 
         return `
-            <div class="provider-card">
+            <div class="provider-card ${!isEnabled ? 'disabled' : ''}" id="provider-${providerId}">
                 <div class="provider-card-header">
                     <div>
                         <h3>${provider.name}</h3>
                         <div class="url">${provider.base_url}</div>
                     </div>
-                    <span class="status-badge info">权重: ${provider.weight}</span>
+                    <span class="status-badge ${statusBadgeClass}">${statusText}</span>
                 </div>
                 
                 <div class="provider-models">
                     <h4>支持的模型 (${models.length})</h4>
                     <div class="model-tags">
-                        ${modelTags || '<span class="model-tag">暂无模型</span>'}
+                        ${modelTagsHtml}
                     </div>
                 </div>
                 
                 <div class="provider-card-actions">
+                    <button class="btn btn-sm ${toggleBtnClass}" onclick="Providers.toggleEnabled('${provider.name}', ${!isEnabled})">
+                        ${toggleBtnText}
+                    </button>
                     <button class="btn btn-sm btn-secondary" onclick="Providers.fetchModels('${provider.name}')">
                         📥 更新模型
-                    </button>
-                    <button class="btn btn-sm btn-secondary" onclick="Providers.test('${provider.name}')">
-                        🧪 测试
                     </button>
                     <button class="btn btn-sm btn-secondary" onclick="Providers.showEditModal('${provider.name}')">
                         ✏️ 编辑
@@ -111,6 +129,31 @@ const Providers = {
                 </div>
             </div>
         `;
+    },
+
+    // 将服务站名称转换为安全的ID
+    escapeId(name) {
+        return name.replace(/[^a-zA-Z0-9]/g, '_');
+    },
+
+    // 切换模型列表展开/收起
+    toggleModelExpand(providerId) {
+        const hiddenContainer = document.getElementById(`models-hidden-${providerId}`);
+        const providerCard = document.getElementById(`provider-${providerId}`);
+        if (!hiddenContainer || !providerCard) return;
+
+        const visibleContainer = providerCard.querySelector('.model-tags-visible');
+        const moreBtn = visibleContainer?.querySelector('.model-more-btn');
+
+        if (hiddenContainer.style.display === 'none') {
+            // 展开
+            hiddenContainer.style.display = 'flex';
+            if (moreBtn) moreBtn.style.display = 'none';
+        } else {
+            // 收起
+            hiddenContainer.style.display = 'none';
+            if (moreBtn) moreBtn.style.display = 'inline-flex';
+        }
     },
 
     showCreateModal() {
@@ -206,10 +249,6 @@ const Providers = {
                     <input type="number" id="edit-provider-weight" value="${provider.weight}" min="1" max="100">
                 </div>
                 <div class="form-group">
-                    <label>超时时间 (秒)</label>
-                    <input type="number" id="edit-provider-timeout" value="${provider.timeout || ''}" placeholder="使用全局默认值">
-                </div>
-                <div class="form-group">
                     <label>支持的模型</label>
                     <textarea id="edit-provider-models" rows="4">${modelsText}</textarea>
                     <div class="hint">每行输入一个模型名称</div>
@@ -229,7 +268,6 @@ const Providers = {
         const baseUrl = document.getElementById('edit-provider-url').value.trim();
         const apiKey = document.getElementById('edit-provider-key').value.trim();
         const weight = parseInt(document.getElementById('edit-provider-weight').value) || 1;
-        const timeout = document.getElementById('edit-provider-timeout').value;
         const modelsText = document.getElementById('edit-provider-models').value.trim();
         
         const models = modelsText ? modelsText.split('\n').map(m => m.trim()).filter(m => m) : [];
@@ -240,10 +278,6 @@ const Providers = {
             weight,
             supported_models: models
         };
-        
-        if (timeout) {
-            data.timeout = parseFloat(timeout);
-        }
         
         try {
             await API.updateProvider(name, data);
@@ -275,66 +309,6 @@ const Providers = {
         }
     },
 
-    async test(name) {
-        Toast.info(`正在测试 ${name}...`);
-        
-        try {
-            const result = await API.testProvider(name);
-            
-            const successCount = result.results.filter(r => r.success).length;
-            const totalCount = result.results.length;
-            
-            if (successCount === totalCount) {
-                Toast.success(`${name} 测试通过 (${successCount}/${totalCount})`);
-            } else if (successCount > 0) {
-                Toast.warning(`${name} 部分通过 (${successCount}/${totalCount})`);
-            } else {
-                Toast.error(`${name} 测试失败`);
-            }
-            
-            await this.load();
-        } catch (error) {
-            Toast.error('测试失败: ' + error.message);
-        }
-    },
-
-    async testAll() {
-        Toast.info('正在测试所有服务站...');
-        
-        try {
-            const result = await API.testAllProviders();
-            
-            const successCount = result.results.filter(r => r.success).length;
-            const totalCount = result.results.length;
-            
-            Toast.success(`测试完成 (${successCount}/${totalCount} 通过)`);
-            await this.load();
-        } catch (error) {
-            Toast.error('测试失败: ' + error.message);
-        }
-    },
-
-    async testAllAuto() {
-        // 自动健康检测，跳过近期有活动的模型
-        Toast.info('正在执行自动健康检测...');
-        
-        try {
-            const result = await API.testAllProvidersAuto();
-            
-            const successCount = result.results.filter(r => r.success).length;
-            const totalCount = result.results.length;
-            
-            if (totalCount === 0) {
-                Toast.info('所有模型近期都有活动，已跳过检测');
-            } else {
-                Toast.success(`自动检测完成 (${successCount}/${totalCount} 通过)`);
-            }
-            await this.load();
-        } catch (error) {
-            Toast.error('自动检测失败: ' + error.message);
-        }
-    },
-
     async reset(name) {
         try {
             await API.resetProvider(name);
@@ -342,6 +316,17 @@ const Providers = {
             await this.load();
         } catch (error) {
             Toast.error('重置失败: ' + error.message);
+        }
+    },
+
+    async toggleEnabled(name, enabled) {
+        try {
+            await API.updateProvider(name, { enabled });
+            Toast.success(`${name} 已${enabled ? '启用' : '禁用'}`);
+            await this.load();
+            this.showReloadHint();
+        } catch (error) {
+            Toast.error('操作失败: ' + error.message);
         }
     },
 
@@ -387,45 +372,82 @@ const Providers = {
         if (!details || !details.owned_by) {
             return '';
         }
-        return `提供者: ${details.owned_by}`;
+        return `owned_by: ${details.owned_by}`;
     },
 
-    toggleAutoRefresh() {
+    toggleAutoUpdate() {
         const checkbox = document.getElementById('auto-refresh-providers');
         
         if (checkbox.checked) {
-            this.startAutoRefresh();
+            this.startAutoUpdateModels();
         } else {
-            this.stopAutoRefresh();
+            this.stopAutoUpdateModels();
         }
     },
 
-    startAutoRefresh() {
-        if (this.autoRefreshInterval) return;
+    startAutoUpdateModels() {
+        if (this.autoUpdateInterval) return;
         
-        // 立即执行一次自动健康检测
-        this.testAllAuto();
+        // 立即执行一次自动更新模型
+        this.updateAllModels();
         
-        this.autoRefreshInterval = setInterval(async () => {
-            await this.testAllAuto();
-        }, PROVIDER_CONSTANTS.AUTO_HEALTH_CHECK_INTERVAL_MS);
+        this.autoUpdateInterval = setInterval(async () => {
+            await this.updateAllModels();
+        }, PROVIDER_CONSTANTS.AUTO_UPDATE_MODELS_INTERVAL_MS);
         
-        const hours = PROVIDER_CONSTANTS.AUTO_HEALTH_CHECK_INTERVAL_MS / (60 * 60 * 1000);
-        Toast.info(`已开启自动健康检测（每${hours}小时）`);
+        const hours = PROVIDER_CONSTANTS.AUTO_UPDATE_MODELS_INTERVAL_MS / (60 * 60 * 1000);
+        Toast.info(`已开启自动更新模型（每${hours}小时）`);
     },
 
-    stopAutoRefresh() {
-        if (this.autoRefreshInterval) {
-            clearInterval(this.autoRefreshInterval);
-            this.autoRefreshInterval = null;
-            Toast.info('已停止自动刷新测试');
+    stopAutoUpdateModels() {
+        if (this.autoUpdateInterval) {
+            clearInterval(this.autoUpdateInterval);
+            this.autoUpdateInterval = null;
+            Toast.info('已停止自动更新模型');
+        }
+    },
+
+    async updateAllModels() {
+        // 批量更新所有服务站的模型列表
+        Toast.info('正在更新所有服务站的模型列表...');
+        
+        try {
+            let updatedCount = 0;
+            for (const provider of this.providers) {
+                try {
+                    const result = await API.fetchProviderModels(provider.name);
+                    const models = result.models || [];
+                    
+                    if (models.length > 0) {
+                        // 存储模型详细信息
+                        this.modelDetails[provider.name] = {};
+                        models.forEach(m => {
+                            this.modelDetails[provider.name][m.id] = m;
+                        });
+                        
+                        // 提取模型 ID 列表并更新
+                        const modelIds = models.map(m => m.id);
+                        await API.updateProvider(provider.name, {
+                            supported_models: modelIds
+                        });
+                        updatedCount++;
+                    }
+                } catch (err) {
+                    console.error(`更新 ${provider.name} 模型失败:`, err);
+                }
+            }
+            
+            Toast.success(`已更新 ${updatedCount} 个服务站的模型列表`);
+            await this.load();
+            this.showReloadHint();
+        } catch (error) {
+            Toast.error('更新模型失败: ' + error.message);
         }
     },
 
     async showReloadHint() {
         try {
             await API.reloadConfig();
-            Toast.success('配置已重新加载');
         } catch (error) {
             Toast.error('重新加载失败: ' + error.message);
         }

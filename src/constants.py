@@ -89,6 +89,12 @@ LOG_DATE_LIMIT_DEFAULT: int = 1000
 LOG_HOURLY_STATS_DEFAULT_DAYS: int = 7
 
 
+# ==================== 模型健康检测配置 ====================
+
+# 模型健康检测结果存储路径
+MODEL_HEALTH_STORAGE_PATH: str = "data/model_health.json"
+
+
 # ==================== API 密钥配置 ====================
 
 # API 密钥存储路径

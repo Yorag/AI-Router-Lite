@@ -40,6 +40,8 @@ from src.proxy import RequestProxy, ProxyError
 from src.api_keys import api_key_manager
 from src.logger import log_manager, LogLevel
 from src.admin import admin_manager
+from src.model_mapping import model_mapping_manager
+from src.model_health import model_health_manager
 
 
 # 初始化 colorama
@@ -49,6 +51,7 @@ colorama_init()
 # 全局组件
 router: ModelRouter = None  # type: ignore
 proxy: RequestProxy = None  # type: ignore
+_auto_sync_task: Optional[asyncio.Task] = None  # 自动同步任务
 
 
 def print_banner():
@@ -78,10 +81,61 @@ def print_config_summary():
         print(f"  {Fore.CYAN}├─{Style.RESET_ALL} {p.name} (权重: {p.weight}, 模型: {len(p.supported_models)} 个)")
 
 
+async def auto_sync_model_mappings_task():
+    """
+    后台自动同步模型映射任务
+    
+    根据配置的间隔时间定期执行同步
+    """
+    while True:
+        try:
+            # 加载最新配置
+            model_mapping_manager.load()
+            sync_config = model_mapping_manager.get_sync_config()
+            
+            if not sync_config.auto_sync_enabled:
+                # 如果未启用自动同步，每分钟检查一次配置
+                await asyncio.sleep(60)
+                continue
+            
+            # 等待同步间隔
+            interval_seconds = sync_config.auto_sync_interval_hours * 3600
+            print(f"{Fore.CYAN}[AUTO-SYNC]{Style.RESET_ALL} 模型映射自动同步已启用，间隔: {sync_config.auto_sync_interval_hours} 小时")
+            
+            await asyncio.sleep(interval_seconds)
+            
+            # 执行同步
+            print(f"{Fore.CYAN}[AUTO-SYNC]{Style.RESET_ALL} 开始自动同步模型映射...")
+            
+            # 获取所有Provider的模型列表
+            all_provider_models = await admin_manager.fetch_all_provider_models()
+            
+            # 转换格式
+            provider_models_flat: dict[str, list[str]] = {}
+            for provider, models in all_provider_models.items():
+                provider_models_flat[provider] = [
+                    m["id"] if isinstance(m, dict) else m for m in models
+                ]
+            
+            # 执行同步
+            results = model_mapping_manager.sync_all_mappings(provider_models_flat)
+            
+            total_matched = sum(r.get("matched_count", 0) for r in results)
+            print(f"{Fore.GREEN}[AUTO-SYNC]{Style.RESET_ALL} 同步完成: {len(results)} 个映射, {total_matched} 个模型")
+            
+        except asyncio.CancelledError:
+            print(f"{Fore.YELLOW}[AUTO-SYNC]{Style.RESET_ALL} 自动同步任务已取消")
+            break
+        except Exception as e:
+            print(f"{Fore.RED}[AUTO-SYNC]{Style.RESET_ALL} 同步出错: {e}")
+            # 出错后等待1分钟再重试
+            await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    global router, proxy
+    global router, proxy, _auto_sync_task
     
     # 启动时
     print_banner()
@@ -100,12 +154,15 @@ async def lifespan(app: FastAPI):
     # 注册 Provider
     provider_manager.register_all(config.providers)
     
-    # 将 provider_manager 注入到 admin_manager，用于统一健康状态管理
-    admin_manager.set_provider_manager(provider_manager)
+    # 初始化模型健康检测管理器
+    model_health_manager.set_admin_manager(admin_manager)
     
     # 初始化路由器和代理
     router = ModelRouter(config, provider_manager)
     proxy = RequestProxy(config, provider_manager, router)
+    
+    # 启动模型映射自动同步任务
+    _auto_sync_task = asyncio.create_task(auto_sync_model_mappings_task())
     
     print_config_summary()
     print(f"{Fore.GREEN}[STARTUP]{Style.RESET_ALL} 服务启动完成，等待请求...")
@@ -114,6 +171,14 @@ async def lifespan(app: FastAPI):
     yield
     
     # 关闭时
+    # 取消自动同步任务
+    if _auto_sync_task:
+        _auto_sync_task.cancel()
+        try:
+            await _auto_sync_task
+        except asyncio.CancelledError:
+            pass
+    
     await proxy.close()
     print(f"{Fore.YELLOW}[SHUTDOWN]{Style.RESET_ALL} 服务已关闭")
 
@@ -161,10 +226,45 @@ class UpdateProviderRequest(BaseModel):
     weight: Optional[int] = None
     supported_models: Optional[list[str]] = None
     timeout: Optional[float] = None
+    enabled: Optional[bool] = None
 
-class ModelMappingRequest(BaseModel):
+class CreateModelMappingRequest(BaseModel):
+    """创建模型映射请求"""
     unified_name: str
-    actual_models: list[str]
+    description: str = ""
+    rules: list[dict] = []
+    manual_includes: list[str] = []
+    manual_excludes: list[str] = []
+    excluded_providers: list[str] = []
+
+
+class UpdateModelMappingRequest(BaseModel):
+    """更新模型映射请求"""
+    description: Optional[str] = None
+    rules: Optional[list[dict]] = None
+    manual_includes: Optional[list[str]] = None
+    manual_excludes: Optional[list[str]] = None
+    excluded_providers: Optional[list[str]] = None
+
+
+class PreviewResolveRequest(BaseModel):
+    """预览匹配结果请求"""
+    rules: list[dict]
+    manual_includes: list[str] = []
+    manual_excludes: list[str] = []
+    excluded_providers: list[str] = []
+
+
+class SyncConfigRequest(BaseModel):
+    """同步配置请求"""
+    auto_sync_enabled: Optional[bool] = None
+    auto_sync_interval_hours: Optional[int] = None
+
+
+class TestSingleModelRequest(BaseModel):
+    """测试单个模型请求"""
+    provider: str
+    model: str
 
 
 # ==================== API 端点 ====================
@@ -457,39 +557,16 @@ async def list_providers():
     return {"providers": admin_manager.list_providers()}
 
 
-@app.get("/api/providers/test-results")
-async def get_test_results():
-    """获取测试结果"""
-    return {"results": admin_manager.get_test_results()}
-
-
 @app.get("/api/providers/all-models")
 async def fetch_all_provider_models():
-    """获取所有中转站的模型列表"""
-    result = await admin_manager.fetch_all_provider_models()
-    return {"provider_models": result}
-
-
-@app.post("/api/providers/test-all")
-async def test_all_providers():
-    """测试所有 Provider（手动触发，不跳过任何模型）"""
-    results = await admin_manager.test_all_providers(skip_recent=False)
-    return {"results": [r.to_dict() for r in results]}
-
-
-@app.post("/api/providers/test-all-auto")
-async def test_all_providers_auto():
-    """
-    自动健康检测（跳过近期有活动的模型）
-    
-    用于自动定时健康检测，会跳过近6小时内有调用记录的模型，
-    以减少不必要的测试请求和 token 消耗。
-    """
-    results = await admin_manager.test_all_providers(skip_recent=True)
-    return {
-        "results": [r.to_dict() for r in results],
-        "message": "已跳过近期有活动的模型"
+    """获取所有中转站的模型列表（从本地缓存读取）"""
+    # 从本地配置读取已缓存的模型列表，而非发起网络请求
+    providers = admin_manager.list_providers()
+    result = {
+        p["name"]: p.get("supported_models", [])
+        for p in providers
     }
+    return {"provider_models": result}
 
 
 @app.post("/api/providers")
@@ -536,13 +613,6 @@ async def delete_provider(name: str):
     return {"status": "success", "message": message}
 
 
-@app.post("/api/providers/{name}/test")
-async def test_provider(name: str, model: Optional[str] = None):
-    """测试 Provider 可用性"""
-    results = await admin_manager.test_provider(name, model)
-    return {"results": [r.to_dict() for r in results]}
-
-
 @app.get("/api/providers/{name}/models")
 async def fetch_provider_models(name: str):
     """从中转站获取可用模型列表"""
@@ -552,52 +622,244 @@ async def fetch_provider_models(name: str):
     return {"models": models}
 
 
-# ==================== 模型映射管理 ====================
+# ==================== 模型映射管理（增强型） ====================
 
 
-@app.get("/api/model-map")
-async def get_model_map():
-    """获取模型映射"""
-    return {"model_map": admin_manager.get_model_map()}
+@app.get("/api/model-mappings")
+async def get_model_mappings():
+    """获取所有模型映射配置"""
+    model_mapping_manager.load()
+    mappings = model_mapping_manager.get_all_mappings()
+    sync_config = model_mapping_manager.get_sync_config()
+    
+    return {
+        "mappings": {name: m.to_dict() for name, m in mappings.items()},
+        "sync_config": sync_config.to_dict()
+    }
 
 
-@app.put("/api/model-map")
-async def update_model_map(model_map: dict):
-    """更新整个模型映射"""
-    success, message = admin_manager.update_model_map(model_map)
-    if not success:
-        raise HTTPException(status_code=400, detail=message)
-    return {"status": "success", "message": message}
-
-
-@app.post("/api/model-map")
-async def add_model_mapping(request: ModelMappingRequest):
-    """添加模型映射"""
-    success, message = admin_manager.add_model_mapping(
-        request.unified_name,
-        request.actual_models
+@app.post("/api/model-mappings")
+async def create_model_mapping(request: CreateModelMappingRequest):
+    """创建新映射"""
+    success, message = model_mapping_manager.create_mapping(
+        unified_name=request.unified_name,
+        description=request.description,
+        rules=request.rules,
+        manual_includes=request.manual_includes,
+        manual_excludes=request.manual_excludes,
+        excluded_providers=request.excluded_providers
     )
     if not success:
         raise HTTPException(status_code=400, detail=message)
     return {"status": "success", "message": message}
 
 
-@app.put("/api/model-map/{unified_name}")
-async def update_single_model_mapping(unified_name: str, actual_models: list[str]):
-    """更新单个模型映射"""
-    success, message = admin_manager.update_model_mapping(unified_name, actual_models)
+@app.get("/api/model-mappings/{unified_name}")
+async def get_model_mapping(unified_name: str):
+    """获取指定映射"""
+    mapping = model_mapping_manager.get_mapping(unified_name)
+    if not mapping:
+        raise HTTPException(status_code=404, detail=f"映射 '{unified_name}' 不存在")
+    return {"mapping": mapping.to_dict()}
+
+
+@app.put("/api/model-mappings/{unified_name}")
+async def update_model_mapping(unified_name: str, request: UpdateModelMappingRequest):
+    """更新映射"""
+    success, message = model_mapping_manager.update_mapping(
+        unified_name=unified_name,
+        description=request.description,
+        rules=request.rules,
+        manual_includes=request.manual_includes,
+        manual_excludes=request.manual_excludes,
+        excluded_providers=request.excluded_providers
+    )
     if not success:
         raise HTTPException(status_code=400, detail=message)
     return {"status": "success", "message": message}
 
 
-@app.delete("/api/model-map/{unified_name}")
+@app.delete("/api/model-mappings/{unified_name}")
 async def delete_model_mapping(unified_name: str):
-    """删除模型映射"""
-    success, message = admin_manager.delete_model_mapping(unified_name)
+    """删除映射"""
+    success, message = model_mapping_manager.delete_mapping(unified_name)
     if not success:
         raise HTTPException(status_code=404, detail=message)
     return {"status": "success", "message": message}
+
+
+@app.post("/api/model-mappings/sync")
+async def sync_model_mappings(unified_name: Optional[str] = None):
+    """
+    手动触发同步
+    
+    Args:
+        unified_name: 指定要同步的映射名称，不传则同步全部
+    """
+    # 从本地配置读取已缓存的模型列表（快速，无网络请求）
+    providers = admin_manager.list_providers()
+    provider_models_flat: dict[str, list[str]] = {
+        p["name"]: p.get("supported_models", [])
+        for p in providers
+    }
+    
+    if unified_name:
+        # 同步单个映射
+        success, message, resolved = model_mapping_manager.sync_mapping(
+            unified_name, provider_models_flat
+        )
+        if not success:
+            raise HTTPException(status_code=400, detail=message)
+        
+        total_models = sum(len(models) for models in resolved.values())
+        return {
+            "status": "success",
+            "message": message,
+            "synced_count": 1,
+            "results": [{
+                "unified_name": unified_name,
+                "success": True,
+                "matched_count": total_models,
+                "providers": list(resolved.keys())
+            }]
+        }
+    else:
+        # 同步全部映射
+        results = model_mapping_manager.sync_all_mappings(provider_models_flat)
+        return {
+            "status": "success",
+            "synced_count": len(results),
+            "results": results
+        }
+
+
+@app.post("/api/model-mappings/preview")
+async def preview_model_mapping(request: PreviewResolveRequest):
+    """
+    预览匹配结果（不保存）
+    
+    用于在创建/编辑映射时实时预览规则匹配的效果
+    
+    注意：使用本地缓存的模型列表（来自config.json），而非实时网络请求，
+    以提供快速的预览响应。如需获取最新模型列表，请先在服务站管理中更新模型。
+    """
+    # 从本地配置读取已缓存的模型列表（快速，无网络请求）
+    providers = admin_manager.list_providers()
+    provider_models_flat: dict[str, list[str]] = {
+        p["name"]: p.get("supported_models", [])
+        for p in providers
+    }
+    
+    # 预览解析结果
+    resolved = model_mapping_manager.preview_resolve(
+        rules=request.rules,
+        manual_includes=request.manual_includes,
+        manual_excludes=request.manual_excludes,
+        all_provider_models=provider_models_flat,
+        excluded_providers=request.excluded_providers
+    )
+    
+    total_models = sum(len(models) for models in resolved.values())
+    return {
+        "matched_models": resolved,
+        "total_count": total_models,
+        "provider_count": len(resolved)
+    }
+
+
+@app.get("/api/model-mappings/sync-config")
+async def get_sync_config():
+    """获取同步配置"""
+    model_mapping_manager.load()
+    sync_config = model_mapping_manager.get_sync_config()
+    return {"sync_config": sync_config.to_dict()}
+
+
+@app.put("/api/model-mappings/sync-config")
+async def update_sync_config(request: SyncConfigRequest):
+    """更新同步配置"""
+    success, message = model_mapping_manager.update_sync_config(
+        auto_sync_enabled=request.auto_sync_enabled,
+        auto_sync_interval_hours=request.auto_sync_interval_hours
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    return {"status": "success", "message": message}
+
+
+# ==================== 模型健康检测 ====================
+
+
+@app.get("/api/model-health/results")
+async def get_all_health_results():
+    """获取所有模型健康检测结果"""
+    model_health_manager.load()
+    results = model_health_manager.get_all_results()
+    return {
+        "results": {key: r.to_dict() for key, r in results.items()}
+    }
+
+
+@app.get("/api/model-health/results/{unified_name}")
+async def get_mapping_health_results(unified_name: str):
+    """获取指定映射的健康检测结果"""
+    # 获取映射的 resolved_models
+    mapping = model_mapping_manager.get_mapping(unified_name)
+    if not mapping:
+        raise HTTPException(status_code=404, detail=f"映射 '{unified_name}' 不存在")
+    
+    model_health_manager.load()
+    results = model_health_manager.get_results_for_models(mapping.resolved_models)
+    
+    return {
+        "unified_name": unified_name,
+        "results": {key: r.to_dict() for key, r in results.items()}
+    }
+
+
+@app.post("/api/model-health/test/{unified_name}")
+async def test_mapping_health(unified_name: str):
+    """
+    检测指定映射下的所有模型健康状态
+    
+    策略：同渠道内串行检测，不同渠道间异步检测
+    """
+    # 获取映射的 resolved_models
+    mapping = model_mapping_manager.get_mapping(unified_name)
+    if not mapping:
+        raise HTTPException(status_code=404, detail=f"映射 '{unified_name}' 不存在")
+    
+    if not mapping.resolved_models:
+        return {
+            "status": "warning",
+            "message": "该映射没有解析到任何模型，请先同步映射",
+            "tested_count": 0,
+            "success_count": 0,
+            "results": []
+        }
+    
+    # 执行批量检测
+    results = await model_health_manager.test_mapping_models(mapping.resolved_models)
+    
+    success_count = sum(1 for r in results if r.success)
+    
+    return {
+        "status": "success",
+        "unified_name": unified_name,
+        "tested_count": len(results),
+        "success_count": success_count,
+        "results": [r.to_dict() for r in results]
+    }
+
+
+@app.post("/api/model-health/test-single")
+async def test_single_model_health(request: TestSingleModelRequest):
+    """检测单个模型的健康状态"""
+    result = await model_health_manager.test_single_model(
+        provider_name=request.provider,
+        model=request.model
+    )
+    return result.to_dict()
 
 
 # ==================== 系统管理 ====================
@@ -644,11 +906,12 @@ async def reload_config():
 @app.get("/api/admin/system-stats")
 async def get_system_stats():
     """获取系统统计信息"""
+    model_mapping_manager.load()
     return {
         "providers": provider_manager.get_stats(),
         "api_keys": api_key_manager.get_stats(),
         "logs": log_manager.get_stats(),
-        "model_map": len(admin_manager.get_model_map())
+        "model_mappings": len(model_mapping_manager.get_all_mappings())
     }
 
 

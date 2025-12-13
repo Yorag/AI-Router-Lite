@@ -172,16 +172,27 @@
             <div id="page-model-map" class="page">
                 <div class="page-header">
                     <h2>模型映射配置</h2>
-                    <button class="btn btn-primary" onclick="ModelMap.showCreateModal()">
-                        ➕ 添加映射
-                    </button>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="ModelMap.syncAll()">
+                            🔄 同步全部
+                        </button>
+                        <button class="btn btn-primary" onclick="ModelMap.showCreateModal()">
+                            ➕ 添加映射
+                        </button>
+                    </div>
                 </div>
 
                 <div class="card">
                     <p class="help-text">
-                        模型映射允许您将统一的模型名称映射到多个实际模型ID。
-                        当用户请求统一名称时，系统会自动选择可用的实际模型。
+                        模型映射允许您将统一的模型名称映射到多个实际模型。
+                        通过配置匹配规则（关键字、正则表达式等），系统会自动从所有渠道中匹配模型。
+                        匹配规则会被持久化存储，用于后续自动更新、自动匹配和自动测活。
                     </p>
+                    
+                    <!-- 同步配置区域 -->
+                    <div id="sync-config-area" class="sync-config-area">
+                        <!-- 动态生成 -->
+                    </div>
                     
                     <div id="model-map-list" class="model-map-list">
                         <!-- 动态生成 -->
@@ -254,8 +265,8 @@
     </div>
 
     <!-- 模态框容器 -->
-    <div id="modal-overlay" class="modal-overlay" onclick="Modal.close()">
-        <div class="modal" onclick="event.stopPropagation()">
+    <div id="modal-overlay" class="modal-overlay">
+        <div class="modal">
             <div class="modal-header">
                 <h3 id="modal-title">标题</h3>
                 <button class="modal-close" onclick="Modal.close()">&times;</button>

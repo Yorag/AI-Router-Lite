@@ -4,16 +4,25 @@
 
 const Modal = {
     overlay: null,
+    modalEl: null,
     titleEl: null,
     contentEl: null,
 
     init() {
         this.overlay = document.getElementById('modal-overlay');
+        this.modalEl = this.overlay.querySelector('.modal');
         this.titleEl = document.getElementById('modal-title');
         this.contentEl = document.getElementById('modal-content');
     },
 
-    show(title, content) {
+    /**
+     * 显示模态框
+     * @param {string} title - 标题
+     * @param {string|HTMLElement} content - 内容
+     * @param {Object} options - 选项
+     * @param {string} options.width - 宽度，如 '800px'
+     */
+    show(title, content, options = {}) {
         this.titleEl.textContent = title;
         
         if (typeof content === 'string') {
@@ -23,6 +32,15 @@ const Modal = {
             this.contentEl.appendChild(content);
         }
         
+        // 设置宽度
+        if (options.width) {
+            this.modalEl.style.maxWidth = options.width;
+            this.modalEl.classList.add('wide');
+        } else {
+            this.modalEl.style.maxWidth = '';
+            this.modalEl.classList.remove('wide');
+        }
+        
         this.overlay.classList.add('active');
         document.body.style.overflow = 'hidden';
     },
@@ -30,6 +48,9 @@ const Modal = {
     close() {
         this.overlay.classList.remove('active');
         document.body.style.overflow = '';
+        // 重置宽度
+        this.modalEl.style.maxWidth = '';
+        this.modalEl.classList.remove('wide');
     },
 
     /**

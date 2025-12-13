@@ -134,6 +134,9 @@ class ProviderState:
     @property
     def is_available(self) -> bool:
         """检查 Provider 是否可用（渠道级）"""
+        # 检查是否被手动禁用
+        if not self.config.enabled:
+            return False
         if self.status == ProviderStatus.PERMANENTLY_DISABLED:
             return False
         if self.status == ProviderStatus.COOLING:
