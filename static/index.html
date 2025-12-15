@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- 注意：标题中的版本号需与 src/constants.py 中的 APP_VERSION 保持同步 -->
     <title>AI-Router-Lite 管理面板</title>
+    <!-- Inter 字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -57,18 +61,14 @@
                         <!-- 统计范围切换 -->
                         <div class="stats-range-control">
                             <div class="toggle-group">
-                                <button class="toggle-btn active" onclick="Dashboard.switchRange('week')" id="btn-range-week">近一周</button>
-                                <button class="toggle-btn" onclick="Dashboard.switchRange('day')" id="btn-range-day">指定日期</button>
+                                <button class="toggle-btn" onclick="Dashboard.switchRange('week')" id="btn-range-week">近一周</button>
+                                <button class="toggle-btn active" onclick="Dashboard.switchRange('day')" id="btn-range-day">指定日期</button>
                             </div>
-                            <!-- 日期选择器（默认隐藏） -->
-                            <div class="date-picker-wrapper" id="date-picker-wrapper" style="display: none;">
+                            <!-- 日期选择器（默认显示） -->
+                            <div class="date-picker-wrapper" id="date-picker-wrapper">
                                 <input type="date" id="stats-date-picker" class="date-input" onchange="Dashboard.onDateChange()">
                             </div>
                         </div>
-
-                        <button class="btn btn-primary" onclick="Dashboard.refresh()">
-                            🔄 刷新
-                        </button>
                     </div>
                 </div>
                 
@@ -92,14 +92,14 @@
                         <div class="stat-icon">📨</div>
                         <div class="stat-info">
                             <span class="stat-value" id="stat-requests">-</span>
-                            <span class="stat-label">今日请求</span>
+                            <span class="stat-label">统计请求</span>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon">✅</div>
                         <div class="stat-info">
                             <span class="stat-value" id="stat-success-rate">-</span>
-                            <span class="stat-label">成功率</span>
+                            <span class="stat-label">统计成功率</span>
                         </div>
                     </div>
                 </div>

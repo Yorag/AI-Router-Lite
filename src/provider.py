@@ -483,6 +483,7 @@ class ProviderManager:
         
         for provider_id, provider in self._providers.items():
             stats["providers"][provider_id] = {
+                "name": provider.config.name,
                 "status": provider.status.value,
                 "total_requests": provider.total_requests,
                 "successful_requests": provider.successful_requests,

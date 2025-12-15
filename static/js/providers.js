@@ -180,7 +180,6 @@ const Providers = {
                     <div class="hint">权重越高，被选中的概率越大</div>
                 </div>
                 <div class="form-group">
-                    <div class="hint">💡 模型列表会在添加后通过"📥 更新模型"按钮自动获取</div>
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>

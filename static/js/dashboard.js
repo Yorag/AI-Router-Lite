@@ -5,13 +5,18 @@
 const Dashboard = {
     requestsChart: null,
     modelUsageChart: null,
-    currentRange: 'week', // 'week' or 'day'
+    currentRange: 'day', // 'week' or 'day'
     selectedDate: null,   // YYYY-MM-DD
 
     async init() {
         // 初始化日期选择器为今天
         this.selectedDate = new Date().toISOString().split('T')[0];
         document.getElementById('stats-date-picker').value = this.selectedDate;
+        
+        // 默认显示今天，需要显示日期选择器并更新按钮状态
+        document.getElementById('btn-range-week').classList.remove('active');
+        document.getElementById('btn-range-day').classList.add('active');
+        document.getElementById('date-picker-wrapper').style.display = 'block';
 
         await this.load();
         this.initCharts();
@@ -32,7 +37,6 @@ const Dashboard = {
     async refresh() {
         await this.load();
         await this.loadChartData();
-        Toast.success('刷新完成');
     },
 
     // 切换统计范围
@@ -120,10 +124,10 @@ const Dashboard = {
                 return;
             }
             
-            container.innerHTML = Object.entries(data.providers).map(([name, info]) => `
+            container.innerHTML = Object.entries(data.providers).map(([id, info]) => `
                 <div class="provider-status-item">
                     <div class="provider-status-info">
-                        <h4>${name}</h4>
+                        <h4>${info.name || id}</h4>
                         <div class="stats">
                             成功: ${info.successful_requests} / 总计: ${info.total_requests}
                             ${info.cooldown_remaining ? ` | 冷却中: ${info.cooldown_remaining}` : ''}

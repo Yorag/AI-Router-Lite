@@ -125,15 +125,12 @@ const Logs = {
     },
 
     async refresh() {
-        Toast.info('正在刷新...');
         await this.applyFilters();
-        Toast.success('刷新完成');
     },
 
     clear() {
         this.logs = [];
         this.render();
-        Toast.info('显示已清空');
     },
 
     toggleRealtime() {
