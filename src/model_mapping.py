@@ -405,7 +405,6 @@ class ModelMappingManager:
         
         # 1. 应用所有规则（取并集），跳过被排除的渠道
         for provider_id, models in all_provider_models.items():
-            # 跳过被排除的渠道
             if provider_id in excluded_providers:
                 continue
             for model_id in models:

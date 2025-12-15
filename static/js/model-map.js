@@ -708,7 +708,6 @@ const ModelMap = {
         if (!currentModels.includes(model)) {
             currentModels.push(model);
             textarea.value = currentModels.join('\n');
-            Toast.success(`已排除: ${model}`);
         }
     },
 

@@ -988,18 +988,28 @@ body {
     font-size: 0.8125rem;
 }
 
-.rule-item .rule-case-sensitive {
-    display: flex;
+.rule-item label.rule-case-sensitive {
+    display: inline-flex !important;
     align-items: center;
+    align-self: center;
     gap: 4px;
     font-size: 0.75rem;
     color: var(--text-muted);
     cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin: 0 !important;
+    margin-bottom: 0 !important;
+    padding: 0;
+    line-height: 1;
 }
 
-.rule-item .rule-case-sensitive input {
+.rule-item label.rule-case-sensitive input[type="checkbox"] {
     width: 14px;
     height: 14px;
+    margin: 0;
+    padding: 0;
+    flex-shrink: 0;
 }
 
 /* 预览容器 */

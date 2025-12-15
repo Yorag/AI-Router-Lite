@@ -17,6 +17,7 @@ Provider 模型元信息管理模块
 """
 
 import json
+import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Literal
@@ -123,16 +124,39 @@ class ProviderModelsManager:
                 json.dump(data, f, indent=2, ensure_ascii=False)
     
     def load(self) -> None:
-        """加载所有数据"""
+        """加载所有数据（包含数据迁移：清理非 UUID 格式的 provider key）"""
         data = self._load_data()
         
         self._providers = {}
+        needs_save = False
+        skipped_keys = []
+        
         for provider_id, provider_data in data.get("providers", {}).items():
+            # 数据迁移：跳过非 UUID 格式的 key（旧格式使用 provider name）
+            if not self._is_valid_uuid(provider_id):
+                skipped_keys.append(provider_id)
+                needs_save = True
+                continue
+            
             self._providers[provider_id] = ProviderModels.from_dict(
                 provider_id, provider_data
             )
         
         self._loaded = True
+        
+        # 如果有数据需要迁移，保存清理后的数据
+        if needs_save:
+            print(f"[PROVIDER-MODELS] 数据迁移: 移除 {len(skipped_keys)} 个旧格式 key (非 UUID): {skipped_keys}")
+            self.save()
+    
+    @staticmethod
+    def _is_valid_uuid(value: str) -> bool:
+        """检查字符串是否是有效的 UUID 格式"""
+        try:
+            uuid.UUID(value)
+            return True
+        except (ValueError, TypeError):
+            return False
     
     def save(self) -> None:
         """保存所有数据"""
