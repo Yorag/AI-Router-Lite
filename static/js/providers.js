@@ -453,35 +453,33 @@ const Providers = {
     },
 
     async updateAllModels() {
-        // 批量更新所有服务站的模型列表
+        // 使用后端并发API批量更新所有服务站的模型列表
         
         try {
-            let updatedCount = 0;
-            let totalModels = 0;
+            // 调用后端并发同步API（后端使用 asyncio.gather 并发请求）
+            const result = await API.syncAllProviderModels();
             
-            for (const provider of this.providers) {
-                try {
-                    // 使用 provider.id 进行 API 调用
-                    const result = await API.fetchProviderModels(provider.id);
-                    const models = result.models || [];
-                    
+            // 一次性获取所有模型详情（从 provider_models.json 读取，无需再次网络请求各中转站）
+            try {
+                const allModelsData = await API.fetchAllProviderModels();
+                const providerModels = allModelsData.provider_models || {};
+                
+                // 更新本地模型详情缓存
+                for (const [providerId, providerData] of Object.entries(providerModels)) {
+                    const models = providerData.models || [];
                     if (models.length > 0) {
-                        // 存储模型详细信息，使用 provider.id 作为 key
-                        this.modelDetails[provider.id] = {};
+                        this.modelDetails[providerId] = {};
                         models.forEach(m => {
-                            this.modelDetails[provider.id][m.id] = m;
+                            this.modelDetails[providerId][m.id] = m;
                         });
-                        
-                        // 模型已自动保存到 provider_models.json，无需再调用 updateProvider
-                        updatedCount++;
-                        totalModels += models.length;
                     }
-                } catch (err) {
-                    console.error(`更新 ${provider.name} (${provider.id}) 模型失败:`, err);
                 }
+            } catch (err) {
+                // 缓存更新失败不影响整体流程
+                console.warn('更新模型详情缓存失败:', err);
             }
             
-            Toast.success(`已同步 ${updatedCount} 个服务站，共 ${totalModels} 个模型`);
+            Toast.success(`已并发同步 ${result.synced_count || 0} 个服务站，共 ${result.total_models || 0} 个模型`);
             await this.load();
             this.showReloadHint();
         } catch (error) {

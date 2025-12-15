@@ -247,7 +247,7 @@ class AdminManager:
             save_to_storage: 是否保存到持久化存储（默认 True）
             
         Returns:
-            (成功标志, 模型列表, 错误信息, 同步统计 {added, updated, removed})
+            (成功标志, 模型列表, 错误信息, 同步统计 {added, updated, removed, added_models, removed_models})
         """
         provider = self.get_provider(provider_id)
         if not provider:
@@ -255,6 +255,7 @@ class AdminManager:
         
         base_url = provider.get("base_url", "").rstrip("/")
         api_key = provider.get("api_key", "")
+        provider_name = provider.get("name", provider_id)
         
         try:
             async with httpx.AsyncClient(timeout=ADMIN_HTTP_TIMEOUT) as client:
@@ -281,13 +282,15 @@ class AdminManager:
                     # 保存到持久化存储（使用 provider_id 作为 key）
                     sync_stats = {}
                     if save_to_storage:
-                        added, updated, removed = provider_models_manager.update_models_from_remote(
-                            provider_id, models
+                        added, updated, removed, added_models, removed_models = provider_models_manager.update_models_from_remote(
+                            provider_id, models, provider_name
                         )
                         sync_stats = {
                             "added": added,
                             "updated": updated,
-                            "removed": removed
+                            "removed": removed,
+                            "added_models": added_models,
+                            "removed_models": removed_models
                         }
                     
                     return True, models, "", sync_stats

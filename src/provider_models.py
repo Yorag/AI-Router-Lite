@@ -23,6 +23,8 @@ from typing import Optional, Literal
 from dataclasses import dataclass, field, asdict
 import filelock
 
+from colorama import Fore, Style
+
 from .constants import PROVIDER_MODELS_STORAGE_PATH
 
 
@@ -189,17 +191,19 @@ class ProviderModelsManager:
     def update_models_from_remote(
         self,
         provider_id: str,
-        remote_models: list[dict]
-    ) -> tuple[int, int, int]:
+        remote_models: list[dict],
+        provider_name: Optional[str] = None
+    ) -> tuple[int, int, int, list[str], list[str]]:
         """
         从中转站获取的模型列表更新本地存储
         
         Args:
             provider_id: Provider 的唯一 ID (UUID)
             remote_models: 远程模型列表 [{"id": "...", "owned_by": "..."}, ...]
+            provider_name: Provider 显示名称（用于日志）
             
         Returns:
-            (新增数量, 更新数量, 删除数量)
+            (新增数量, 更新数量, 删除数量, 新增模型列表, 删除模型列表)
         """
         self._ensure_loaded()
         
@@ -212,9 +216,11 @@ class ProviderModelsManager:
         provider = self._providers[provider_id]
         
         # 统计
-        added = 0
-        updated = 0
-        removed = 0
+        added_count = 0
+        updated_count = 0
+        removed_count = 0
+        added_models: list[str] = []
+        removed_models: list[str] = []
         
         # 构建远程模型 ID 集合
         remote_model_ids = {m.get("id") for m in remote_models if m.get("id")}
@@ -240,7 +246,7 @@ class ProviderModelsManager:
                     existing.supported_endpoint_types = supported_endpoint_types
                     changed = True
                 if changed:
-                    updated += 1
+                    updated_count += 1
             else:
                 # 新增模型 - last_activity 初始为 None，表示从未被使用
                 provider.models[model_id] = ModelInfo(
@@ -251,16 +257,87 @@ class ProviderModelsManager:
                     last_activity_type=None,
                     created_at=now
                 )
-                added += 1
+                added_count += 1
+                added_models.append(model_id)
         
         # 处理删除（远程不存在但本地存在的模型）
         to_remove = local_model_ids - remote_model_ids
         for model_id in to_remove:
             del provider.models[model_id]
-            removed += 1
+            removed_count += 1
+            removed_models.append(model_id)
+        
+        # 输出日志
+        self._log_sync_changes(provider_id, provider_name, added_models, removed_models)
         
         self.save()
-        return added, updated, removed
+        return added_count, updated_count, removed_count, added_models, removed_models
+    
+    def _log_sync_changes(
+        self,
+        provider_id: str,
+        provider_name: Optional[str],
+        added_models: list[str],
+        removed_models: list[str]
+    ) -> None:
+        """
+        输出同步变化日志
+        
+        Args:
+            provider_id: Provider ID
+            provider_name: Provider 显示名称
+            added_models: 新增的模型列表
+            removed_models: 删除的模型列表
+        """
+        # 延迟导入避免循环依赖
+        from .logger import log_manager, LogLevel
+        
+        display_name = provider_name or provider_id[:8]
+        
+        if not added_models and not removed_models:
+            message = f"[{display_name}] 同步完成，无变化"
+            print(f"{Fore.CYAN}[PROVIDER-MODELS]{Style.RESET_ALL} {message}")
+            log_manager.log(
+                level=LogLevel.INFO,
+                log_type="sync",
+                method="SYNC",
+                path="/provider-models",
+                provider=display_name,
+                message=message
+            )
+            return
+        
+        # 构建控制台输出（带颜色）
+        console_parts = []
+        # 构建日志消息（无颜色）
+        log_parts = []
+        
+        if added_models:
+            sorted_added = sorted(added_models)
+            models_preview = ", ".join(sorted_added[:5])  # 最多显示5个
+            suffix = f"等{len(added_models)}个" if len(added_models) > 5 else ""
+            console_parts.append(f"{Fore.GREEN}新增 {len(added_models)} 个模型（{models_preview}{suffix}）{Style.RESET_ALL}")
+            log_parts.append(f"新增 {len(added_models)} 个模型（{models_preview}{suffix}）")
+        
+        if removed_models:
+            sorted_removed = sorted(removed_models)
+            models_preview = ", ".join(sorted_removed[:5])  # 最多显示5个
+            suffix = f"等{len(removed_models)}个" if len(removed_models) > 5 else ""
+            console_parts.append(f"{Fore.RED}移除 {len(removed_models)} 个模型（{models_preview}{suffix}）{Style.RESET_ALL}")
+            log_parts.append(f"移除 {len(removed_models)} 个模型（{models_preview}{suffix}）")
+        
+        console_message = f"[{display_name}] 同步完成：{', '.join(console_parts)}"
+        log_message = f"[{display_name}] 同步完成：{', '.join(log_parts)}"
+        
+        print(f"{Fore.CYAN}[PROVIDER-MODELS]{Style.RESET_ALL} {console_message}")
+        log_manager.log(
+            level=LogLevel.INFO,
+            log_type="sync",
+            method="SYNC",
+            path="/provider-models",
+            provider=display_name,
+            message=log_message
+        )
     
     def add_model(
         self,

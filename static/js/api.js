@@ -151,6 +151,14 @@ const API = {
     },
 
     /**
+     * 并发同步所有中转站的模型列表
+     * 后端使用 asyncio.gather 并发请求，比串行调用更高效
+     */
+    async syncAllProviderModels() {
+        return this.request('POST', '/api/providers/sync-all-models');
+    },
+
+    /**
      * 重置 Provider 状态
      * @param {string} providerId - Provider ID (UUID) 或 name（兼容）
      */

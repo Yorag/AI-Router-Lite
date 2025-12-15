@@ -53,6 +53,7 @@ class RequestLog:
     error: Optional[str] = None
     client_ip: Optional[str] = None
     api_key_id: Optional[str] = None
+    api_key_name: Optional[str] = None  # API 密钥标签名
     request_tokens: Optional[int] = None
     response_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
@@ -153,6 +154,7 @@ class LogManager:
                                 error=data.get("error"),
                                 client_ip=data.get("client_ip"),
                                 api_key_id=data.get("api_key_id"),
+                                api_key_name=data.get("api_key_name"),
                                 request_tokens=data.get("request_tokens"),
                                 response_tokens=data.get("response_tokens"),
                                 total_tokens=data.get("total_tokens")
@@ -189,6 +191,7 @@ class LogManager:
             error: Optional[str] = None,
             client_ip: Optional[str] = None,
             api_key_id: Optional[str] = None,
+            api_key_name: Optional[str] = None,
             request_tokens: Optional[int] = None,
             response_tokens: Optional[int] = None,
             total_tokens: Optional[int] = None) -> RequestLog:
@@ -209,6 +212,7 @@ class LogManager:
             error=error,
             client_ip=client_ip,
             api_key_id=api_key_id,
+            api_key_name=api_key_name,
             request_tokens=request_tokens,
             response_tokens=response_tokens,
             total_tokens=total_tokens

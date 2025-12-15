@@ -56,40 +56,65 @@ const Logs = {
     renderLogEntry(log) {
         const levelClass = log.level || 'info';
         
-        let message = log.message || '';
-        if (log.error) {
-            message += ` <span style="color: var(--danger-color);">[错误: ${log.error}]</span>`;
+        // 构建主消息
+        let mainMessage = '';
+        const keyLabel = log.api_key_name ? `[${log.api_key_name}]` : '';
+        
+        if (log.type === 'response' && log.model && log.provider && log.actual_model) {
+            // 响应日志: [密钥] 请求模型 ==> Provider:实际模型, {token信息}
+            let tokenInfo = '';
+            if (log.total_tokens) {
+                if (log.request_tokens || log.response_tokens) {
+                    tokenInfo = `tokens: ${log.request_tokens || 0}+${log.response_tokens || 0}=${log.total_tokens}`;
+                } else {
+                    tokenInfo = `tokens: ${log.total_tokens}`;
+                }
+            }
+            const durationInfo = log.duration_ms ? `${Math.round(log.duration_ms)}ms` : '';
+            const infoItems = [tokenInfo, durationInfo].filter(Boolean).join(', ');
+            mainMessage = `${keyLabel} ${log.model} ==> ${log.provider}:${log.actual_model}${infoItems ? `, {${infoItems}}` : ''}`;
+        } else if (log.type === 'request' && log.model) {
+            // 请求日志: [密钥] 请求模型
+            mainMessage = `${keyLabel} ${log.model}`;
+        } else if (log.type === 'error') {
+            // 错误日志: [密钥] 请求模型 错误信息
+            mainMessage = `${keyLabel} ${log.model || ''} ${log.error || log.message || ''}`;
+        } else {
+            // 其他日志
+            mainMessage = log.message || '';
         }
         
+        if (log.error && log.type !== 'error') {
+            mainMessage += ` <span style="color: var(--danger-color);">[错误: ${log.error}]</span>`;
+        }
+        
+        // 构建元信息（仅显示未在主消息中展示的信息）
         const meta = [];
-        // 请求的模型
-        if (log.model) meta.push(`请求模型: ${log.model}`);
-        // 实际使用的模型（Provider:model格式）
-        if (log.actual_model_full) {
-            meta.push(`实际模型: ${log.actual_model_full}`);
-        } else if (log.provider && log.actual_model) {
-            meta.push(`实际模型: ${log.provider}:${log.actual_model}`);
-        } else if (log.provider) {
-            meta.push(`服务站: ${log.provider}`);
-        }
-        // Token 使用量
-        if (log.total_tokens) {
-            let tokenInfo = `Tokens: ${log.total_tokens}`;
-            if (log.request_tokens || log.response_tokens) {
-                tokenInfo += ` (${log.request_tokens || 0}/${log.response_tokens || 0})`;
+        
+        // 对于非 response 类型，显示额外信息
+        if (log.type !== 'response' && log.type !== 'request' && log.type !== 'error') {
+            if (log.api_key_name) meta.push(`密钥: ${log.api_key_name}`);
+            if (log.model) meta.push(`模型: ${log.model}`);
+            if (log.provider) meta.push(`服务站: ${log.provider}`);
+            if (log.total_tokens) {
+                let tokenInfo = `Tokens: ${log.total_tokens}`;
+                if (log.request_tokens || log.response_tokens) {
+                    tokenInfo += ` (${log.request_tokens || 0}/${log.response_tokens || 0})`;
+                }
+                meta.push(tokenInfo);
             }
-            meta.push(tokenInfo);
+            if (log.duration_ms) meta.push(`耗时: ${Math.round(log.duration_ms)}ms`);
         }
-        // 耗时和状态
-        if (log.duration_ms) meta.push(`耗时: ${Math.round(log.duration_ms)}ms`);
-        if (log.status_code) meta.push(`状态: ${log.status_code}`);
+        
+        // 状态码始终显示（如果有）
+        if (log.status_code && log.status_code !== 200) meta.push(`状态: ${log.status_code}`);
         
         return `
             <div class="log-entry level-${levelClass}">
                 <span class="log-time">${log.timestamp_str || ''}</span>
                 <span class="log-level ${levelClass}">${log.level}</span>
                 <span class="log-type">${log.type}</span>
-                <span class="log-message">${message}</span>
+                <span class="log-message">${mainMessage}</span>
                 ${meta.length > 0 ? `
                     <div class="log-meta">
                         ${meta.map(m => `<span>${m}</span>`).join('')}
@@ -145,7 +170,6 @@ const Logs = {
             document.getElementById('realtime-logs').checked = false;
         };
         
-        Toast.success('实时日志已开启');
     },
 
     stopRealtime() {
@@ -153,7 +177,6 @@ const Logs = {
             this.eventSource.close();
             this.eventSource = null;
         }
-        Toast.info('实时日志已关闭');
     },
 
     addRealtimeLog(log) {

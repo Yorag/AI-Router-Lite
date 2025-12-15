@@ -36,7 +36,7 @@ from src.models import (
 from src.provider import provider_manager
 from src.router import ModelRouter
 from src.proxy import RequestProxy, ProxyError, ProxyResult, StreamContext
-from src.api_keys import api_key_manager
+from src.api_keys import api_key_manager, APIKey
 from src.logger import log_manager, LogLevel
 from src.admin import admin_manager
 from src.model_mapping import model_mapping_manager
@@ -126,8 +126,11 @@ async def auto_sync_model_mappings_task():
                     m["id"] if isinstance(m, dict) else m for m in models
                 ]
             
+            # 获取 provider_id -> name 映射
+            provider_id_name_map = admin_manager.get_provider_id_name_map()
+            
             # 执行同步 (使用 provider_id 作为 key)
-            results = model_mapping_manager.sync_all_mappings(provider_models_flat)
+            results = model_mapping_manager.sync_all_mappings(provider_models_flat, provider_id_name_map)
             
             total_matched = sum(r.get("matched_count", 0) for r in results)
             print(f"{Fore.GREEN}[AUTO-SYNC]{Style.RESET_ALL} 同步完成: {len(results)} 个映射, {total_matched} 个模型")
@@ -318,10 +321,13 @@ def get_api_key_from_header(raw_request: Request) -> Optional[str]:
     return auth_header
 
 
-async def verify_api_key(raw_request: Request) -> None:
+async def verify_api_key(raw_request: Request) -> APIKey:
     """
     验证 API 密钥的依赖函数
     
+    Returns:
+        APIKey: 验证通过的 API 密钥对象
+        
     Raises:
         HTTPException: 密钥无效或缺失时抛出 401 错误
     """
@@ -343,6 +349,7 @@ async def verify_api_key(raw_request: Request) -> None:
         )
     
     # validate_key 已经更新了 last_used 和 total_requests
+    return key_obj
 
 
 @app.get("/v1/models")
@@ -366,7 +373,7 @@ async def list_models():
 async def chat_completions(
     request: ChatCompletionRequest,
     raw_request: Request,
-    _: None = Depends(verify_api_key)
+    api_key: APIKey = Depends(verify_api_key)
 ):
     """
     聊天补全端点 (OpenAI 兼容)
@@ -381,11 +388,14 @@ async def chat_completions(
     # 获取客户端IP
     client_ip = raw_request.client.host if raw_request.client else None
     
+    # 获取 API 密钥信息
+    api_key_id = api_key.key_id
+    api_key_name = api_key.name
+    
     # 记录请求日志
     print(
         f"{Fore.MAGENTA}[REQUEST]{Style.RESET_ALL} "
-        f"模型: {original_model}, 流式: {is_stream}, "
-        f"消息数: {len(request.messages)}"
+        f"[{api_key_name}] {original_model}, 流式: {is_stream}, 消息数: {len(request.messages)}"
     )
     
     # 记录到日志系统
@@ -396,7 +406,9 @@ async def chat_completions(
         path="/v1/chat/completions",
         model=original_model,
         client_ip=client_ip,
-        message=f"请求模型: {original_model}, 流式: {is_stream}"
+        api_key_id=api_key_id,
+        api_key_name=api_key_name,
+        message=f"[{api_key_name}] {original_model}, 流式: {is_stream}"
     )
     
     try:
@@ -412,11 +424,13 @@ async def chat_completions(
                     
                     # 流式请求完成后记录日志
                     duration_ms = (time.time() - start_time) * 1000
+                    token_info = f"tokens: {stream_context.total_tokens or 'N/A'}"
+                    if stream_context.request_tokens or stream_context.response_tokens:
+                        token_info = f"tokens: {stream_context.request_tokens or 0}+{stream_context.response_tokens or 0}={stream_context.total_tokens or 'N/A'}"
                     print(
                         f"{Fore.GREEN}[RESPONSE]{Style.RESET_ALL} "
-                        f"模型: {original_model}, 实际: {stream_context.provider_name}:{stream_context.actual_model}, "
-                        f"耗时: {duration_ms:.0f}ms, "
-                        f"Tokens: {stream_context.total_tokens or 'N/A'}"
+                        f"[{api_key_name}] {original_model} ==> {stream_context.provider_name}:{stream_context.actual_model}, "
+                        f"{{{token_info}, {duration_ms:.0f}ms}}"
                     )
                     log_manager.log(
                         level=LogLevel.INFO,
@@ -429,10 +443,12 @@ async def chat_completions(
                         status_code=200,
                         duration_ms=duration_ms,
                         client_ip=client_ip,
+                        api_key_id=api_key_id,
+                        api_key_name=api_key_name,
                         request_tokens=stream_context.request_tokens,
                         response_tokens=stream_context.response_tokens,
                         total_tokens=stream_context.total_tokens,
-                        message=f"实际模型: {stream_context.provider_name}:{stream_context.actual_model}"
+                        message=f"[{api_key_name}] {original_model} ==> {stream_context.provider_name}:{stream_context.actual_model}, {{{token_info}}}"
                     )
                 except ProxyError as e:
                     # 流式请求中的错误
@@ -448,7 +464,9 @@ async def chat_completions(
                         status_code=e.status_code or 500,
                         duration_ms=duration_ms,
                         error=e.message,
-                        client_ip=client_ip
+                        client_ip=client_ip,
+                        api_key_id=api_key_id,
+                        api_key_name=api_key_name
                     )
                     raise
             
@@ -468,12 +486,13 @@ async def chat_completions(
             duration_ms = (time.time() - start_time) * 1000
             
             # 打印详细日志
+            token_info = f"tokens: {result.total_tokens or 'N/A'}"
+            if result.request_tokens or result.response_tokens:
+                token_info = f"tokens: {result.request_tokens or 0}+{result.response_tokens or 0}={result.total_tokens or 'N/A'}"
             print(
                 f"{Fore.GREEN}[RESPONSE]{Style.RESET_ALL} "
-                f"模型: {original_model}, 实际: {result.provider_name}:{result.actual_model}, "
-                f"耗时: {duration_ms:.0f}ms, "
-                f"Tokens: {result.total_tokens or 'N/A'} "
-                f"(请求: {result.request_tokens or 'N/A'}, 响应: {result.response_tokens or 'N/A'})"
+                f"[{api_key_name}] {original_model} ==> {result.provider_name}:{result.actual_model}, "
+                f"{{{token_info}, {duration_ms:.0f}ms}}"
             )
             
             # 记录响应日志
@@ -488,17 +507,19 @@ async def chat_completions(
                 status_code=200,
                 duration_ms=duration_ms,
                 client_ip=client_ip,
+                api_key_id=api_key_id,
+                api_key_name=api_key_name,
                 request_tokens=result.request_tokens,
                 response_tokens=result.response_tokens,
                 total_tokens=result.total_tokens,
-                message=f"实际模型: {result.provider_name}:{result.actual_model}"
+                message=f"[{api_key_name}] {original_model} ==> {result.provider_name}:{result.actual_model}, {{{token_info}}}"
             )
             
             return JSONResponse(content=result.response)
             
     except ProxyError as e:
         duration_ms = (time.time() - start_time) * 1000
-        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} 代理错误: {e.message}")
+        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} [{api_key_name}] {original_model} 代理错误: {e.message}")
         
         # 记录错误日志
         log_manager.log(
@@ -512,7 +533,9 @@ async def chat_completions(
             status_code=e.status_code or 500,
             duration_ms=duration_ms,
             error=e.message,
-            client_ip=client_ip
+            client_ip=client_ip,
+            api_key_id=api_key_id,
+            api_key_name=api_key_name
         )
         
         status_code = e.status_code or 500
@@ -528,7 +551,7 @@ async def chat_completions(
         )
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} 未知错误: {str(e)}")
+        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} [{api_key_name}] {original_model} 未知错误: {str(e)}")
         
         # 记录错误日志
         log_manager.log(
@@ -540,7 +563,9 @@ async def chat_completions(
             status_code=500,
             duration_ms=duration_ms,
             error=str(e),
-            client_ip=client_ip
+            client_ip=client_ip,
+            api_key_id=api_key_id,
+            api_key_name=api_key_name
         )
         
         return JSONResponse(
@@ -793,6 +818,51 @@ async def delete_provider(provider_id: str):
     return {"status": "success", "message": message}
 
 
+@app.post("/api/providers/sync-all-models")
+async def sync_all_provider_models():
+    """
+    并发同步所有中转站的模型列表
+    
+    使用 asyncio.gather 并发请求所有渠道，比串行调用更高效。
+    返回每个渠道的同步结果，包括成功/失败状态和同步统计。
+    """
+    result = await admin_manager.fetch_all_provider_models(save_to_storage=True)
+    
+    # 统计结果
+    success_count = len(result)
+    total_models = 0
+    sync_results = []
+    
+    # 获取 provider_id -> name 映射
+    id_name_map = admin_manager.get_provider_id_name_map()
+    
+    for provider_id, models in result.items():
+        provider_name = id_name_map.get(provider_id, provider_id)
+        model_count = len(models)
+        total_models += model_count
+        sync_results.append({
+            "provider_id": provider_id,
+            "provider_name": provider_name,
+            "model_count": model_count,
+            "success": True
+        })
+    
+    # 记录日志
+    log_manager.log(
+        level=LogLevel.INFO, log_type="admin", method="POST",
+        path="/api/providers/sync-all-models",
+        message=f"并发同步完成: {success_count} 个渠道, 共 {total_models} 个模型"
+    )
+    
+    return {
+        "status": "success",
+        "message": f"并发同步完成: {success_count} 个渠道, 共 {total_models} 个模型",
+        "synced_count": success_count,
+        "total_models": total_models,
+        "results": sync_results
+    }
+
+
 @app.get("/api/providers/{provider_id}/models")
 async def fetch_provider_models(provider_id: str):
     """从中转站获取可用模型列表（并保存到 provider_models.json）"""
@@ -901,10 +971,13 @@ async def sync_model_mappings(unified_name: Optional[str] = None):
     # 从 provider_models_manager 获取模型列表
     provider_models_flat = provider_models_manager.get_all_provider_models_map()
     
+    # 获取 provider_id -> name 映射
+    provider_id_name_map = admin_manager.get_provider_id_name_map()
+    
     if unified_name:
         # 同步单个映射
         success, message, resolved = model_mapping_manager.sync_mapping(
-            unified_name, provider_models_flat
+            unified_name, provider_models_flat, provider_id_name_map
         )
         if not success:
             raise HTTPException(status_code=400, detail=message)
@@ -923,7 +996,7 @@ async def sync_model_mappings(unified_name: Optional[str] = None):
         }
     else:
         # 同步全部映射
-        results = model_mapping_manager.sync_all_mappings(provider_models_flat)
+        results = model_mapping_manager.sync_all_mappings(provider_models_flat, provider_id_name_map)
         return {
             "status": "success",
             "synced_count": len(results),

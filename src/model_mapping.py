@@ -19,6 +19,8 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 import filelock
 
+from colorama import Fore, Style
+
 
 class RuleType(str, Enum):
     """匹配规则类型"""
@@ -486,7 +488,8 @@ class ModelMappingManager:
     def sync_mapping(
         self,
         unified_name: str,
-        all_provider_models: dict[str, list[str]]
+        all_provider_models: dict[str, list[str]],
+        provider_id_name_map: Optional[dict[str, str]] = None
     ) -> tuple[bool, str, dict[str, list[str]]]:
         """
         同步单个映射
@@ -494,6 +497,7 @@ class ModelMappingManager:
         Args:
             unified_name: 统一模型名称
             all_provider_models: 所有Provider的模型列表 {provider_id: [model_ids]}
+            provider_id_name_map: provider_id -> provider_name 的映射（用于日志显示）
             
         Returns:
             (成功标志, 消息, 解析后的模型 {provider_id: [model_ids]})
@@ -504,7 +508,17 @@ class ModelMappingManager:
             return False, f"映射 '{unified_name}' 不存在", {}
         
         mapping = self._mappings[unified_name]
+        
+        # 保存旧的 resolved_models 用于比较
+        old_resolved = mapping.resolved_models.copy()
+        
         resolved = self.resolve_models(mapping, all_provider_models)
+        
+        # 计算模型变化
+        added, removed = self._compute_model_changes(old_resolved, resolved)
+        
+        # 输出日志
+        self._log_sync_changes(unified_name, added, removed, provider_id_name_map)
         
         mapping.resolved_models = resolved
         mapping.last_sync = datetime.now(timezone.utc).isoformat()
@@ -514,22 +528,34 @@ class ModelMappingManager:
     
     def sync_all_mappings(
         self,
-        all_provider_models: dict[str, list[str]]
+        all_provider_models: dict[str, list[str]],
+        provider_id_name_map: Optional[dict[str, str]] = None
     ) -> list[dict]:
         """
         同步所有映射
         
         Args:
             all_provider_models: 所有Provider的模型列表 {provider_id: [model_ids]}
+            provider_id_name_map: provider_id -> provider_name 的映射（用于日志显示）
             
         Returns:
-            同步结果列表 [{unified_name, success, matched_count, provider_ids}]
+            同步结果列表 [{unified_name, success, matched_count, provider_ids, added, removed}]
         """
         self._ensure_loaded()
         
         results = []
         for unified_name, mapping in self._mappings.items():
+            # 保存旧的 resolved_models 用于比较
+            old_resolved = mapping.resolved_models.copy()
+            
             resolved = self.resolve_models(mapping, all_provider_models)
+            
+            # 计算模型变化
+            added, removed = self._compute_model_changes(old_resolved, resolved)
+            
+            # 输出日志
+            self._log_sync_changes(unified_name, added, removed, provider_id_name_map)
+            
             mapping.resolved_models = resolved
             mapping.last_sync = datetime.now(timezone.utc).isoformat()
             
@@ -538,7 +564,9 @@ class ModelMappingManager:
                 "unified_name": unified_name,
                 "success": True,
                 "matched_count": total_models,
-                "provider_ids": list(resolved.keys())
+                "provider_ids": list(resolved.keys()),
+                "added": added,
+                "removed": removed
             })
         
         # 更新全局同步时间
@@ -546,6 +574,109 @@ class ModelMappingManager:
         
         self.save()
         return results
+    
+    def _compute_model_changes(
+        self,
+        old_resolved: dict[str, list[str]],
+        new_resolved: dict[str, list[str]]
+    ) -> tuple[list[str], list[str]]:
+        """
+        计算模型变化
+        
+        Args:
+            old_resolved: 旧的解析结果 {provider_id: [model_ids]}
+            new_resolved: 新的解析结果 {provider_id: [model_ids]}
+            
+        Returns:
+            (新增模型列表, 删除模型列表) - 格式为 "provider_id:model_id"
+        """
+        # 将 {provider_id: [models]} 扁平化为 set of "provider_id:model_id"
+        old_set: set[str] = set()
+        for provider_id, models in old_resolved.items():
+            for model in models:
+                old_set.add(f"{provider_id}:{model}")
+        
+        new_set: set[str] = set()
+        for provider_id, models in new_resolved.items():
+            for model in models:
+                new_set.add(f"{provider_id}:{model}")
+        
+        added = sorted(new_set - old_set)
+        removed = sorted(old_set - new_set)
+        
+        return added, removed
+    
+    def _log_sync_changes(
+        self,
+        unified_name: str,
+        added: list[str],
+        removed: list[str],
+        provider_id_name_map: Optional[dict[str, str]] = None
+    ) -> None:
+        """
+        输出同步变化日志
+        
+        Args:
+            unified_name: 映射名称
+            added: 新增的模型列表 (格式: provider_id:model_id)
+            removed: 删除的模型列表 (格式: provider_id:model_id)
+            provider_id_name_map: provider_id -> provider_name 的映射
+        """
+        # 延迟导入避免循环依赖
+        from .logger import log_manager, LogLevel
+        
+        # 将 provider_id:model_id 转换为 provider_name:model_id
+        def format_model_ref(ref: str) -> str:
+            if ":" in ref:
+                provider_id, model_id = ref.split(":", 1)
+                if provider_id_name_map and provider_id in provider_id_name_map:
+                    provider_name = provider_id_name_map[provider_id]
+                else:
+                    provider_name = provider_id[:8]  # 使用 ID 前8位作为备用
+                return f"{provider_name}:{model_id}"
+            return ref
+        
+        if not added and not removed:
+            message = f"[{unified_name}] 同步完成，无变化"
+            print(f"{Fore.CYAN}[MODEL-MAPPING]{Style.RESET_ALL} {message}")
+            log_manager.log(
+                level=LogLevel.INFO,
+                log_type="sync",
+                method="SYNC",
+                path="/model-mapping",
+                message=message
+            )
+            return
+        
+        # 构建控制台输出（带颜色）
+        console_parts = []
+        # 构建日志消息（无颜色）
+        log_parts = []
+        
+        if added:
+            added_models = ", ".join(format_model_ref(m) for m in added[:5])  # 最多显示5个
+            suffix = f"等{len(added)}个" if len(added) > 5 else ""
+            console_parts.append(f"{Fore.GREEN}新增 {len(added)} 个模型（{added_models}{suffix}）{Style.RESET_ALL}")
+            log_parts.append(f"新增 {len(added)} 个模型（{added_models}{suffix}）")
+        
+        if removed:
+            removed_models = ", ".join(format_model_ref(m) for m in removed[:5])  # 最多显示5个
+            suffix = f"等{len(removed)}个" if len(removed) > 5 else ""
+            console_parts.append(f"{Fore.RED}移除 {len(removed)} 个模型（{removed_models}{suffix}）{Style.RESET_ALL}")
+            log_parts.append(f"移除 {len(removed)} 个模型（{removed_models}{suffix}）")
+        
+        console_message = f"[{unified_name}] 同步完成：{', '.join(console_parts)}"
+        log_message = f"[{unified_name}] 同步完成：{', '.join(log_parts)}"
+        
+        print(f"{Fore.CYAN}[MODEL-MAPPING]{Style.RESET_ALL} {console_message}")
+        log_manager.log(
+            level=LogLevel.INFO,
+            log_type="sync",
+            method="SYNC",
+            path="/model-mapping",
+            model=unified_name,
+            message=log_message
+        )
     
     # ==================== 用于 Provider 集成 ====================
     
