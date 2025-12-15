@@ -30,7 +30,6 @@ const Dashboard = {
     },
 
     async refresh() {
-        Toast.info('正在刷新...');
         await this.load();
         await this.loadChartData();
         Toast.success('刷新完成');

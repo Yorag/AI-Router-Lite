@@ -19,9 +19,6 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 import filelock
 
-from colorama import Fore, Style
-
-
 class RuleType(str, Enum):
     """匹配规则类型"""
     KEYWORD = "keyword"      # 关键字包含匹配
@@ -638,7 +635,7 @@ class ModelMappingManager:
         
         if not added and not removed:
             message = f"[{unified_name}] 同步完成，无变化"
-            print(f"{Fore.CYAN}[MODEL-MAPPING]{Style.RESET_ALL} {message}")
+            print(f"[MODEL-MAPPING] {message}")
             log_manager.log(
                 level=LogLevel.INFO,
                 log_type="sync",
@@ -656,19 +653,19 @@ class ModelMappingManager:
         if added:
             added_models = ", ".join(format_model_ref(m) for m in added[:5])  # 最多显示5个
             suffix = f"等{len(added)}个" if len(added) > 5 else ""
-            console_parts.append(f"{Fore.GREEN}新增 {len(added)} 个模型（{added_models}{suffix}）{Style.RESET_ALL}")
+            console_parts.append(f"新增 {len(added)} 个模型（{added_models}{suffix}）")
             log_parts.append(f"新增 {len(added)} 个模型（{added_models}{suffix}）")
         
         if removed:
             removed_models = ", ".join(format_model_ref(m) for m in removed[:5])  # 最多显示5个
             suffix = f"等{len(removed)}个" if len(removed) > 5 else ""
-            console_parts.append(f"{Fore.RED}移除 {len(removed)} 个模型（{removed_models}{suffix}）{Style.RESET_ALL}")
+            console_parts.append(f"移除 {len(removed)} 个模型（{removed_models}{suffix}）")
             log_parts.append(f"移除 {len(removed)} 个模型（{removed_models}{suffix}）")
         
         console_message = f"[{unified_name}] 同步完成：{', '.join(console_parts)}"
         log_message = f"[{unified_name}] 同步完成：{', '.join(log_parts)}"
         
-        print(f"{Fore.CYAN}[MODEL-MAPPING]{Style.RESET_ALL} {console_message}")
+        print(f"[MODEL-MAPPING] {console_message}")
         log_manager.log(
             level=LogLevel.INFO,
             log_type="sync",

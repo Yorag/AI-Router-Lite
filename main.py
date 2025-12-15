@@ -11,7 +11,6 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import uvicorn
-from colorama import init as colorama_init, Fore, Style
 from fastapi import FastAPI, HTTPException, Request, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
@@ -44,10 +43,6 @@ from src.model_health import model_health_manager
 from src.provider_models import provider_models_manager
 
 
-# 初始化 colorama
-colorama_init()
-
-
 # 全局组件
 router: ModelRouter = None  # type: ignore
 proxy: RequestProxy = None  # type: ignore
@@ -57,12 +52,12 @@ _auto_sync_task: Optional[asyncio.Task] = None  # 自动同步任务
 def print_banner():
     """打印启动横幅"""
     banner = f"""
-{Fore.CYAN}╔══════════════════════════════════════════════════════════╗
+╔══════════════════════════════════════════════════════════╗
 ║                                                          ║
-║   {Fore.WHITE}🚀 {APP_NAME} v{APP_VERSION}{Fore.CYAN}                              ║
-║   {Fore.WHITE}{APP_DESCRIPTION}{Fore.CYAN}                          ║
+║   🚀 {APP_NAME} v{APP_VERSION}                              ║
+║   {APP_DESCRIPTION}                          ║
 ║                                                          ║
-╚══════════════════════════════════════════════════════════╝{Style.RESET_ALL}
+╚══════════════════════════════════════════════════════════╝
 """
     print(banner)
 
@@ -75,19 +70,19 @@ def print_config_summary():
     model_mapping_manager.load()
     mappings_count = len(model_mapping_manager.get_all_mappings())
     
-    print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} 服务地址: http://{config.server_host}:{config.server_port}")
-    print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} 管理面板: http://{config.server_host}:{config.server_port}/admin")
-    print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} 最大重试次数: {config.max_retries}")
-    print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} 请求超时: {config.request_timeout}s")
-    print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} 模型映射: {mappings_count} 个")
-    print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} Provider 数量: {len(config.providers)} 个")
+    print(f"[CONFIG] 服务地址: http://{config.server_host}:{config.server_port}")
+    print(f"[CONFIG] 管理面板: http://{config.server_host}:{config.server_port}/admin")
+    print(f"[CONFIG] 最大重试次数: {config.max_retries}")
+    print(f"[CONFIG] 请求超时: {config.request_timeout}s")
+    print(f"[CONFIG] 模型映射: {mappings_count} 个")
+    print(f"[CONFIG] Provider 数量: {len(config.providers)} 个")
     
     # 从 provider_models_manager 获取每个 provider 的模型数量
     provider_models_map = provider_models_manager.get_all_provider_models_map()
     for p in config.providers:
         # 使用 provider_id 作为 key 查询模型数量
         model_count = len(provider_models_map.get(p.id, []))
-        print(f"  {Fore.CYAN}├─{Style.RESET_ALL} {p.name} (ID: {p.id[:8]}..., 权重: {p.weight}, 模型: {model_count} 个)")
+        print(f"  ├─ {p.name} (ID: {p.id[:8]}..., 权重: {p.weight}, 模型: {model_count} 个)")
 
 
 async def auto_sync_model_mappings_task():
@@ -109,12 +104,12 @@ async def auto_sync_model_mappings_task():
             
             # 等待同步间隔
             interval_seconds = sync_config.auto_sync_interval_hours * 3600
-            print(f"{Fore.CYAN}[AUTO-SYNC]{Style.RESET_ALL} 模型映射自动同步已启用，间隔: {sync_config.auto_sync_interval_hours} 小时")
+            print(f"[AUTO-SYNC] 模型映射自动同步已启用，间隔: {sync_config.auto_sync_interval_hours} 小时")
             
             await asyncio.sleep(interval_seconds)
             
             # 执行同步
-            print(f"{Fore.CYAN}[AUTO-SYNC]{Style.RESET_ALL} 开始自动同步模型映射...")
+            print(f"[AUTO-SYNC] 开始自动同步模型映射...")
             
             # 获取所有Provider的模型列表 (已使用 provider_id 作为 key)
             all_provider_models = await admin_manager.fetch_all_provider_models()
@@ -133,13 +128,13 @@ async def auto_sync_model_mappings_task():
             results = model_mapping_manager.sync_all_mappings(provider_models_flat, provider_id_name_map)
             
             total_matched = sum(r.get("matched_count", 0) for r in results)
-            print(f"{Fore.GREEN}[AUTO-SYNC]{Style.RESET_ALL} 同步完成: {len(results)} 个映射, {total_matched} 个模型")
+            print(f"[AUTO-SYNC] 同步完成: {len(results)} 个映射, {total_matched} 个模型")
             
         except asyncio.CancelledError:
-            print(f"{Fore.YELLOW}[AUTO-SYNC]{Style.RESET_ALL} 自动同步任务已取消")
+            print(f"[AUTO-SYNC] 自动同步任务已取消")
             break
         except Exception as e:
-            print(f"{Fore.RED}[AUTO-SYNC]{Style.RESET_ALL} 同步出错: {e}")
+            print(f"[AUTO-SYNC] 同步出错: {e}")
             # 出错后等待1分钟再重试
             await asyncio.sleep(60)
 
@@ -154,13 +149,13 @@ async def lifespan(app: FastAPI):
     
     try:
         config = config_manager.load("config.json")
-        print(f"{Fore.GREEN}[STARTUP]{Style.RESET_ALL} 配置文件加载成功")
+        print(f"[STARTUP] 配置文件加载成功")
     except FileNotFoundError:
-        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} 配置文件 config.json 不存在！")
-        print(f"{Fore.YELLOW}[HINT]{Style.RESET_ALL} 请复制 config.example.json 并重命名为 config.json")
+        print(f"[ERROR] 配置文件 config.json 不存在！")
+        print(f"[HINT] 请复制 config.example.json 并重命名为 config.json")
         sys.exit(1)
     except Exception as e:
-        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} 配置文件加载失败: {e}")
+        print(f"[ERROR] 配置文件加载失败: {e}")
         sys.exit(1)
     
     # 注册 Provider
@@ -180,7 +175,7 @@ async def lifespan(app: FastAPI):
     _auto_sync_task = asyncio.create_task(auto_sync_model_mappings_task())
     
     print_config_summary()
-    print(f"{Fore.GREEN}[STARTUP]{Style.RESET_ALL} 服务启动完成，等待请求...")
+    print(f"[STARTUP] 服务启动完成，等待请求...")
     print("-" * 60)
     
     # 记录系统启动日志
@@ -209,7 +204,7 @@ async def lifespan(app: FastAPI):
     log_manager.flush_stats()
     
     await proxy.close()
-    print(f"{Fore.YELLOW}[SHUTDOWN]{Style.RESET_ALL} 服务已关闭")
+    print(f"[SHUTDOWN] 服务已关闭")
 
 
 # 创建 FastAPI 应用
@@ -397,7 +392,7 @@ async def chat_completions(
     
     # 记录请求日志
     print(
-        f"{Fore.MAGENTA}[REQUEST]{Style.RESET_ALL} "
+        f"[REQUEST] "
         f"[{api_key_name}] {original_model}, 流式: {is_stream}, 消息数: {len(request.messages)}"
     )
     
@@ -431,7 +426,7 @@ async def chat_completions(
                     if stream_context.request_tokens or stream_context.response_tokens:
                         token_info = f"tokens: {stream_context.request_tokens or 0}+{stream_context.response_tokens or 0}={stream_context.total_tokens or 'N/A'}"
                     print(
-                        f"{Fore.GREEN}[RESPONSE]{Style.RESET_ALL} "
+                        f"[RESPONSE] "
                         f"[{api_key_name}] {original_model} ==> {stream_context.provider_name}:{stream_context.actual_model}, "
                         f"{{{token_info}, {duration_ms:.0f}ms}}"
                     )
@@ -493,7 +488,7 @@ async def chat_completions(
             if result.request_tokens or result.response_tokens:
                 token_info = f"tokens: {result.request_tokens or 0}+{result.response_tokens or 0}={result.total_tokens or 'N/A'}"
             print(
-                f"{Fore.GREEN}[RESPONSE]{Style.RESET_ALL} "
+                f"[RESPONSE] "
                 f"[{api_key_name}] {original_model} ==> {result.provider_name}:{result.actual_model}, "
                 f"{{{token_info}, {duration_ms:.0f}ms}}"
             )
@@ -522,7 +517,7 @@ async def chat_completions(
             
     except ProxyError as e:
         duration_ms = (time.time() - start_time) * 1000
-        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} [{api_key_name}] {original_model} 代理错误: {e.message}")
+        print(f"[ERROR] [{api_key_name}] {original_model} 代理错误: {e.message}")
         
         # 记录错误日志
         log_manager.log(
@@ -554,7 +549,7 @@ async def chat_completions(
         )
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} [{api_key_name}] {original_model} 未知错误: {str(e)}")
+        print(f"[ERROR] [{api_key_name}] {original_model} 未知错误: {str(e)}")
         
         # 记录错误日志
         log_manager.log(

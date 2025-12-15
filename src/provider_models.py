@@ -23,8 +23,6 @@ from typing import Optional, Literal
 from dataclasses import dataclass, field, asdict
 import filelock
 
-from colorama import Fore, Style
-
 from .constants import PROVIDER_MODELS_STORAGE_PATH
 
 
@@ -296,7 +294,7 @@ class ProviderModelsManager:
         
         if not added_models and not removed_models:
             message = f"[{display_name}] 同步完成，无变化"
-            print(f"{Fore.CYAN}[PROVIDER-MODELS]{Style.RESET_ALL} {message}")
+            print(f"[PROVIDER-MODELS] {message}")
             log_manager.log(
                 level=LogLevel.INFO,
                 log_type="sync",
@@ -316,20 +314,20 @@ class ProviderModelsManager:
             sorted_added = sorted(added_models)
             models_preview = ", ".join(sorted_added[:5])  # 最多显示5个
             suffix = f"等{len(added_models)}个" if len(added_models) > 5 else ""
-            console_parts.append(f"{Fore.GREEN}新增 {len(added_models)} 个模型（{models_preview}{suffix}）{Style.RESET_ALL}")
+            console_parts.append(f"新增 {len(added_models)} 个模型（{models_preview}{suffix}）")
             log_parts.append(f"新增 {len(added_models)} 个模型（{models_preview}{suffix}）")
         
         if removed_models:
             sorted_removed = sorted(removed_models)
             models_preview = ", ".join(sorted_removed[:5])  # 最多显示5个
             suffix = f"等{len(removed_models)}个" if len(removed_models) > 5 else ""
-            console_parts.append(f"{Fore.RED}移除 {len(removed_models)} 个模型（{models_preview}{suffix}）{Style.RESET_ALL}")
+            console_parts.append(f"移除 {len(removed_models)} 个模型（{models_preview}{suffix}）")
             log_parts.append(f"移除 {len(removed_models)} 个模型（{models_preview}{suffix}）")
         
         console_message = f"[{display_name}] 同步完成：{', '.join(console_parts)}"
         log_message = f"[{display_name}] 同步完成：{', '.join(log_parts)}"
         
-        print(f"{Fore.CYAN}[PROVIDER-MODELS]{Style.RESET_ALL} {console_message}")
+        print(f"[PROVIDER-MODELS] {console_message}")
         log_manager.log(
             level=LogLevel.INFO,
             log_type="sync",

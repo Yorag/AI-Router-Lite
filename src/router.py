@@ -9,8 +9,6 @@ exclude 参数接收的是 provider_id 集合
 
 import random
 from typing import Optional
-from colorama import Fore, Style
-
 from .config import AppConfig
 from .provider import ProviderManager, ProviderState
 from .model_mapping import model_mapping_manager
@@ -186,4 +184,4 @@ class ModelRouter:
     @staticmethod
     def _log_info(message: str) -> None:
         """输出信息日志"""
-        print(f"{Fore.CYAN}[ROUTER]{Style.RESET_ALL} {message}")
+        print(f"[ROUTER] {message}")

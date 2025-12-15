@@ -10,8 +10,6 @@ import time
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import Optional
-from colorama import Fore, Style
-
 from .config import ProviderConfig
 from .constants import (
     HEALTH_CHECK_SKIP_THRESHOLD_HOURS,
@@ -520,17 +518,17 @@ class ProviderManager:
     @staticmethod
     def _log_info(message: str) -> None:
         """输出信息日志"""
-        print(f"{Fore.GREEN}[INFO]{Style.RESET_ALL} {message}")
+        print(f"[INFO] {message}")
     
     @staticmethod
     def _log_warning(message: str) -> None:
         """输出警告日志"""
-        print(f"{Fore.YELLOW}[WARN]{Style.RESET_ALL} {message}")
+        print(f"[WARN] {message}")
     
     @staticmethod
     def _log_error(message: str) -> None:
         """输出错误日志"""
-        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} {message}")
+        print(f"[ERROR] {message}")
 
 
 # 全局 Provider 管理器实例

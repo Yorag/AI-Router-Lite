@@ -349,7 +349,6 @@ python main.py
 | **fastapi** | >=0.104.0 | 现代高性能 Web 框架，用于构建 RESTful API 服务，提供自动 API 文档生成、请求验证等功能 |
 | **uvicorn** | >=0.24.0 | ASGI 服务器，用于运行 FastAPI 应用，支持异步请求处理和高并发 |
 | **httpx** | >=0.25.0 | 异步 HTTP 客户端，用于向上游 Provider 转发请求，支持流式响应和连接池管理 |
-| **colorama** | >=0.4.6 | 终端颜色输出库，用于在控制台打印彩色日志，提升可读性 |
 | **pydantic** | >=2.5.0 | 数据验证和序列化库，用于定义和验证 OpenAI 兼容的请求/响应数据结构 |
 | **pydantic-settings** | >=2.1.0 | Pydantic 配置管理扩展，用于加载和验证 config.json 配置文件 |
 | **filelock** | >=3.13.0 | 文件锁库，用于并发安全的数据持久化操作 |

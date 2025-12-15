@@ -13,7 +13,6 @@ from typing import AsyncIterator, Optional
 from dataclasses import dataclass
 
 import httpx
-from colorama import Fore, Style
 
 from .config import AppConfig
 from .models import ChatCompletionRequest
@@ -424,9 +423,9 @@ class RequestProxy:
     @staticmethod
     def _log_info(message: str) -> None:
         """输出信息日志"""
-        print(f"{Fore.BLUE}[PROXY]{Style.RESET_ALL} {message}")
+        print(f"[PROXY] {message}")
     
     @staticmethod
     def _log_warning(message: str) -> None:
         """输出警告日志"""
-        print(f"{Fore.YELLOW}[PROXY]{Style.RESET_ALL} {message}")
+        print(f"[PROXY] {message}")
