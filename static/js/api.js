@@ -240,6 +240,46 @@ const API = {
         return this.request('PUT', '/api/model-mappings/sync-config', data);
     },
 
+    // ==================== 协议配置 ====================
+
+    /**
+     * 获取可用的协议类型列表
+     * @returns {Promise<{protocols: Array}>}
+     */
+    async getAvailableProtocols() {
+        return this.request('GET', '/api/protocols');
+    },
+
+    /**
+     * 获取指定映射的模型协议配置
+     * @param {string} unifiedName - 映射名称
+     * @returns {Promise<{unified_name: string, model_settings: Object}>}
+     */
+    async getModelSettings(unifiedName) {
+        return this.request('GET', `/api/model-mappings/${encodeURIComponent(unifiedName)}/model-settings`);
+    },
+
+    /**
+     * 更新模型协议配置
+     * @param {string} unifiedName - 映射名称
+     * @param {Object} data - {provider_id, model_id, protocol}
+     * @returns {Promise<{status: string, message: string}>}
+     */
+    async updateModelProtocol(unifiedName, data) {
+        return this.request('PUT', `/api/model-mappings/${encodeURIComponent(unifiedName)}/model-settings`, data);
+    },
+
+    /**
+     * 删除模型协议配置
+     * @param {string} unifiedName - 映射名称
+     * @param {string} providerId - Provider ID
+     * @param {string} modelId - 模型 ID
+     * @returns {Promise<{status: string, message: string}>}
+     */
+    async deleteModelProtocol(unifiedName, providerId, modelId) {
+        return this.request('DELETE', `/api/model-mappings/${encodeURIComponent(unifiedName)}/model-settings/${encodeURIComponent(providerId)}/${encodeURIComponent(modelId)}`);
+    },
+
     // ==================== 模型健康检测 ====================
 
     /**

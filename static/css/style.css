@@ -570,6 +570,13 @@ body {
     margin-bottom: 16px;
 }
 
+.provider-badges {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
 .provider-card-header h3 {
     font-size: 1rem;
     font-weight: 600;
@@ -1851,4 +1858,133 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
+}
+
+/* ==================== 协议配置样式 ==================== */
+
+/* 协议徽章（模型标签上的小标签） */
+.protocol-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.625rem;
+    font-weight: 500;
+    padding: 1px 4px;
+    margin-left: 4px;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.protocol-badge.protocol-model {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--primary-light);
+    border: 1px solid var(--primary-light);
+}
+
+.protocol-badge.protocol-provider {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--success-color);
+    border: 1px solid var(--success-color);
+}
+
+.protocol-badge.protocol-none {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning-color);
+    font-size: 0.75rem;
+}
+
+/* 协议配置提示区域 */
+.protocol-config-hint {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    background: rgba(59, 130, 246, 0.05);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: var(--border-radius-sm);
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.protocol-config-hint span {
+    color: var(--primary-light);
+}
+
+/* 右键上下文菜单 */
+.model-context-menu {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    box-shadow: var(--shadow-lg);
+    min-width: 180px;
+    overflow: hidden;
+    animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.context-menu-header {
+    padding: 10px 14px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 0.8125rem;
+}
+
+.context-menu-header strong {
+    color: var(--text-color);
+}
+
+.context-menu-header .provider-info {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    margin-left: 4px;
+}
+
+.context-menu-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    font-size: 0.875rem;
+    color: var(--text-color);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.context-menu-item:hover {
+    background: var(--bg-hover);
+}
+
+.context-menu-item.danger {
+    color: var(--danger-color);
+}
+
+.context-menu-item.danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* 协议状态显示 */
+.protocol-status {
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius-sm);
+}
+
+/* 批量状态徽章 */
+.batch-status {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.batch-status .status-badge {
+    font-size: 0.8125rem;
 }

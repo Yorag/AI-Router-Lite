@@ -8,6 +8,7 @@ import json
 import uuid
 from pathlib import Path
 from typing import Optional
+from enum import Enum
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +24,22 @@ def generate_provider_id() -> str:
     return str(uuid.uuid4())
 
 
+class ProtocolType(str, Enum):
+    """
+    请求协议类型
+    
+    定义了支持的上游 API 格式：
+    - OPENAI: 标准 OpenAI Chat Completions 格式 (/v1/chat/completions)
+    - OPENAI_RESPONSE: OpenAI Responses 格式 (/v1/responses)
+    - ANTHROPIC: Anthropic Claude Messages 格式 (/v1/messages)
+    - GEMINI: Google Gemini 格式 (/models)
+    """
+    OPENAI = "openai"
+    OPENAI_RESPONSE = "openai-response"
+    ANTHROPIC = "anthropic"
+    GEMINI = "gemini"
+
+
 class ProviderConfig(BaseModel):
     """
     单个 Provider 的配置
@@ -32,6 +49,7 @@ class ProviderConfig(BaseModel):
     - name 是可变的显示名称，用于用户界面展示
     - 模型列表存储在 data/provider_models.json 中，
       通过 /api/providers/{id}/models 接口同步获取
+    - default_protocol 为空表示混合类型，需要在模型映射中单独配置每个模型的协议
     """
     id: str = Field(default_factory=generate_provider_id, description="Provider 唯一标识 (UUID)，内部使用")
     name: str = Field(..., description="Provider 显示名称，可修改")
@@ -40,6 +58,10 @@ class ProviderConfig(BaseModel):
     weight: int = Field(default=1, ge=1, description="权重，数值越高优先级越高")
     timeout: Optional[float] = Field(default=None, ge=1.0, description="请求超时时间（秒），未配置时使用全局 request_timeout")
     enabled: bool = Field(default=True, description="是否启用该服务站")
+    default_protocol: Optional[ProtocolType] = Field(
+        default=None,
+        description="默认请求协议类型，为空表示混合类型（需要在模型映射中单独配置）"
+    )
 
 
 class AppConfig(BaseModel):

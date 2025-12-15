@@ -49,10 +49,20 @@ class MatchRule:
             case_sensitive=data.get("case_sensitive", False)
         )
 
-
 @dataclass
 class ModelMapping:
-    """单个模型映射配置"""
+    """
+    单个模型映射配置
+    
+    model_settings 字段用于存储特定 provider:model 组合的配置：
+    - key: "{provider_id}:{model_id}"
+    - value: {"protocol": "openai" | "openai-response" | "anthropic" | "gemini", ...}
+    
+    协议继承机制：
+    1. 优先使用 model_settings 中指定的协议
+    2. 如果未指定，则使用 Provider 的 default_protocol
+    3. 如果 Provider 也未指定（混合类型），则该模型视为不可用
+    """
     unified_name: str
     description: str = ""
     rules: list[MatchRule] = field(default_factory=list)
@@ -60,6 +70,7 @@ class ModelMapping:
     manual_excludes: list[str] = field(default_factory=list)  # 格式: "model_id" 或 "provider_id:model_id"
     excluded_providers: list[str] = field(default_factory=list)  # 排除的 provider_id 列表
     resolved_models: dict[str, list[str]] = field(default_factory=dict)  # {provider_id: [models]}
+    model_settings: dict[str, dict] = field(default_factory=dict)  # {provider_id:model_id: {protocol: str, ...}}
     last_sync: Optional[str] = None
     
     def to_dict(self) -> dict:
@@ -70,6 +81,7 @@ class ModelMapping:
             "manual_excludes": self.manual_excludes,
             "excluded_providers": self.excluded_providers,
             "resolved_models": self.resolved_models,
+            "model_settings": self.model_settings,
             "last_sync": self.last_sync
         }
     
@@ -83,6 +95,7 @@ class ModelMapping:
             manual_excludes=data.get("manual_excludes", []),
             excluded_providers=data.get("excluded_providers", []),
             resolved_models=data.get("resolved_models", {}),
+            model_settings=data.get("model_settings", {}),
             last_sync=data.get("last_sync")
         )
     
@@ -92,6 +105,41 @@ class ModelMapping:
         for provider_models in self.resolved_models.values():
             models.update(provider_models)
         return sorted(models)
+    
+    def get_model_protocol(self, provider_id: str, model_id: str) -> Optional[str]:
+        """
+        获取指定模型的协议配置
+        
+        Args:
+            provider_id: Provider 的唯一 ID
+            model_id: 模型 ID
+            
+        Returns:
+            协议类型字符串，如果未配置则返回 None
+        """
+        key = f"{provider_id}:{model_id}"
+        settings = self.model_settings.get(key, {})
+        return settings.get("protocol")
+    
+    def set_model_protocol(self, provider_id: str, model_id: str, protocol: Optional[str]) -> None:
+        """
+        设置指定模型的协议配置
+        
+        Args:
+            provider_id: Provider 的唯一 ID
+            model_id: 模型 ID
+            protocol: 协议类型字符串，为 None 时删除配置
+        """
+        key = f"{provider_id}:{model_id}"
+        if protocol is None:
+            # 删除配置
+            if key in self.model_settings:
+                del self.model_settings[key]
+        else:
+            # 设置配置
+            if key not in self.model_settings:
+                self.model_settings[key] = {}
+            self.model_settings[key]["protocol"] = protocol
 
 
 @dataclass
@@ -346,6 +394,62 @@ class ModelMappingManager:
         del self._mappings[unified_name]
         self.save()
         return True, "删除成功"
+    
+    def update_model_settings(
+        self,
+        unified_name: str,
+        model_settings: dict[str, dict]
+    ) -> tuple[bool, str]:
+        """
+        更新映射的模型设置
+        
+        Args:
+            unified_name: 统一模型名称
+            model_settings: 模型设置字典 {provider_id:model_id: {protocol: str, ...}}
+            
+        Returns:
+            (成功标志, 消息)
+        """
+        self._ensure_loaded()
+        
+        if unified_name not in self._mappings:
+            return False, f"映射 '{unified_name}' 不存在"
+        
+        mapping = self._mappings[unified_name]
+        mapping.model_settings = model_settings
+        
+        self.save()
+        return True, "更新成功"
+    
+    def set_model_protocol(
+        self,
+        unified_name: str,
+        provider_id: str,
+        model_id: str,
+        protocol: Optional[str]
+    ) -> tuple[bool, str]:
+        """
+        设置单个模型的协议配置
+        
+        Args:
+            unified_name: 统一模型名称
+            provider_id: Provider 的唯一 ID
+            model_id: 模型 ID
+            protocol: 协议类型字符串，为 None 时删除配置
+            
+        Returns:
+            (成功标志, 消息)
+        """
+        self._ensure_loaded()
+        
+        if unified_name not in self._mappings:
+            return False, f"映射 '{unified_name}' 不存在"
+        
+        mapping = self._mappings[unified_name]
+        mapping.set_model_protocol(provider_id, model_id, protocol)
+        
+        self.save()
+        return True, "更新成功"
     
     # ==================== 同步配置 ====================
     

@@ -12,11 +12,32 @@ const Providers = {
     providers: [],
     autoUpdateInterval: null,
     isUpdatingAll: false,  // 防止重复点击"更新全部渠道"按钮
+    availableProtocols: [],  // 可用协议类型缓存
 
     async init() {
+        await this.loadProtocols();  // 加载协议类型
         await this.load();
         // 页面初始化时从后端加载模型详情缓存（支持 ToolTip 显示）
         await this.loadModelDetailsCache();
+    },
+
+    /**
+     * 加载可用协议类型
+     */
+    async loadProtocols() {
+        try {
+            const result = await API.getAvailableProtocols();
+            this.availableProtocols = result.protocols || [];
+        } catch (err) {
+            console.warn('加载协议类型失败:', err);
+            // 使用默认值
+            this.availableProtocols = [
+                { value: 'openai', label: 'openai', description: 'OpenAI Chat Completions API' },
+                { value: 'openai-response', label: 'openai-response', description: 'OpenAI Responses API' },
+                { value: 'anthropic', label: 'anthropic', description: 'Anthropic Messages API' },
+                { value: 'gemini', label: 'gemini', description: 'Google Gemini API' }
+            ];
+        }
     },
 
     /**
@@ -124,6 +145,7 @@ const Providers = {
         const statusBadgeClass = isEnabled ? 'info' : 'warning';
         const statusText = isEnabled ? `权重: ${provider.weight}` : '已禁用';
         const toggleBtnText = isEnabled ? '禁用' : '启用';
+        const protocolText = provider.default_protocol || '混合';
 
         return `
             <div class="provider-card ${!isEnabled ? 'disabled' : ''}" id="provider-${providerDomId}" data-provider-id="${providerUuid}">
@@ -132,7 +154,10 @@ const Providers = {
                         <h3>${providerName}</h3>
                         <div class="url">${provider.base_url}</div>
                     </div>
-                    <span class="status-badge ${statusBadgeClass}">${statusText}</span>
+                    <div class="provider-badges">
+                        <span class="status-badge ${statusBadgeClass}">${statusText}</span>
+                        <span class="status-badge info" title="默认协议">${protocolText}</span>
+                    </div>
                 </div>
                 
                 <div class="provider-models">
@@ -188,6 +213,20 @@ const Providers = {
         }
     },
 
+    /**
+     * 生成协议选择下拉框的选项 HTML
+     */
+    renderProtocolOptions(selectedValue = '') {
+        const options = this.availableProtocols.map(p => {
+            const selected = p.value === selectedValue ? 'selected' : '';
+            return `<option value="${p.value}" ${selected}>${p.label}</option>`;
+        }).join('');
+        
+        // 添加"混合类型"选项（空值）
+        const mixedSelected = !selectedValue ? 'selected' : '';
+        return `<option value="" ${mixedSelected}>混合类型（未指定）</option>${options}`;
+    },
+
     showCreateModal() {
         const content = `
             <form onsubmit="Providers.create(event)">
@@ -209,6 +248,13 @@ const Providers = {
                     <input type="number" id="provider-weight" value="1" min="1" max="100">
                     <div class="hint">权重越高，被选中的概率越大</div>
                 </div>
+                <div class="form-group">
+                    <label>默认协议</label>
+                    <select id="provider-protocol">
+                        ${this.renderProtocolOptions('')}
+                    </select>
+                    <div class="hint">该服务站支持的请求协议。选择"混合类型"表示不同模型可能使用不同协议，需在模型映射中单独配置。</div>
+                </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
                     <button type="submit" class="btn btn-primary">添加服务站</button>
@@ -225,13 +271,15 @@ const Providers = {
         const baseUrl = document.getElementById('provider-url').value.trim();
         const apiKey = document.getElementById('provider-key').value.trim();
         const weight = parseInt(document.getElementById('provider-weight').value) || 1;
+        const protocol = document.getElementById('provider-protocol').value || null;
         
         // 模型列表不再在此处提交，通过"更新模型"按钮同步获取
         const data = {
             name,
             base_url: baseUrl,
             api_key: apiKey,
-            weight
+            weight,
+            default_protocol: protocol
         };
         
         try {
@@ -250,7 +298,9 @@ const Providers = {
     showEditModal(providerId) {
         const provider = this.providers.find(p => p.id === providerId);
         if (!provider) return;
-                
+        
+        const currentProtocol = provider.default_protocol || '';
+        
         const content = `
             <form onsubmit="Providers.update(event, '${providerId}')">
                 <div class="form-group">
@@ -274,6 +324,13 @@ const Providers = {
                     <label>权重</label>
                     <input type="number" id="edit-provider-weight" value="${provider.weight}" min="1" max="100">
                 </div>
+                <div class="form-group">
+                    <label>默认协议</label>
+                    <select id="edit-provider-protocol">
+                        ${this.renderProtocolOptions(currentProtocol)}
+                    </select>
+                    <div class="hint">该服务站支持的请求协议。选择"混合类型"表示不同模型可能使用不同协议，需在模型映射中单独配置。</div>
+                </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
                     <button type="submit" class="btn btn-primary">保存</button>
@@ -290,13 +347,15 @@ const Providers = {
         const baseUrl = document.getElementById('edit-provider-url').value.trim();
         const apiKey = document.getElementById('edit-provider-key').value.trim();
         const weight = parseInt(document.getElementById('edit-provider-weight').value) || 1;
+        const protocol = document.getElementById('edit-provider-protocol').value || null;
         
         // 模型列表不再在此处提交，通过"更新模型"按钮同步获取
         const data = {
             name,  // 允许修改名称
             base_url: baseUrl,
             api_key: apiKey,
-            weight
+            weight,
+            default_protocol: protocol
         };
         
         try {
@@ -421,7 +480,7 @@ const Providers = {
             parts.push(`owned_by: ${details.owned_by}`);
         }
         if (details.supported_endpoint_types && details.supported_endpoint_types.length > 0) {
-            parts.push(`types: ${details.supported_endpoint_types.join(', ')}`);
+            parts.push(`endpoints: ${details.supported_endpoint_types.join(', ')}`);
         }
         
         return parts.join('\n');

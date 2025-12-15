@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from src.config import config_manager, get_config
+from src.config import config_manager, get_config, ProtocolType
 from src.constants import (
     APP_NAME,
     APP_VERSION,
@@ -241,6 +241,7 @@ class ProviderRequest(BaseModel):
     api_key: str
     weight: int = 1
     timeout: Optional[float] = None
+    default_protocol: Optional[str] = None  # 默认协议: openai, openai-response, anthropic, gemini
 
 class UpdateProviderRequest(BaseModel):
     """更新 Provider 请求（模型列表通过 /api/providers/{id}/models 同步）"""
@@ -250,6 +251,7 @@ class UpdateProviderRequest(BaseModel):
     weight: Optional[int] = None
     timeout: Optional[float] = None
     enabled: Optional[bool] = None
+    default_protocol: Optional[str] = None  # 默认协议: openai, openai-response, anthropic, gemini, 或 null 表示混合类型
 
 class CreateModelMappingRequest(BaseModel):
     """创建模型映射请求"""
@@ -288,6 +290,13 @@ class TestSingleModelRequest(BaseModel):
     """测试单个模型请求"""
     provider_id: str  # Provider ID (UUID)
     model: str
+
+
+class UpdateModelProtocolRequest(BaseModel):
+    """更新模型协议配置请求"""
+    provider_id: str  # Provider ID (UUID)
+    model_id: str  # 模型 ID
+    protocol: Optional[str] = None  # 协议类型: openai, openai-response, anthropic, gemini, 或 null 表示清除配置
 
 
 # ==================== API 端点 ====================
@@ -1030,6 +1039,116 @@ async def update_sync_config(request: SyncConfigRequest):
     )
     if not success:
         raise HTTPException(status_code=400, detail=message)
+    return {"status": "success", "message": message}
+
+
+# ==================== 模型协议配置 ====================
+
+
+@app.get("/api/protocols")
+async def get_available_protocols():
+    """获取所有可用的协议类型"""
+    return {
+        "protocols": [
+            {"value": p.value, "label": p.value, "description": _get_protocol_description(p.value)}
+            for p in ProtocolType
+        ]
+    }
+
+
+def _get_protocol_description(protocol: str) -> str:
+    """获取协议描述"""
+    descriptions = {
+        "openai": "OpenAI Chat Completions API (/v1/chat/completions)",
+        "openai-response": "OpenAI Responses API (/v1/responses)",
+        "anthropic": "Anthropic Messages API (/v1/messages)",
+        "gemini": "Google Gemini API (/models)"
+    }
+    return descriptions.get(protocol, "")
+
+
+@app.get("/api/model-mappings/{unified_name}/model-settings")
+async def get_model_settings(unified_name: str):
+    """获取指定映射的模型协议配置"""
+    mapping = model_mapping_manager.get_mapping(unified_name)
+    if not mapping:
+        raise HTTPException(status_code=404, detail=f"映射 '{unified_name}' 不存在")
+    
+    return {
+        "unified_name": unified_name,
+        "model_settings": mapping.model_settings
+    }
+
+
+@app.put("/api/model-mappings/{unified_name}/model-settings")
+async def update_model_protocol(unified_name: str, request: UpdateModelProtocolRequest):
+    """
+    更新模型的协议配置
+    
+    用于在模型映射面板中为特定模型设置协议类型。
+    如果 protocol 为 null，则清除该模型的协议配置（回退到 Provider 默认协议）。
+    """
+    mapping = model_mapping_manager.get_mapping(unified_name)
+    if not mapping:
+        raise HTTPException(status_code=404, detail=f"映射 '{unified_name}' 不存在")
+    
+    # 验证协议类型
+    if request.protocol is not None:
+        valid_protocols = [p.value for p in ProtocolType]
+        if request.protocol not in valid_protocols:
+            raise HTTPException(
+                status_code=400,
+                detail=f"无效的协议类型 '{request.protocol}'，有效值: {valid_protocols}"
+            )
+    
+    # 使用 model_mapping_manager 的方法设置协议
+    success, message = model_mapping_manager.set_model_protocol(
+        unified_name=unified_name,
+        provider_id=request.provider_id,
+        model_id=request.model_id,
+        protocol=request.protocol
+    )
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    log_manager.log(
+        level=LogLevel.INFO, log_type="admin", method="PUT",
+        path=f"/api/model-mappings/{unified_name}/model-settings",
+        message=f"更新模型协议配置: {request.provider_id}:{request.model_id} -> {request.protocol or '(清除)'}"
+    )
+    
+    return {"status": "success", "message": message}
+
+
+@app.delete("/api/model-mappings/{unified_name}/model-settings/{provider_id}/{model_id}")
+async def delete_model_protocol(unified_name: str, provider_id: str, model_id: str):
+    """
+    删除模型的协议配置
+    
+    清除指定模型的协议配置，使其回退到 Provider 默认协议。
+    """
+    mapping = model_mapping_manager.get_mapping(unified_name)
+    if not mapping:
+        raise HTTPException(status_code=404, detail=f"映射 '{unified_name}' 不存在")
+    
+    # 使用 model_mapping_manager 的方法清除协议
+    success, message = model_mapping_manager.set_model_protocol(
+        unified_name=unified_name,
+        provider_id=provider_id,
+        model_id=model_id,
+        protocol=None  # None 表示清除
+    )
+    
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    log_manager.log(
+        level=LogLevel.INFO, log_type="admin", method="DELETE",
+        path=f"/api/model-mappings/{unified_name}/model-settings/{provider_id}/{model_id}",
+        message=f"清除模型协议配置: {provider_id}:{model_id}"
+    )
+    
     return {"status": "success", "message": message}
 
 

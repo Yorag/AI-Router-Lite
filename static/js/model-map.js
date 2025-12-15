@@ -9,10 +9,12 @@ const ModelMap = {
     syncConfig: {},         // 同步配置
     providerModels: {},     // 缓存各中转站的模型列表 (key: provider_id)
     providerIdNameMap: {},  // provider_id -> provider_name 映射
+    providerDefaultProtocols: {},  // provider_id -> default_protocol 映射
     currentProviderId: '',  // 当前选中的 provider_id
     currentProviderModels: [], // 当前选中的中转站模型
     previewResult: {},      // 预览结果缓存
     healthResults: {},      // 健康检测结果缓存 {provider_id:model -> result}
+    availableProtocols: [], // 可用协议类型缓存
 
     // 规则类型选项
     RULE_TYPES: [
@@ -23,7 +25,46 @@ const ModelMap = {
     ],
 
     async init() {
+        await this.loadProtocols();  // 加载协议类型
+        await this.loadProviderProtocols();  // 加载 Provider 默认协议
         await this.load();
+    },
+
+    /**
+     * 加载可用协议类型
+     */
+    async loadProtocols() {
+        try {
+            const result = await API.getAvailableProtocols();
+            this.availableProtocols = result.protocols || [];
+        } catch (err) {
+            console.warn('加载协议类型失败:', err);
+            this.availableProtocols = [
+                { value: 'openai', label: 'openai', description: 'OpenAI Chat Completions API' },
+                { value: 'openai-response', label: 'openai-response', description: 'OpenAI Responses API' },
+                { value: 'anthropic', label: 'anthropic', description: 'Anthropic Messages API' },
+                { value: 'gemini', label: 'gemini', description: 'Google Gemini API' }
+            ];
+        }
+    },
+
+    /**
+     * 加载 Provider 默认协议配置
+     */
+    async loadProviderProtocols() {
+        try {
+            const result = await API.listProviders();
+            const providers = result.providers || [];
+            this.providerDefaultProtocols = {};
+            for (const p of providers) {
+                if (p.id) {
+                    this.providerDefaultProtocols[p.id] = p.default_protocol || null;
+                }
+            }
+        } catch (err) {
+            console.warn('加载 Provider 协议配置失败:', err);
+            this.providerDefaultProtocols = {};
+        }
     },
 
     async load() {
@@ -150,7 +191,7 @@ const ModelMap = {
                             <span class="info-value">${lastSync}</span>
                         </div>
                     </div>
-                    ${this.renderResolvedModels(mapping.resolved_models || {})}
+                    ${this.renderResolvedModels(mapping.resolved_models || {}, unifiedName)}
                 </div>
             `;
         }).join('');
@@ -207,12 +248,14 @@ const ModelMap = {
         return count;
     },
 
-    renderResolvedModels(resolvedModels) {
+    renderResolvedModels(resolvedModels, unifiedName = null) {
         // resolvedModels 的 key 是 provider_id
         const entries = Object.entries(resolvedModels);
         if (entries.length === 0) {
             return '<div class="resolved-models"><em>无匹配模型，请配置规则后同步</em></div>';
         }
+        
+        const escapedUnifiedName = unifiedName ? unifiedName.replace(/'/g, "\\'") : '';
         
         return `
             <div class="resolved-models collapsed" id="resolved-models-toggle">
@@ -220,14 +263,24 @@ const ModelMap = {
                     <span>▶ 展开匹配详情</span>
                 </div>
                 <div class="resolved-content" style="display: none;">
+                    ${unifiedName ? `
+                    <div class="protocol-config-hint">
+                        <span>💡 点击模型可检测健康状态，右键可配置协议</span>
+                        <button class="btn btn-sm btn-secondary" onclick="ModelMap.showBatchProtocolModal('${escapedUnifiedName}')">
+                            批量配置协议
+                        </button>
+                    </div>
+                    ` : ''}
                     ${entries.map(([providerId, models]) => {
                         // 将 provider_id 转换为显示名称
                         const providerName = this.providerIdNameMap[providerId] || providerId;
+                        const providerProtocol = this.providerDefaultProtocols[providerId];
+                        const protocolLabel = providerProtocol ? `[${providerProtocol}]` : '[混合]';
                         return `
                             <div class="provider-models">
-                                <span class="provider-name">${providerName}:</span>
-                                <div class="model-tags">
-                                    ${models.map(model => this.renderModelTag(providerId, model)).join('')}
+                                <span class="provider-name">${providerName} ${protocolLabel}:</span>
+                                <div class="model-tags" oncontextmenu="return ModelMap.showModelContextMenu(event, '${escapedUnifiedName}', '${providerId}')">
+                                    ${models.map(model => this.renderModelTag(providerId, model, unifiedName)).join('')}
                                 </div>
                             </div>
                         `;
@@ -237,7 +290,33 @@ const ModelMap = {
         `;
     },
 
-    renderModelTag(providerId, model) {
+    /**
+     * 获取模型的协议配置状态
+     * @returns {object} { protocol: string|null, source: 'model'|'provider'|'none', isConfigured: boolean }
+     */
+    getModelProtocolStatus(unifiedName, providerId, model) {
+        const mapping = this.mappings[unifiedName];
+        if (!mapping) return { protocol: null, source: 'none', isConfigured: false };
+        
+        const modelSettings = mapping.model_settings || {};
+        const key = `${providerId}:${model}`;
+        
+        // 检查模型级配置
+        if (modelSettings[key] && modelSettings[key].protocol) {
+            return { protocol: modelSettings[key].protocol, source: 'model', isConfigured: true };
+        }
+        
+        // 检查 Provider 默认协议
+        const providerProtocol = this.providerDefaultProtocols[providerId];
+        if (providerProtocol) {
+            return { protocol: providerProtocol, source: 'provider', isConfigured: true };
+        }
+        
+        // 未配置
+        return { protocol: null, source: 'none', isConfigured: false };
+    },
+
+    renderModelTag(providerId, model, unifiedName = null) {
         // key 使用 provider_id:model 格式
         const key = `${providerId}:${model}`;
         const result = this.healthResults[key];
@@ -272,13 +351,25 @@ const ModelMap = {
             }
         }
         
+        // 获取协议配置状态
+        let protocolBadge = '';
+        if (unifiedName) {
+            const protocolStatus = this.getModelProtocolStatus(unifiedName, providerId, model);
+            if (protocolStatus.isConfigured) {
+                const badgeClass = protocolStatus.source === 'model' ? 'protocol-model' : 'protocol-provider';
+                protocolBadge = `<span class="protocol-badge ${badgeClass}" title="${protocolStatus.source === 'model' ? '模型级配置' : 'Provider 默认'}">${protocolStatus.protocol}</span>`;
+            } else {
+                protocolBadge = `<span class="protocol-badge protocol-none" title="未配置协议，将被跳过">⚠️</span>`;
+            }
+        }
+        
         return `
             <span class="model-tag ${healthClass}"
                 data-provider-id="${providerId}"
                 data-model="${model}"
                 ${clickAction ? `onclick="${clickAction}"` : ''}
                 ${tooltipContent ? `title="${this.escapeHtml(tooltipContent)}"` : ''}>
-                ${model}${latencyText}
+                ${model}${latencyText}${protocolBadge}
             </span>
         `;
     },
@@ -581,7 +672,7 @@ const ModelMap = {
                         </div>
                         
                         <div class="form-group">
-                            <label>预览匹配结果 <button type="button" class="btn btn-sm btn-secondary" onclick="ModelMap.refreshPreview()">🔄 刷新</button></label>
+                            <label>预览匹配结果 <button type="button" class="btn btn-sm btn-secondary" onclick="ModelMap.refreshPreview()"> 刷新</button></label>
                             <div id="preview-result" class="preview-container">
                                 <div class="hint">配置规则后点击刷新预览</div>
                             </div>
@@ -891,6 +982,304 @@ const ModelMap = {
         } catch (error) {
             Toast.error('删除失败: ' + error.message);
         }
+    },
+
+    // ==================== 协议配置功能 ====================
+
+    /**
+     * 显示模型右键菜单
+     */
+    showModelContextMenu(event, unifiedName, providerId) {
+        event.preventDefault();
+        
+        // 获取点击的模型标签
+        const target = event.target.closest('.model-tag');
+        if (!target) return false;
+        
+        const model = target.dataset.model;
+        if (!model) return false;
+        
+        // 移除已有的上下文菜单
+        this.hideContextMenu();
+        
+        const protocolStatus = this.getModelProtocolStatus(unifiedName, providerId, model);
+        const providerName = this.providerIdNameMap[providerId] || providerId;
+        
+        // 创建上下文菜单
+        const menu = document.createElement('div');
+        menu.className = 'model-context-menu';
+        menu.id = 'model-context-menu';
+        menu.innerHTML = `
+            <div class="context-menu-header">
+                <strong>${model}</strong>
+                <span class="provider-info">(${providerName})</span>
+            </div>
+            <div class="context-menu-item" onclick="ModelMap.showProtocolModal('${unifiedName}', '${providerId}', '${model}')">
+                ⚙️ 配置协议
+            </div>
+            ${protocolStatus.source === 'model' ? `
+            <div class="context-menu-item danger" onclick="ModelMap.clearModelProtocol('${unifiedName}', '${providerId}', '${model}')">
+                🗑️ 清除协议配置
+            </div>
+            ` : ''}
+            <div class="context-menu-item" onclick="ModelMap.testSingleModelSilent('${providerId}', '${model}')">
+                🔍 检测健康
+            </div>
+        `;
+        
+        // 定位菜单
+        menu.style.position = 'fixed';
+        menu.style.left = event.clientX + 'px';
+        menu.style.top = event.clientY + 'px';
+        menu.style.zIndex = '10000';
+        
+        document.body.appendChild(menu);
+        
+        // 点击其他地方关闭菜单
+        setTimeout(() => {
+            document.addEventListener('click', this.hideContextMenu);
+        }, 10);
+        
+        return false;
+    },
+
+    hideContextMenu() {
+        const menu = document.getElementById('model-context-menu');
+        if (menu) {
+            menu.remove();
+        }
+        document.removeEventListener('click', ModelMap.hideContextMenu);
+    },
+
+    /**
+     * 显示单个模型协议配置模态框
+     */
+    showProtocolModal(unifiedName, providerId, model) {
+        this.hideContextMenu();
+        
+        const providerName = this.providerIdNameMap[providerId] || providerId;
+        const protocolStatus = this.getModelProtocolStatus(unifiedName, providerId, model);
+        const providerDefaultProtocol = this.providerDefaultProtocols[providerId] || '(未设置)';
+        
+        const protocolOptions = this.availableProtocols.map(p => {
+            const selected = protocolStatus.protocol === p.value && protocolStatus.source === 'model' ? 'selected' : '';
+            return `<option value="${p.value}" ${selected}>${p.label} - ${p.description}</option>`;
+        }).join('');
+        
+        const content = `
+            <form onsubmit="ModelMap.saveModelProtocol(event, '${unifiedName}', '${providerId}', '${model}')">
+                <div class="form-group">
+                    <label>模型</label>
+                    <input type="text" value="${model}" disabled>
+                </div>
+                <div class="form-group">
+                    <label>所属渠道</label>
+                    <input type="text" value="${providerName}" disabled>
+                    <div class="hint">渠道默认协议: ${providerDefaultProtocol}</div>
+                </div>
+                <div class="form-group">
+                    <label>当前状态</label>
+                    <div class="protocol-status">
+                        ${protocolStatus.isConfigured
+                            ? `<span class="status-badge info">${protocolStatus.protocol} (${protocolStatus.source === 'model' ? '模型级配置' : 'Provider默认'})</span>`
+                            : `<span class="status-badge warning">未配置 - 该模型将被跳过</span>`
+                        }
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>选择协议</label>
+                    <select id="model-protocol-select">
+                        <option value="">使用 Provider 默认</option>
+                        ${protocolOptions}
+                    </select>
+                    <div class="hint">选择"使用 Provider 默认"将清除模型级配置，回退到渠道默认协议</div>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        `;
+        
+        Modal.show('配置模型协议', content, { width: '500px' });
+    },
+
+    /**
+     * 保存单个模型协议配置
+     */
+    async saveModelProtocol(event, unifiedName, providerId, model) {
+        event.preventDefault();
+        
+        const protocol = document.getElementById('model-protocol-select').value || null;
+        
+        try {
+            await API.updateModelProtocol(unifiedName, {
+                provider_id: providerId,
+                model_id: model,
+                protocol: protocol
+            });
+            
+            // 更新本地缓存
+            if (!this.mappings[unifiedName].model_settings) {
+                this.mappings[unifiedName].model_settings = {};
+            }
+            const key = `${providerId}:${model}`;
+            if (protocol) {
+                this.mappings[unifiedName].model_settings[key] = { protocol };
+            } else {
+                delete this.mappings[unifiedName].model_settings[key];
+            }
+            
+            Modal.close();
+            Toast.success(protocol ? `已设置协议为 ${protocol}` : '已清除模型协议配置');
+            this.render();
+        } catch (error) {
+            Toast.error('保存失败: ' + error.message);
+        }
+    },
+
+    /**
+     * 清除模型协议配置
+     */
+    async clearModelProtocol(unifiedName, providerId, model) {
+        this.hideContextMenu();
+        
+        try {
+            await API.deleteModelProtocol(unifiedName, providerId, model);
+            
+            // 更新本地缓存
+            if (this.mappings[unifiedName]?.model_settings) {
+                const key = `${providerId}:${model}`;
+                delete this.mappings[unifiedName].model_settings[key];
+            }
+            
+            Toast.success('已清除模型协议配置');
+            this.render();
+        } catch (error) {
+            Toast.error('清除失败: ' + error.message);
+        }
+    },
+
+    /**
+     * 显示批量协议配置模态框
+     */
+    showBatchProtocolModal(unifiedName) {
+        const mapping = this.mappings[unifiedName];
+        if (!mapping) {
+            Toast.error('映射不存在');
+            return;
+        }
+        
+        const resolvedModels = mapping.resolved_models || {};
+        const modelSettings = mapping.model_settings || {};
+        
+        // 统计各协议配置情况
+        let configuredCount = 0;
+        let unconfiguredCount = 0;
+        
+        for (const [providerId, models] of Object.entries(resolvedModels)) {
+            for (const model of models) {
+                const status = this.getModelProtocolStatus(unifiedName, providerId, model);
+                if (status.isConfigured) {
+                    configuredCount++;
+                } else {
+                    unconfiguredCount++;
+                }
+            }
+        }
+        
+        const protocolOptions = this.availableProtocols.map(p => {
+            return `<option value="${p.value}">${p.label}</option>`;
+        }).join('');
+        
+        const content = `
+            <form onsubmit="ModelMap.saveBatchProtocol(event, '${unifiedName}')">
+                <div class="form-group">
+                    <label>映射名称</label>
+                    <input type="text" value="${unifiedName}" disabled>
+                </div>
+                <div class="form-group">
+                    <label>当前状态</label>
+                    <div class="batch-status">
+                        <span class="status-badge info">已配置: ${configuredCount}</span>
+                        ${unconfiguredCount > 0 ? `<span class="status-badge warning">未配置: ${unconfiguredCount}</span>` : ''}
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>批量操作范围</label>
+                    <select id="batch-scope">
+                        <option value="unconfigured">仅未配置的模型</option>
+                        <option value="all">所有模型</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>设置协议</label>
+                    <select id="batch-protocol">
+                        ${protocolOptions}
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
+                    <button type="submit" class="btn btn-primary">批量设置</button>
+                </div>
+            </form>
+        `;
+        
+        Modal.show('批量配置模型协议', content, { width: '500px' });
+    },
+
+    /**
+     * 保存批量协议配置
+     */
+    async saveBatchProtocol(event, unifiedName) {
+        event.preventDefault();
+        
+        const scope = document.getElementById('batch-scope').value;
+        const protocol = document.getElementById('batch-protocol').value;
+        
+        if (!protocol) {
+            Toast.warning('请选择协议');
+            return;
+        }
+        
+        const mapping = this.mappings[unifiedName];
+        const resolvedModels = mapping.resolved_models || {};
+        
+        let successCount = 0;
+        let errorCount = 0;
+        
+        for (const [providerId, models] of Object.entries(resolvedModels)) {
+            for (const model of models) {
+                // 如果是只处理未配置的，检查是否已配置
+                if (scope === 'unconfigured') {
+                    const status = this.getModelProtocolStatus(unifiedName, providerId, model);
+                    if (status.isConfigured) continue;
+                }
+                
+                try {
+                    await API.updateModelProtocol(unifiedName, {
+                        provider_id: providerId,
+                        model_id: model,
+                        protocol: protocol
+                    });
+                    successCount++;
+                } catch (e) {
+                    console.error(`设置 ${providerId}:${model} 协议失败:`, e);
+                    errorCount++;
+                }
+            }
+        }
+        
+        Modal.close();
+        
+        if (errorCount === 0) {
+            Toast.success(`成功配置 ${successCount} 个模型`);
+        } else {
+            Toast.warning(`配置完成: ${successCount} 成功, ${errorCount} 失败`);
+        }
+        
+        // 重新加载以获取最新数据
+        await this.load();
     }
 };
 

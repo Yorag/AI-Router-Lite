@@ -2,6 +2,7 @@
 请求代理模块
 
 负责将请求转发到上游 Provider，支持流式和非流式响应
+支持多种上游协议（OpenAI, Anthropic, Gemini 等）
 
 注意：内部使用 provider_id (UUID) 作为标识，而非 provider name
 """
@@ -14,11 +15,13 @@ from dataclasses import dataclass
 
 import httpx
 
-from .config import AppConfig
+from .config import AppConfig, ProtocolType
 from .models import ChatCompletionRequest
 from .provider import ProviderManager, ProviderState
 from .router import ModelRouter
 from .provider_models import provider_models_manager
+from .model_mapping import model_mapping_manager
+from .protocols import ProtocolFactory, BaseProtocol, GeminiProtocol
 
 
 @dataclass
@@ -62,7 +65,15 @@ class ProxyError(Exception):
 
 
 class RequestProxy:
-    """请求代理"""
+    """
+    请求代理
+    
+    支持多种上游协议，通过协议适配器实现格式转换。
+    协议选择遵循双层继承机制：
+    1. 优先使用模型映射中的 model_settings 配置
+    2. 如果未配置，则使用 Provider 的 default_protocol
+    3. 如果 Provider 也未配置（混合类型），则跳过该 Provider
+    """
     
     def __init__(
         self,
@@ -74,6 +85,44 @@ class RequestProxy:
         self.provider_manager = provider_manager
         self.router = router
         self._client: Optional[httpx.AsyncClient] = None
+    
+    def get_effective_protocol(
+        self,
+        provider: ProviderState,
+        actual_model: str,
+        original_model: str
+    ) -> Optional[str]:
+        """
+        获取生效的协议类型
+        
+        双层继承机制：
+        1. 优先使用模型映射中的 model_settings 配置
+        2. 如果未配置，则使用 Provider 的 default_protocol
+        3. 如果都未配置，返回 None（表示不可用）
+        
+        Args:
+            provider: Provider 状态对象
+            actual_model: 实际使用的模型名
+            original_model: 用户请求的原始模型名（统一模型名）
+            
+        Returns:
+            协议类型字符串，如果无有效协议则返回 None
+        """
+        provider_id = provider.config.id
+        
+        # 1. 尝试从模型映射的 model_settings 获取
+        mapping = model_mapping_manager.get_mapping(original_model)
+        if mapping:
+            model_protocol = mapping.get_model_protocol(provider_id, actual_model)
+            if model_protocol:
+                return model_protocol
+        
+        # 2. 回退到 Provider 的 default_protocol
+        if provider.config.default_protocol:
+            return provider.config.default_protocol.value
+        
+        # 3. 都未配置，返回 None
+        return None
     
     async def get_client(self) -> httpx.AsyncClient:
         """获取 HTTP 客户端"""
@@ -129,13 +178,24 @@ class RequestProxy:
             provider, actual_model = selection
             tried_providers.add(provider.config.id)  # 使用 id 而非 name
             
+            # 获取有效协议
+            protocol_type = self.get_effective_protocol(provider, actual_model, original_model)
+            if protocol_type is None:
+                self._log_warning(
+                    f"Provider [{provider.config.name}] 未配置有效协议，跳过"
+                )
+                continue
+            
+            # 获取协议适配器
+            protocol = ProtocolFactory.get_protocol(protocol_type)
+            
             self._log_info(
                 f"[尝试 {attempt + 1}/{self.config.max_retries}] "
-                f"Provider: {provider.config.name} (ID: {provider.config.id}), 模型: {actual_model}"
+                f"Provider: {provider.config.name} (ID: {provider.config.id}), 模型: {actual_model}, 协议: {protocol_type}"
             )
             
             try:
-                response = await self._do_request(provider, request, actual_model)
+                response = await self._do_request(provider, request, actual_model, original_model, protocol)
                 
                 # 提取 token 使用量
                 usage = response.get("usage", {})
@@ -237,13 +297,24 @@ class RequestProxy:
                 stream_context.provider_name = provider.config.name
                 stream_context.actual_model = actual_model
             
+            # 获取有效协议
+            protocol_type = self.get_effective_protocol(provider, actual_model, original_model)
+            if protocol_type is None:
+                self._log_warning(
+                    f"Provider [{provider.config.name}] 未配置有效协议，跳过"
+                )
+                continue
+            
+            # 获取协议适配器
+            protocol = ProtocolFactory.get_protocol(protocol_type)
+            
             self._log_info(
                 f"[流式尝试 {attempt + 1}/{self.config.max_retries}] "
-                f"Provider: {provider.config.name} (ID: {provider.config.id}), 模型: {actual_model}"
+                f"Provider: {provider.config.name} (ID: {provider.config.id}), 模型: {actual_model}, 协议: {protocol_type}"
             )
             
             try:
-                async for chunk in self._do_stream_request(provider, request, actual_model, original_model, stream_context):
+                async for chunk in self._do_stream_request(provider, request, actual_model, original_model, protocol, stream_context):
                     yield chunk
                 
                 # 提取流式上下文中的 token 使用量
@@ -295,29 +366,49 @@ class RequestProxy:
         self,
         provider: ProviderState,
         request: ChatCompletionRequest,
-        actual_model: str
+        actual_model: str,
+        original_model: str,
+        protocol: BaseProtocol
     ) -> dict:
         """
-        执行单次非流式请求
+        执行单次非流式请求（使用协议适配器）
+        
+        Args:
+            provider: Provider 状态对象
+            request: 聊天补全请求
+            actual_model: 实际使用的模型名
+            original_model: 用户请求的原始模型名
+            protocol: 协议适配器
+            
+        Returns:
+            OpenAI 格式的响应字典
         """
         client = await self.get_client()
-        url = f"{provider.config.base_url.rstrip('/')}/chat/completions"
+        base_url = provider.config.base_url.rstrip('/')
         
-        # 构建请求体，替换模型名
-        body = request.model_dump(exclude_none=True)
-        body["model"] = actual_model
+        # 使用协议适配器构建请求
+        protocol_request = protocol.build_request(
+            request,
+            provider.config.api_key,
+            actual_model
+        )
+        
+        # 获取端点 URL
+        url = protocol.get_endpoint(base_url, actual_model)
+        
+        # 处理 Gemini 等需要 URL 参数的协议
+        if protocol_request.url:
+            url += protocol_request.url
+        
+        # 确保非流式请求
+        body = protocol_request.body.copy()
         body["stream"] = False
-        
-        headers = {
-            "Authorization": f"Bearer {provider.config.api_key}",
-            "Content-Type": "application/json"
-        }
         
         try:
             response = await client.post(
                 url,
                 json=body,
-                headers=headers,
+                headers=protocol_request.headers,
                 timeout=self._get_timeout(provider)
             )
             
@@ -329,7 +420,12 @@ class RequestProxy:
                     provider_name=provider.config.name
                 )
             
-            return response.json()
+            raw_response = response.json()
+            
+            # 使用协议适配器转换响应
+            protocol_response = protocol.transform_response(raw_response, original_model)
+            
+            return protocol_response.response
             
         except httpx.TimeoutException:
             raise ProxyError(
@@ -350,32 +446,53 @@ class RequestProxy:
         request: ChatCompletionRequest,
         actual_model: str,
         original_model: str,
+        protocol: BaseProtocol,
         stream_context: Optional[StreamContext] = None
     ) -> AsyncIterator[str]:
         """
-        执行单次流式请求
+        执行单次流式请求（使用协议适配器）
+        
+        Args:
+            provider: Provider 状态对象
+            request: 聊天补全请求
+            actual_model: 实际使用的模型名
+            original_model: 用户请求的原始模型名
+            protocol: 协议适配器
+            stream_context: 流上下文对象
+            
+        Yields:
+            SSE 格式的响应数据块
         """
         client = await self.get_client()
-        url = f"{provider.config.base_url.rstrip('/')}/chat/completions"
+        base_url = provider.config.base_url.rstrip('/')
         
-        # 构建请求体，替换模型名
-        body = request.model_dump(exclude_none=True)
-        body["model"] = actual_model
+        # 使用协议适配器构建请求
+        protocol_request = protocol.build_request(
+            request,
+            provider.config.api_key,
+            actual_model
+        )
+        
+        # 获取端点 URL（流式可能有不同端点）
+        if isinstance(protocol, GeminiProtocol):
+            url = protocol.get_stream_endpoint(base_url, actual_model)
+        else:
+            url = protocol.get_endpoint(base_url, actual_model)
+        
+        # 处理 Gemini 等需要 URL 参数的协议
+        if protocol_request.url:
+            url += protocol_request.url
+        
+        # 确保流式请求
+        body = protocol_request.body.copy()
         body["stream"] = True
-        # 请求包含 usage 信息（如果 Provider 支持）
-        body["stream_options"] = {"include_usage": True}
-        
-        headers = {
-            "Authorization": f"Bearer {provider.config.api_key}",
-            "Content-Type": "application/json"
-        }
         
         try:
             async with client.stream(
                 "POST",
                 url,
                 json=body,
-                headers=headers,
+                headers=protocol_request.headers,
                 timeout=self._get_timeout(provider)
             ) as response:
                 if response.status_code != 200:
@@ -391,36 +508,21 @@ class RequestProxy:
                     if not line:
                         continue
                     
-                    # 处理 SSE 格式
-                    if line.startswith("data: "):
-                        data = line[6:]  # 移除 "data: " 前缀
+                    # 使用协议适配器转换流式响应块
+                    transformed, usage = protocol.transform_stream_chunk(line, original_model)
+                    
+                    if transformed:
+                        # 更新 stream_context 中的 usage 信息
+                        if stream_context and usage:
+                            stream_context.request_tokens = usage.get("prompt_tokens")
+                            stream_context.response_tokens = usage.get("completion_tokens")
+                            stream_context.total_tokens = usage.get("total_tokens")
                         
-                        if data.strip() == "[DONE]":
-                            yield "data: [DONE]\n\n"
+                        yield transformed
+                        
+                        # 检查是否是结束标记
+                        if "[DONE]" in transformed:
                             break
-                        
-                        # 解析并替换模型名
-                        try:
-                            chunk = json.loads(data)
-                            if "model" in chunk:
-                                chunk["model"] = original_model
-                            
-                            # 提取流式响应中的 usage 信息（通常在最后一个 chunk 中）
-                            if stream_context is not None and "usage" in chunk:
-                                usage = chunk["usage"]
-                                # 某些 Provider 可能返回 "usage": null，需要检查
-                                if usage is not None:
-                                    stream_context.request_tokens = usage.get("prompt_tokens")
-                                    stream_context.response_tokens = usage.get("completion_tokens")
-                                    stream_context.total_tokens = usage.get("total_tokens")
-                            
-                            yield f"data: {json.dumps(chunk)}\n\n"
-                        except json.JSONDecodeError:
-                            # 无法解析的直接透传
-                            yield f"data: {data}\n\n"
-                    else:
-                        # 非 data 行直接透传
-                        yield f"{line}\n"
                         
         except httpx.TimeoutException:
             raise ProxyError(
@@ -436,11 +538,6 @@ class RequestProxy:
                 provider_name=provider.config.name,
                 actual_model=actual_model
             )
-    
-    @staticmethod
-    def generate_response_id() -> str:
-        """生成响应 ID"""
-        return f"chatcmpl-{uuid.uuid4().hex[:24]}"
     
     @staticmethod
     def _log_info(message: str) -> None:
