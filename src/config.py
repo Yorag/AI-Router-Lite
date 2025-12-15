@@ -5,6 +5,7 @@
 """
 
 import json
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -17,14 +18,23 @@ from .constants import (
 )
 
 
+def generate_provider_id() -> str:
+    """生成新的 Provider ID (UUID4)"""
+    return str(uuid.uuid4())
+
+
 class ProviderConfig(BaseModel):
     """
     单个 Provider 的配置
     
-    注意：模型列表存储在 data/provider_models.json 中，
-    通过 /api/providers/{name}/models 接口同步获取。
+    注意：
+    - id 是不可变的唯一标识，用于内部关联（数据文件、健康检测结果等）
+    - name 是可变的显示名称，用于用户界面展示
+    - 模型列表存储在 data/provider_models.json 中，
+      通过 /api/providers/{id}/models 接口同步获取
     """
-    name: str = Field(..., description="Provider 名称，用于日志标识")
+    id: str = Field(default_factory=generate_provider_id, description="Provider 唯一标识 (UUID)，内部使用")
+    name: str = Field(..., description="Provider 显示名称，可修改")
     base_url: str = Field(..., description="API 基础 URL")
     api_key: str = Field(..., description="API Key")
     weight: int = Field(default=1, ge=1, description="权重，数值越高优先级越高")

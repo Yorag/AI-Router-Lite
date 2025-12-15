@@ -7,10 +7,12 @@
 const ModelMap = {
     mappings: {},           // 映射配置
     syncConfig: {},         // 同步配置
-    providerModels: {},     // 缓存各中转站的模型列表
+    providerModels: {},     // 缓存各中转站的模型列表 (key: provider_id)
+    providerIdNameMap: {},  // provider_id -> provider_name 映射
+    currentProviderId: '',  // 当前选中的 provider_id
     currentProviderModels: [], // 当前选中的中转站模型
     previewResult: {},      // 预览结果缓存
-    healthResults: {},      // 健康检测结果缓存 {provider:model -> result}
+    healthResults: {},      // 健康检测结果缓存 {provider_id:model -> result}
 
     // 规则类型选项
     RULE_TYPES: [
@@ -75,6 +77,11 @@ const ModelMap = {
             const lastSync = mapping.last_sync ? new Date(mapping.last_sync).toLocaleString() : '未同步';
             const excludedProviders = mapping.excluded_providers || [];
             
+            // 将 excluded_providers (provider_id) 转换为显示名称
+            const excludedProviderNames = excludedProviders.map(pid =>
+                this.providerIdNameMap[pid] || pid
+            );
+            
             return `
                 <div class="model-map-item">
                     <div class="model-map-header">
@@ -109,7 +116,7 @@ const ModelMap = {
                         ${excludedProviders.length > 0 ? `
                         <div class="info-row">
                             <span class="info-label">排除渠道:</span>
-                            <span class="info-value excluded-providers-list">${excludedProviders.map(p => `<span class="excluded-provider-tag">🚫 ${p}</span>`).join(' ')}</span>
+                            <span class="info-value excluded-providers-list">${excludedProviderNames.map(name => `<span class="excluded-provider-tag">🚫 ${name}</span>`).join(' ')}</span>
                         </div>
                         ` : ''}
                         ${(mapping.manual_excludes || []).length > 0 ? `
@@ -187,6 +194,7 @@ const ModelMap = {
     },
 
     renderResolvedModels(resolvedModels) {
+        // resolvedModels 的 key 是 provider_id
         const entries = Object.entries(resolvedModels);
         if (entries.length === 0) {
             return '<div class="resolved-models"><em>无匹配模型，请配置规则后同步</em></div>';
@@ -198,27 +206,32 @@ const ModelMap = {
                     <span>▶ 展开匹配详情</span>
                 </div>
                 <div class="resolved-content" style="display: none;">
-                    ${entries.map(([provider, models]) => `
-                        <div class="provider-models">
-                            <span class="provider-name">${provider}:</span>
-                            <div class="model-tags">
-                                ${models.map(model => this.renderModelTag(provider, model)).join('')}
+                    ${entries.map(([providerId, models]) => {
+                        // 将 provider_id 转换为显示名称
+                        const providerName = this.providerIdNameMap[providerId] || providerId;
+                        return `
+                            <div class="provider-models">
+                                <span class="provider-name">${providerName}:</span>
+                                <div class="model-tags">
+                                    ${models.map(model => this.renderModelTag(providerId, model)).join('')}
+                                </div>
                             </div>
-                        </div>
-                    `).join('')}
+                        `;
+                    }).join('')}
                 </div>
             </div>
         `;
     },
 
-    renderModelTag(provider, model) {
-        const key = `${provider}:${model}`;
+    renderModelTag(providerId, model) {
+        // key 使用 provider_id:model 格式
+        const key = `${providerId}:${model}`;
         const result = this.healthResults[key];
         
         let healthClass = 'health-unknown';
         let tooltipContent = '点击检测';
         let latencyText = '';
-        let clickAction = `ModelMap.testSingleModelSilent('${provider}', '${model}')`;
+        let clickAction = `ModelMap.testSingleModelSilent('${providerId}', '${model}')`;
         
         if (result) {
             healthClass = result.success ? 'health-success' : 'health-error';
@@ -241,13 +254,13 @@ const ModelMap = {
                     tooltipContent = result.error || '检测失败';
                 }
                 // 失败的模型点击也可以重新检测
-                clickAction = `ModelMap.testSingleModelSilent('${provider}', '${model}')`;
+                clickAction = `ModelMap.testSingleModelSilent('${providerId}', '${model}')`;
             }
         }
         
         return `
             <span class="model-tag ${healthClass}"
-                data-provider="${provider}"
+                data-provider-id="${providerId}"
                 data-model="${model}"
                 ${clickAction ? `onclick="${clickAction}"` : ''}
                 ${tooltipContent ? `title="${this.escapeHtml(tooltipContent)}"` : ''}>
@@ -263,11 +276,12 @@ const ModelMap = {
     },
 
     // 静默检测单个模型（点击灰色/红色模型标签时触发）
-    async testSingleModelSilent(provider, model) {
+    async testSingleModelSilent(providerId, model) {
         try {
-            const result = await API.testSingleModelHealth(provider, model);
+            const result = await API.testSingleModelHealth(providerId, model);
             
-            const key = `${provider}:${model}`;
+            // key 使用 provider_id:model 格式
+            const key = `${providerId}:${model}`;
             this.healthResults[key] = result;
             
             if (result.success) {
@@ -363,6 +377,7 @@ const ModelMap = {
             }
             
             // 更新健康结果缓存并重新渲染
+            // 结果中 provider 字段存储 provider_id
             for (const r of result.results) {
                 const key = `${r.provider}:${r.model}`;
                 this.healthResults[key] = r;
@@ -374,11 +389,11 @@ const ModelMap = {
         }
     },
 
-    async testSingleModel(provider, model) {
+    async testSingleModel(providerId, model) {
         try {
-            const result = await API.testSingleModelHealth(provider, model);
+            const result = await API.testSingleModelHealth(providerId, model);
             
-            const key = `${provider}:${model}`;
+            const key = `${providerId}:${model}`;
             this.healthResults[key] = result;
             
             if (result.success) {
@@ -400,10 +415,12 @@ const ModelMap = {
     async showCreateModal() {
         try {
             const data = await API.fetchAllProviderModels();
-            this.providerModels = data.provider_models || {};
+            // 新格式: { provider_id: { provider_name: "xxx", models: [...] } }
+            this.processProviderModelsData(data.provider_models || {});
         } catch (error) {
             console.error('Fetch provider models error:', error);
             this.providerModels = {};
+            this.providerIdNameMap = {};
         }
 
         const content = this.buildModalContent(null);
@@ -419,10 +436,12 @@ const ModelMap = {
 
         try {
             const data = await API.fetchAllProviderModels();
-            this.providerModels = data.provider_models || {};
+            // 新格式: { provider_id: { provider_name: "xxx", models: [...] } }
+            this.processProviderModelsData(data.provider_models || {});
         } catch (error) {
             console.error('Fetch provider models error:', error);
             this.providerModels = {};
+            this.providerIdNameMap = {};
         }
 
         const content = this.buildModalContent(unifiedName, mapping);
@@ -432,25 +451,47 @@ const ModelMap = {
         this.refreshPreview();
     },
 
+    /**
+     * 处理从 API 返回的 provider_models 数据
+     * 新格式: { provider_id: { provider_name: "xxx", models: [...] } }
+     */
+    processProviderModelsData(rawData) {
+        this.providerModels = {};
+        this.providerIdNameMap = {};
+        
+        for (const [providerId, providerData] of Object.entries(rawData)) {
+            const providerName = providerData.provider_name || providerId;
+            const models = providerData.models || [];
+            
+            this.providerIdNameMap[providerId] = providerName;
+            this.providerModels[providerId] = models;
+        }
+    },
+
     buildModalContent(unifiedName, mapping = null) {
         const isEdit = !!mapping;
         const rules = mapping?.rules || [];
         const manualIncludes = mapping?.manual_includes || [];
         const manualExcludes = mapping?.manual_excludes || [];
-        const excludedProviders = mapping?.excluded_providers || [];
+        const excludedProviders = mapping?.excluded_providers || [];  // 这是 provider_id 数组
 
-        const providerOptions = Object.keys(this.providerModels).map(name =>
-            `<option value="${name}">${name} (${this.providerModels[name].length} 个模型)</option>`
-        ).join('');
+        // 使用 provider_id 作为 value，显示 provider_name
+        const providerOptions = Object.entries(this.providerModels).map(([providerId, models]) => {
+            const providerName = this.providerIdNameMap[providerId] || providerId;
+            const modelCount = Array.isArray(models) ? models.length : (models.models?.length || 0);
+            return `<option value="${providerId}">${providerName} (${modelCount} 个模型)</option>`;
+        }).join('');
 
-        // 生成排除渠道的checkbox列表
-        const excludedProvidersCheckboxes = Object.keys(this.providerModels).map(name => {
-            const isExcluded = excludedProviders.includes(name);
+        // 生成排除渠道的checkbox列表，使用 provider_id 作为 value
+        const excludedProvidersCheckboxes = Object.entries(this.providerModels).map(([providerId, models]) => {
+            const providerName = this.providerIdNameMap[providerId] || providerId;
+            const modelCount = Array.isArray(models) ? models.length : (models.models?.length || 0);
+            const isExcluded = excludedProviders.includes(providerId);
             return `
                 <label class="provider-checkbox ${isExcluded ? 'excluded' : ''}">
-                    <input type="checkbox" name="excluded-provider" value="${name}" ${isExcluded ? 'checked' : ''}>
-                    <span class="provider-name">${name}</span>
-                    <span class="model-count">(${this.providerModels[name].length})</span>
+                    <input type="checkbox" name="excluded-provider" value="${providerId}" ${isExcluded ? 'checked' : ''}>
+                    <span class="provider-name">${providerName}</span>
+                    <span class="model-count">(${modelCount})</span>
                 </label>
             `;
         }).join('');
@@ -606,9 +647,12 @@ const ModelMap = {
     // ==================== 中转站模型选择 ====================
 
     onProviderChange() {
-        const providerName = document.getElementById('mapping-provider-select').value;
-        const providerData = this.providerModels[providerName] || [];
-        this.currentProviderModels = providerData.map(m => typeof m === 'string' ? m : m.id);
+        const providerId = document.getElementById('mapping-provider-select').value;
+        this.currentProviderId = providerId;
+        const providerData = this.providerModels[providerId] || [];
+        // 处理模型数据：可能是直接的模型数组，或者是包含 models 字段的对象
+        const models = Array.isArray(providerData) ? providerData : (providerData.models || []);
+        this.currentProviderModels = models.map(m => typeof m === 'string' ? m : m.id);
         this.filterModels();
     },
 
@@ -642,13 +686,16 @@ const ModelMap = {
         const textarea = document.getElementById('mapping-manual-includes');
         const currentModels = textarea.value.split('\n').map(m => m.trim()).filter(m => m);
         
-        const providerName = document.getElementById('mapping-provider-select').value;
-        const fullRef = providerName ? `${providerName}:${model}` : model;
+        // 使用 provider_id 构建引用
+        const providerId = this.currentProviderId;
+        const providerName = this.providerIdNameMap[providerId] || providerId;
+        const fullRef = providerId ? `${providerId}:${model}` : model;
+        const displayRef = providerId ? `${providerName}:${model}` : model;
         
         if (!currentModels.includes(fullRef) && !currentModels.includes(model)) {
             currentModels.push(fullRef);
             textarea.value = currentModels.join('\n');
-            Toast.success(`已添加: ${fullRef}`);
+            Toast.success(`已添加: ${displayRef}`);
         } else {
             Toast.info('该模型已在列表中');
         }
@@ -714,14 +761,16 @@ const ModelMap = {
         
         let html = `<div class="preview-summary">共 ${total_count} 个模型，来自 ${provider_count} 个渠道</div>`;
         
-        for (const [provider, models] of Object.entries(matched_models)) {
+        // matched_models 的 key 是 provider_id
+        for (const [providerId, models] of Object.entries(matched_models)) {
+            const providerName = this.providerIdNameMap[providerId] || providerId;
             html += `
                 <div class="preview-provider">
-                    <div class="provider-header">${provider} (${models.length})</div>
+                    <div class="provider-header">${providerName} (${models.length})</div>
                     <div class="provider-models">
                         ${models.map(m => `
-                            <span class="model-tag" 
-                                onclick="ModelMap.addToManualExclude('${m}')" 
+                            <span class="model-tag"
+                                onclick="ModelMap.addToManualExclude('${m}')"
                                 title="点击排除此模型">
                                 ${m}
                             </span>

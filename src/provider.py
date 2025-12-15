@@ -2,6 +2,8 @@
 Provider 管理和熔断逻辑模块
 
 负责管理 Provider 状态、实现双层熔断器模式（渠道级 + 模型级）
+
+注意：内部使用 provider_id (UUID) 作为标识，而非 provider name
 """
 
 import time
@@ -78,7 +80,7 @@ MODEL_LEVEL_ERRORS = {
 @dataclass
 class ModelState:
     """模型运行时状态（针对特定 Provider + Model 组合）"""
-    provider_name: str
+    provider_id: str  # Provider 的唯一 ID (UUID)
     model_name: str
     status: ModelStatus = ModelStatus.HEALTHY
     cooldown_until: float = 0.0
@@ -163,40 +165,50 @@ class ProviderManager:
     支持双层熔断机制：
     - 渠道级熔断：影响整个 Provider（如鉴权失败、网络错误）
     - 模型级熔断：仅影响特定 Provider + Model 组合（如超频、服务错误）
+    
+    注意：内部使用 provider_id (UUID) 作为标识
     """
     
     def __init__(self):
+        # key = provider_id
         self._providers: dict[str, ProviderState] = {}
-        # 模型状态：key = "provider_name:model_name"
+        # 模型状态：key = "provider_id:model_name"
         self._model_states: dict[str, ModelState] = {}
     
-    def _get_model_key(self, provider_name: str, model_name: str) -> str:
-        """生成模型状态的唯一键"""
-        return f"{provider_name}:{model_name}"
+    def _get_model_key(self, provider_id: str, model_name: str) -> str:
+        """生成模型状态的唯一键（provider_id:model_name）"""
+        return f"{provider_id}:{model_name}"
     
     def register(self, config: ProviderConfig) -> None:
-        """注册一个 Provider"""
-        self._providers[config.name] = ProviderState(config=config)
-        # self._log_info(f"已注册 Provider: {config.name}")
+        """注册一个 Provider（使用 id 作为 key）"""
+        self._providers[config.id] = ProviderState(config=config)
+        # self._log_info(f"已注册 Provider: {config.name} (ID: {config.id})")
     
     def register_all(self, configs: list[ProviderConfig]) -> None:
         """批量注册 Provider"""
         for config in configs:
             self.register(config)
     
-    def get(self, name: str) -> Optional[ProviderState]:
-        """获取指定 Provider 的状态"""
-        return self._providers.get(name)
+    def get(self, provider_id: str) -> Optional[ProviderState]:
+        """通过 ID 获取指定 Provider 的状态"""
+        return self._providers.get(provider_id)
     
-    def get_model_state(self, provider_name: str, model_name: str) -> ModelState:
+    def get_by_name(self, name: str) -> Optional[ProviderState]:
+        """通过名称获取 Provider 状态（兼容性方法）"""
+        for provider in self._providers.values():
+            if provider.config.name == name:
+                return provider
+        return None
+    
+    def get_model_state(self, provider_id: str, model_name: str) -> ModelState:
         """
         获取指定 Provider + Model 组合的状态
         如果不存在则创建新的健康状态
         """
-        key = self._get_model_key(provider_name, model_name)
+        key = self._get_model_key(provider_id, model_name)
         if key not in self._model_states:
             self._model_states[key] = ModelState(
-                provider_name=provider_name,
+                provider_id=provider_id,
                 model_name=model_name
             )
         return self._model_states[key]
@@ -209,7 +221,7 @@ class ProviderManager:
         """获取所有渠道级可用的 Provider"""
         return [p for p in self._providers.values() if p.is_available]
     
-    def is_model_available(self, provider_name: str, model_name: str) -> bool:
+    def is_model_available(self, provider_id: str, model_name: str) -> bool:
         """
         检查特定 Provider + Model 组合是否可用
         
@@ -217,43 +229,43 @@ class ProviderManager:
         1. Provider 渠道级可用
         2. 该 Provider 下的该模型可用
         """
-        provider = self._providers.get(provider_name)
+        provider = self._providers.get(provider_id)
         if not provider or not provider.is_available:
             return False
         
-        model_state = self.get_model_state(provider_name, model_name)
+        model_state = self.get_model_state(provider_id, model_name)
         return model_state.is_available
     
-    def get_model_last_activity_time(self, provider_name: str, model_name: str) -> Optional[float]:
+    def get_model_last_activity_time(self, provider_id: str, model_name: str) -> Optional[float]:
         """
         获取模型的最后活动时间
         
         Args:
-            provider_name: Provider 名称
+            provider_id: Provider 的唯一 ID
             model_name: 模型名称
             
         Returns:
             最后活动时间戳，如果从未有活动则返回 None
         """
-        key = self._get_model_key(provider_name, model_name)
+        key = self._get_model_key(provider_id, model_name)
         if key in self._model_states:
             return self._model_states[key].last_activity_time
         return None
     
-    def is_model_recently_active(self, provider_name: str, model_name: str,
+    def is_model_recently_active(self, provider_id: str, model_name: str,
                                   threshold_hours: float = HEALTH_CHECK_SKIP_THRESHOLD_HOURS) -> bool:
         """
         检查模型是否在近期有活动
         
         Args:
-            provider_name: Provider 名称
+            provider_id: Provider 的唯一 ID
             model_name: 模型名称
             threshold_hours: 活动阈值（小时），默认使用 HEALTH_CHECK_SKIP_THRESHOLD_HOURS
             
         Returns:
             如果在阈值时间内有活动返回 True，否则返回 False
         """
-        last_activity = self.get_model_last_activity_time(provider_name, model_name)
+        last_activity = self.get_model_last_activity_time(provider_id, model_name)
         if last_activity is None:
             return False
         
@@ -266,12 +278,13 @@ class ProviderManager:
         根据健康测试结果更新模型状态（统一健康标记）
         
         Args:
-            provider_name: Provider 名称
+            provider_name: Provider 的 ID（参数名保留兼容但含义为 ID）
             model_name: 模型名称
             success: 测试是否成功
             error_message: 错误消息（如果失败）
         """
-        model_state = self.get_model_state(provider_name, model_name)
+        provider_id = provider_name  # 实际上是 provider_id
+        model_state = self.get_model_state(provider_id, model_name)
         model_state.last_activity_time = time.time()
         
         if success:
@@ -280,7 +293,7 @@ class ProviderManager:
                 model_state.status = ModelStatus.HEALTHY
                 model_state.cooldown_until = 0.0
                 model_state.cooldown_reason = None
-                self._log_info(f"模型 [{provider_name}:{model_name}] 健康检测通过，已恢复为健康状态")
+                self._log_info(f"模型 [{provider_id}:{model_name}] 健康检测通过，已恢复为健康状态")
         else:
             # 测试失败，记录错误并触发模型级熔断
             model_state.last_error = error_message
@@ -288,29 +301,29 @@ class ProviderManager:
             # 触发模型级熔断
             self._apply_model_cooldown(model_state, CooldownReason.HEALTH_CHECK_FAILED)
     
-    def mark_success(self, name: str, model_name: Optional[str] = None) -> None:
+    def mark_success(self, provider_id: str, model_name: Optional[str] = None) -> None:
         """
         标记请求成功
         
         Args:
-            name: Provider 名称
+            provider_id: Provider 的唯一 ID
             model_name: 模型名称（可选，用于更新模型级统计）
         """
-        provider = self._providers.get(name)
+        provider = self._providers.get(provider_id)
         if provider:
             provider.total_requests += 1
             provider.successful_requests += 1
         
         # 同时更新模型级统计
         if model_name:
-            model_state = self.get_model_state(name, model_name)
+            model_state = self.get_model_state(provider_id, model_name)
             model_state.total_requests += 1
             model_state.successful_requests += 1
             model_state.last_activity_time = time.time()  # 记录最后活动时间
     
     def mark_failure(
         self,
-        name: str,
+        provider_id: str,
         model_name: Optional[str] = None,
         status_code: Optional[int] = None,
         error_message: Optional[str] = None
@@ -319,12 +332,12 @@ class ProviderManager:
         标记请求失败并根据错误类型设置冷却（双层熔断）
         
         Args:
-            name: Provider 名称
+            provider_id: Provider 的唯一 ID
             model_name: 模型名称（用于模型级熔断）
             status_code: HTTP 状态码
             error_message: 错误消息
         """
-        provider = self._providers.get(name)
+        provider = self._providers.get(provider_id)
         if not provider:
             return
         
@@ -337,7 +350,7 @@ class ProviderManager:
         # 更新模型级统计
         model_state = None
         if model_name:
-            model_state = self.get_model_state(name, model_name)
+            model_state = self.get_model_state(provider_id, model_name)
             model_state.total_requests += 1
             model_state.failed_requests += 1
             model_state.last_error = error_message
@@ -412,7 +425,7 @@ class ProviderManager:
             model_state.status = ModelStatus.PERMANENTLY_DISABLED
             model_state.cooldown_reason = reason
             self._log_error(
-                f"模型 [{model_state.provider_name}:{model_state.model_name}] 已被永久禁用，"
+                f"模型 [{model_state.provider_id}:{model_state.model_name}] 已被永久禁用，"
                 f"原因: {reason.value}"
             )
         else:
@@ -420,13 +433,13 @@ class ProviderManager:
             model_state.cooldown_until = time.time() + cooldown_seconds
             model_state.cooldown_reason = reason
             self._log_warning(
-                f"模型 [{model_state.provider_name}:{model_state.model_name}] 进入冷却状态（模型级），"
+                f"模型 [{model_state.provider_id}:{model_state.model_name}] 进入冷却状态（模型级），"
                 f"原因: {reason.value}，冷却 {cooldown_seconds} 秒"
             )
     
-    def reset(self, name: str) -> bool:
+    def reset(self, provider_id: str) -> bool:
         """重置指定 Provider 的状态（包括其下所有模型）"""
-        provider = self._providers.get(name)
+        provider = self._providers.get(provider_id)
         if provider:
             # 重置渠道级状态
             provider.status = ProviderStatus.HEALTHY
@@ -435,24 +448,24 @@ class ProviderManager:
             
             # 重置该 Provider 下所有模型状态
             for key, model_state in self._model_states.items():
-                if model_state.provider_name == name:
+                if model_state.provider_id == provider_id:
                     model_state.status = ModelStatus.HEALTHY
                     model_state.cooldown_until = 0.0
                     model_state.cooldown_reason = None
             
-            self._log_info(f"Provider [{name}] 已重置为健康状态（包括所有模型）")
+            self._log_info(f"Provider [{provider_id}] 已重置为健康状态（包括所有模型）")
             return True
         return False
     
-    def reset_model(self, provider_name: str, model_name: str) -> bool:
+    def reset_model(self, provider_id: str, model_name: str) -> bool:
         """重置指定模型的状态"""
-        key = self._get_model_key(provider_name, model_name)
+        key = self._get_model_key(provider_id, model_name)
         if key in self._model_states:
             model_state = self._model_states[key]
             model_state.status = ModelStatus.HEALTHY
             model_state.cooldown_until = 0.0
             model_state.cooldown_reason = None
-            self._log_info(f"模型 [{provider_name}:{model_name}] 已重置为健康状态")
+            self._log_info(f"模型 [{provider_id}:{model_name}] 已重置为健康状态")
             return True
         return False
     
@@ -470,8 +483,8 @@ class ProviderManager:
             "models": {}
         }
         
-        for name, provider in self._providers.items():
-            stats["providers"][name] = {
+        for provider_id, provider in self._providers.items():
+            stats["providers"][provider_id] = {
                 "status": provider.status.value,
                 "total_requests": provider.total_requests,
                 "successful_requests": provider.successful_requests,
@@ -483,7 +496,7 @@ class ProviderManager:
             
             if provider.status == ProviderStatus.COOLING:
                 remaining = max(0, provider.cooldown_until - time.time())
-                stats["providers"][name]["cooldown_remaining"] = f"{remaining:.0f}s"
+                stats["providers"][provider_id]["cooldown_remaining"] = f"{remaining:.0f}s"
         
         # 模型级统计
         for key, model_state in self._model_states.items():

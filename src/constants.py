@@ -93,12 +93,21 @@ LOG_HOURLY_STATS_DEFAULT_DAYS: int = 7
 
 # 模型健康检测结果存储路径
 MODEL_HEALTH_STORAGE_PATH: str = "data/model_health.json"
+MODEL_HEALTH_FILE: str = MODEL_HEALTH_STORAGE_PATH  # 别名
 
 
 # ==================== Provider 模型元信息配置 ====================
 
 # Provider 模型元信息存储路径
 PROVIDER_MODELS_STORAGE_PATH: str = "data/provider_models.json"
+PROVIDER_MODELS_FILE: str = PROVIDER_MODELS_STORAGE_PATH  # 别名
+
+
+# ==================== 模型映射配置 ====================
+
+# 模型映射存储路径
+MODEL_MAPPINGS_STORAGE_PATH: str = "data/model_mappings.json"
+MODEL_MAPPINGS_FILE: str = MODEL_MAPPINGS_STORAGE_PATH  # 别名
 
 
 # ==================== API 密钥配置 ====================

@@ -2,6 +2,9 @@
 路由策略模块
 
 负责根据请求的模型名称选择合适的 Provider
+
+注意：内部使用 provider_id (UUID) 作为标识
+exclude 参数接收的是 provider_id 集合
 """
 
 import random
@@ -51,7 +54,7 @@ class ModelRouter:
         
         Args:
             requested_model: 用户请求的模型名
-            exclude: 要排除的 Provider 名称集合
+            exclude: 要排除的 Provider ID 集合
             
         Returns:
             列表：[(Provider 状态, 实际模型名), ...]
@@ -68,19 +71,18 @@ class ModelRouter:
         
         # 遍历所有渠道级可用的 Provider
         for provider in self.provider_manager.get_available():
-            # 跳过被排除的 Provider
-            if provider.config.name in exclude:
+            # 跳过被排除的 Provider（使用 id）
+            if provider.config.id in exclude:
                 continue
             
-            # 获取该 Provider 支持的模型列表
-            # 优先从 provider_models_manager 获取，其次从 config 获取
-            supported_models = self._get_supported_models(provider.config.name)
+            # 获取该 Provider 支持的模型列表（使用 provider_id）
+            supported_models = self._get_supported_models(provider.config.id)
             
             # 检查 Provider 支持的模型
             for actual_model in actual_models:
                 if actual_model in supported_models:
-                    # 双层检查：还需检查该 Provider + Model 组合是否可用
-                    if self.provider_manager.is_model_available(provider.config.name, actual_model):
+                    # 双层检查：还需检查该 Provider + Model 组合是否可用（使用 id）
+                    if self.provider_manager.is_model_available(provider.config.id, actual_model):
                         candidates.append((provider, actual_model, provider.config.weight))
                         break  # 每个 Provider 只加入一次
         
@@ -100,7 +102,7 @@ class ModelRouter:
         
         Args:
             requested_model: 用户请求的模型名
-            exclude: 要排除的 Provider 名称集合
+            exclude: 要排除的 Provider ID 集合
             strategy: 选择策略 ("weighted", "random", "first")
             
         Returns:
@@ -151,19 +153,19 @@ class ModelRouter:
         # 兜底返回最后一个
         return candidates[-1]
     
-    def _get_supported_models(self, provider_name: str) -> set[str]:
+    def _get_supported_models(self, provider_id: str) -> set[str]:
         """
         获取指定 Provider 支持的模型集合
         
         从 provider_models_manager 获取（包含 owned_by, supported_endpoint_types 等元信息）
         
         Args:
-            provider_name: Provider 名称
+            provider_id: Provider 的唯一 ID (UUID)
             
         Returns:
             支持的模型 ID 集合
         """
-        model_ids = provider_models_manager.get_provider_model_ids(provider_name)
+        model_ids = provider_models_manager.get_provider_model_ids(provider_id)
         return set(model_ids) if model_ids else set()
     
     def get_available_models(self) -> list[str]:

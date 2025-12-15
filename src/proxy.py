@@ -2,6 +2,8 @@
 请求代理模块
 
 负责将请求转发到上游 Provider，支持流式和非流式响应
+
+注意：内部使用 provider_id (UUID) 作为标识，而非 provider name
 """
 
 import json
@@ -24,7 +26,8 @@ from .provider_models import provider_models_manager
 class ProxyResult:
     """代理请求结果"""
     response: dict  # 原始响应
-    provider_name: str  # 实际使用的 Provider 名称
+    provider_id: str  # 实际使用的 Provider ID (UUID)
+    provider_name: str  # Provider 显示名称（用于日志）
     actual_model: str  # 实际使用的模型名
     request_tokens: Optional[int] = None  # 请求 token 数
     response_tokens: Optional[int] = None  # 响应 token 数
@@ -34,8 +37,9 @@ class ProxyResult:
 @dataclass
 class StreamContext:
     """流式请求上下文（用于跟踪流式请求的元数据）"""
-    provider_name: str
-    actual_model: str
+    provider_id: str = ""  # Provider ID (UUID)
+    provider_name: str = ""  # Provider 显示名称
+    actual_model: str = ""
     request_tokens: Optional[int] = None
     response_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
@@ -104,7 +108,7 @@ class RequestProxy:
         Raises:
             ProxyError: 所有 Provider 都失败时抛出
         """
-        tried_providers: set[str] = set()
+        tried_providers: set[str] = set()  # 存储已尝试的 provider_id
         last_error: Optional[ProxyError] = None
         
         for attempt in range(self.config.max_retries):
@@ -124,20 +128,20 @@ class RequestProxy:
                     )
             
             provider, actual_model = selection
-            tried_providers.add(provider.config.name)
+            tried_providers.add(provider.config.id)  # 使用 id 而非 name
             
             self._log_info(
                 f"[尝试 {attempt + 1}/{self.config.max_retries}] "
-                f"Provider: {provider.config.name}, 模型: {actual_model}"
+                f"Provider: {provider.config.name} (ID: {provider.config.id}), 模型: {actual_model}"
             )
             
             try:
                 response = await self._do_request(provider, request, actual_model)
-                self.provider_manager.mark_success(provider.config.name, model_name=actual_model)
+                self.provider_manager.mark_success(provider.config.id, model_name=actual_model)
                 
-                # 更新模型最后活动时间
+                # 更新模型最后活动时间（使用 provider_id）
                 provider_models_manager.update_activity(
-                    provider.config.name, actual_model, "call"
+                    provider.config.id, actual_model, "call"
                 )
                 
                 # 提取 token 使用量
@@ -152,6 +156,7 @@ class RequestProxy:
                 
                 return ProxyResult(
                     response=response,
+                    provider_id=provider.config.id,
                     provider_name=provider.config.name,
                     actual_model=actual_model,
                     request_tokens=request_tokens,
@@ -163,7 +168,7 @@ class RequestProxy:
                 last_error = e
                 last_error.actual_model = actual_model
                 self.provider_manager.mark_failure(
-                    provider.config.name,
+                    provider.config.id,  # 使用 id 而非 name
                     model_name=actual_model,
                     status_code=e.status_code,
                     error_message=e.message
@@ -196,7 +201,7 @@ class RequestProxy:
         Raises:
             ProxyError: 所有 Provider 都失败时抛出
         """
-        tried_providers: set[str] = set()
+        tried_providers: set[str] = set()  # 存储已尝试的 provider_id
         last_error: Optional[ProxyError] = None
         
         for attempt in range(self.config.max_retries):
@@ -216,27 +221,28 @@ class RequestProxy:
                     )
             
             provider, actual_model = selection
-            tried_providers.add(provider.config.name)
+            tried_providers.add(provider.config.id)  # 使用 id 而非 name
             
             # 更新流上下文
             if stream_context is not None:
+                stream_context.provider_id = provider.config.id
                 stream_context.provider_name = provider.config.name
                 stream_context.actual_model = actual_model
             
             self._log_info(
                 f"[流式尝试 {attempt + 1}/{self.config.max_retries}] "
-                f"Provider: {provider.config.name}, 模型: {actual_model}"
+                f"Provider: {provider.config.name} (ID: {provider.config.id}), 模型: {actual_model}"
             )
             
             try:
                 async for chunk in self._do_stream_request(provider, request, actual_model, original_model, stream_context):
                     yield chunk
                 
-                self.provider_manager.mark_success(provider.config.name, model_name=actual_model)
+                self.provider_manager.mark_success(provider.config.id, model_name=actual_model)
                 
-                # 更新模型最后活动时间
+                # 更新模型最后活动时间（使用 provider_id）
                 provider_models_manager.update_activity(
-                    provider.config.name, actual_model, "call"
+                    provider.config.id, actual_model, "call"
                 )
                 
                 return  # 成功完成，退出重试循环
@@ -245,7 +251,7 @@ class RequestProxy:
                 last_error = e
                 last_error.actual_model = actual_model
                 self.provider_manager.mark_failure(
-                    provider.config.name,
+                    provider.config.id,  # 使用 id 而非 name
                     model_name=actual_model,
                     status_code=e.status_code,
                     error_message=e.message

@@ -113,28 +113,49 @@ const API = {
         return this.request('POST', '/api/providers', data);
     },
 
-    async getProvider(name) {
-        return this.request('GET', `/api/providers/${encodeURIComponent(name)}`);
+    /**
+     * 获取指定 Provider（通过 ID 或 name）
+     * @param {string} providerId - Provider ID (UUID) 或 name（兼容）
+     */
+    async getProvider(providerId) {
+        return this.request('GET', `/api/providers/${encodeURIComponent(providerId)}`);
     },
 
-    async updateProvider(name, data) {
-        return this.request('PUT', `/api/providers/${encodeURIComponent(name)}`, data);
+    /**
+     * 更新 Provider（通过 ID）
+     * @param {string} providerId - Provider ID (UUID) 或 name（兼容）
+     * @param {Object} data - 更新数据
+     */
+    async updateProvider(providerId, data) {
+        return this.request('PUT', `/api/providers/${encodeURIComponent(providerId)}`, data);
     },
 
-    async deleteProvider(name) {
-        return this.request('DELETE', `/api/providers/${encodeURIComponent(name)}`);
+    /**
+     * 删除 Provider（通过 ID）
+     * @param {string} providerId - Provider ID (UUID) 或 name（兼容）
+     */
+    async deleteProvider(providerId) {
+        return this.request('DELETE', `/api/providers/${encodeURIComponent(providerId)}`);
     },
 
-    async fetchProviderModels(name) {
-        return this.request('GET', `/api/providers/${encodeURIComponent(name)}/models`);
+    /**
+     * 从中转站获取可用模型列表
+     * @param {string} providerId - Provider ID (UUID) 或 name（兼容）
+     */
+    async fetchProviderModels(providerId) {
+        return this.request('GET', `/api/providers/${encodeURIComponent(providerId)}/models`);
     },
 
     async fetchAllProviderModels() {
         return this.request('GET', '/api/providers/all-models');
     },
 
-    async resetProvider(name) {
-        return this.request('POST', `/api/admin/reset/${encodeURIComponent(name)}`);
+    /**
+     * 重置 Provider 状态
+     * @param {string} providerId - Provider ID (UUID) 或 name（兼容）
+     */
+    async resetProvider(providerId) {
+        return this.request('POST', `/api/admin/reset/${encodeURIComponent(providerId)}`);
     },
 
     async resetAllProviders() {
@@ -246,11 +267,11 @@ const API = {
 
     /**
      * 检测单个模型
-     * @param {string} provider - 渠道名称
+     * @param {string} providerId - Provider ID (UUID)
      * @param {string} model - 模型名称
      * @returns {Promise<Object>} - ModelHealthResult
      */
-    async testSingleModelHealth(provider, model) {
-        return this.request('POST', '/api/model-health/test-single', { provider, model });
+    async testSingleModelHealth(providerId, model) {
+        return this.request('POST', '/api/model-health/test-single', { provider_id: providerId, model });
     }
 };

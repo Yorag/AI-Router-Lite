@@ -51,11 +51,12 @@ const Providers = {
     renderProviderCard(provider) {
         const models = provider.supported_models || [];
         const providerName = provider.name;
-        const providerId = this.escapeId(providerName);
+        const providerUuid = provider.id;  // UUID 用于 API 调用
+        const providerDomId = this.escapeId(providerUuid);  // DOM ID 使用转义后的 UUID
         
         // 创建模型标签（带能力提示）
         const createModelTag = (model) => {
-            const tooltip = this.getModelTooltip(providerName, model);
+            const tooltip = this.getModelTooltip(providerUuid, model);
             const titleAttr = tooltip ? `title="${tooltip}"` : '';
             return `<span class="model-tag" ${titleAttr}>${model}</span>`;
         };
@@ -75,13 +76,13 @@ const Providers = {
             modelTagsHtml = `
                 <div class="model-tags-visible">
                     ${visibleModels.map(createModelTag).join('')}
-                    <span class="model-tag model-more-btn" onclick="Providers.toggleModelExpand('${providerId}')">
+                    <span class="model-tag model-more-btn" onclick="Providers.toggleModelExpand('${providerDomId}')">
                         +${hiddenCount} more
                     </span>
                 </div>
-                <div class="model-tags-hidden" id="models-hidden-${providerId}" style="display: none;">
+                <div class="model-tags-hidden" id="models-hidden-${providerDomId}" style="display: none;">
                     ${hiddenModels.map(createModelTag).join('')}
-                    <span class="model-tag model-less-btn" onclick="Providers.toggleModelExpand('${providerId}')">
+                    <span class="model-tag model-less-btn" onclick="Providers.toggleModelExpand('${providerDomId}')">
                         收起
                     </span>
                 </div>
@@ -95,10 +96,10 @@ const Providers = {
         const toggleBtnClass = isEnabled ? 'btn-warning' : 'btn-success';
 
         return `
-            <div class="provider-card ${!isEnabled ? 'disabled' : ''}" id="provider-${providerId}">
+            <div class="provider-card ${!isEnabled ? 'disabled' : ''}" id="provider-${providerDomId}" data-provider-id="${providerUuid}">
                 <div class="provider-card-header">
                     <div>
-                        <h3>${provider.name}</h3>
+                        <h3>${providerName}</h3>
                         <div class="url">${provider.base_url}</div>
                     </div>
                     <span class="status-badge ${statusBadgeClass}">${statusText}</span>
@@ -112,19 +113,19 @@ const Providers = {
                 </div>
                 
                 <div class="provider-card-actions">
-                    <button class="btn btn-sm ${toggleBtnClass}" onclick="Providers.toggleEnabled('${provider.name}', ${!isEnabled})">
+                    <button class="btn btn-sm ${toggleBtnClass}" onclick="Providers.toggleEnabled('${providerUuid}', ${!isEnabled})">
                         ${toggleBtnText}
                     </button>
-                    <button class="btn btn-sm btn-secondary" onclick="Providers.fetchModels('${provider.name}')">
+                    <button class="btn btn-sm btn-secondary" onclick="Providers.fetchModels('${providerUuid}')">
                         📥 更新模型
                     </button>
-                    <button class="btn btn-sm btn-secondary" onclick="Providers.showEditModal('${provider.name}')">
+                    <button class="btn btn-sm btn-secondary" onclick="Providers.showEditModal('${providerUuid}')">
                         ✏️ 编辑
                     </button>
-                    <button class="btn btn-sm btn-secondary" onclick="Providers.reset('${provider.name}')">
+                    <button class="btn btn-sm btn-secondary" onclick="Providers.reset('${providerUuid}')">
                         🔄 重置状态
                     </button>
-                    <button class="btn btn-sm btn-danger" onclick="Providers.confirmDelete('${provider.name}')">
+                    <button class="btn btn-sm btn-danger" onclick="Providers.confirmDelete('${providerUuid}')">
                         🗑️ 删除
                     </button>
                 </div>
@@ -219,18 +220,22 @@ const Providers = {
         }
     },
 
-    showEditModal(name) {
-        const provider = this.providers.find(p => p.name === name);
+    showEditModal(providerId) {
+        const provider = this.providers.find(p => p.id === providerId);
         if (!provider) return;
         
         const modelCount = (provider.supported_models || []).length;
         
         const content = `
-            <form onsubmit="Providers.update(event, '${name}')">
+            <form onsubmit="Providers.update(event, '${providerId}')">
                 <div class="form-group">
                     <label>服务站名称</label>
-                    <input type="text" value="${provider.name}" disabled>
-                    <div class="hint">名称不可修改</div>
+                    <input type="text" id="edit-provider-name" value="${provider.name}" required>
+                </div>
+                <div class="form-group">
+                    <label>Provider ID</label>
+                    <input type="text" value="${provider.id}" disabled>
+                    <div class="hint">内部唯一标识，不可修改</div>
                 </div>
                 <div class="form-group">
                     <label>API 基础 URL</label>
@@ -244,10 +249,6 @@ const Providers = {
                     <label>权重</label>
                     <input type="number" id="edit-provider-weight" value="${provider.weight}" min="1" max="100">
                 </div>
-                <div class="form-group">
-                    <label>当前模型数量</label>
-                    <div class="hint">📦 ${modelCount} 个模型（通过"📥 更新模型"按钮管理）</div>
-                </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
                     <button type="submit" class="btn btn-primary">保存</button>
@@ -257,22 +258,24 @@ const Providers = {
         Modal.show('编辑服务站', content);
     },
 
-    async update(event, name) {
+    async update(event, providerId) {
         event.preventDefault();
         
+        const name = document.getElementById('edit-provider-name').value.trim();
         const baseUrl = document.getElementById('edit-provider-url').value.trim();
         const apiKey = document.getElementById('edit-provider-key').value.trim();
         const weight = parseInt(document.getElementById('edit-provider-weight').value) || 1;
         
         // 模型列表不再在此处提交，通过"更新模型"按钮同步获取
         const data = {
+            name,  // 允许修改名称
             base_url: baseUrl,
             api_key: apiKey,
             weight
         };
         
         try {
-            await API.updateProvider(name, data);
+            await API.updateProvider(providerId, data);
             Modal.close();
             Toast.success('服务站已更新');
             await this.load();
@@ -282,17 +285,19 @@ const Providers = {
         }
     },
 
-    confirmDelete(name) {
+    confirmDelete(providerId) {
+        const provider = this.providers.find(p => p.id === providerId);
+        const displayName = provider ? provider.name : providerId;
         Modal.confirm(
             '确认删除',
-            `确定要删除服务站 "${name}" 吗？此操作不可恢复。`,
-            () => this.delete(name)
+            `确定要删除服务站 "${displayName}" 吗？此操作不可恢复。`,
+            () => this.delete(providerId)
         );
     },
 
-    async delete(name) {
+    async delete(providerId) {
         try {
-            await API.deleteProvider(name);
+            await API.deleteProvider(providerId);
             Toast.success('服务站已删除');
             await this.load();
             this.showReloadHint();
@@ -301,20 +306,24 @@ const Providers = {
         }
     },
 
-    async reset(name) {
+    async reset(providerId) {
         try {
-            await API.resetProvider(name);
-            Toast.success(`${name} 状态已重置`);
+            await API.resetProvider(providerId);
+            const provider = this.providers.find(p => p.id === providerId);
+            const displayName = provider ? provider.name : providerId;
+            Toast.success(`${displayName} 状态已重置`);
             await this.load();
         } catch (error) {
             Toast.error('重置失败: ' + error.message);
         }
     },
 
-    async toggleEnabled(name, enabled) {
+    async toggleEnabled(providerId, enabled) {
         try {
-            await API.updateProvider(name, { enabled });
-            Toast.success(`${name} 已${enabled ? '启用' : '禁用'}`);
+            await API.updateProvider(providerId, { enabled });
+            const provider = this.providers.find(p => p.id === providerId);
+            const displayName = provider ? provider.name : providerId;
+            Toast.success(`${displayName} 已${enabled ? '启用' : '禁用'}`);
             await this.load();
             this.showReloadHint();
         } catch (error) {
@@ -325,10 +334,10 @@ const Providers = {
     // 存储模型详细信息（包含能力类型）
     modelDetails: {},
 
-    async fetchModels(name) {
+    async fetchModels(providerId) {
         // 获取对应的按钮用于防重复控制
-        const providerId = this.escapeId(name);
-        const providerCard = document.getElementById(`provider-${providerId}`);
+        const providerDomId = this.escapeId(providerId);
+        const providerCard = document.getElementById(`provider-${providerDomId}`);
         const btn = providerCard?.querySelector('.provider-card-actions .btn-secondary');
         
         // 防止重复点击
@@ -344,7 +353,7 @@ const Providers = {
                 btn.innerHTML = '⏳ 更新中...';
             }
             
-            const result = await API.fetchProviderModels(name);
+            const result = await API.fetchProviderModels(providerId);
             const models = result.models || [];
             const syncStats = result.sync_stats || {};
             
@@ -353,10 +362,10 @@ const Providers = {
                 return;
             }
             
-            // 存储模型详细信息
-            this.modelDetails[name] = {};
+            // 存储模型详细信息，使用 providerId 作为 key
+            this.modelDetails[providerId] = {};
             models.forEach(m => {
-                this.modelDetails[name][m.id] = m;
+                this.modelDetails[providerId][m.id] = m;
             });
             
             // 模型已自动保存到 provider_models.json，无需再调用 updateProvider
@@ -376,8 +385,8 @@ const Providers = {
         }
     },
 
-    getModelTooltip(providerName, modelId) {
-        const details = this.modelDetails[providerName]?.[modelId];
+    getModelTooltip(providerId, modelId) {
+        const details = this.modelDetails[providerId]?.[modelId];
         if (!details || !details.owned_by) {
             return '';
         }
@@ -452,14 +461,15 @@ const Providers = {
             
             for (const provider of this.providers) {
                 try {
-                    const result = await API.fetchProviderModels(provider.name);
+                    // 使用 provider.id 进行 API 调用
+                    const result = await API.fetchProviderModels(provider.id);
                     const models = result.models || [];
                     
                     if (models.length > 0) {
-                        // 存储模型详细信息
-                        this.modelDetails[provider.name] = {};
+                        // 存储模型详细信息，使用 provider.id 作为 key
+                        this.modelDetails[provider.id] = {};
                         models.forEach(m => {
-                            this.modelDetails[provider.name][m.id] = m;
+                            this.modelDetails[provider.id][m.id] = m;
                         });
                         
                         // 模型已自动保存到 provider_models.json，无需再调用 updateProvider
@@ -467,7 +477,7 @@ const Providers = {
                         totalModels += models.length;
                     }
                 } catch (err) {
-                    console.error(`更新 ${provider.name} 模型失败:`, err);
+                    console.error(`更新 ${provider.name} (${provider.id}) 模型失败:`, err);
                 }
             }
             

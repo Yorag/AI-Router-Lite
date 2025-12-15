@@ -10,8 +10,10 @@ Provider 模型元信息管理模块
 
 与 model_health.json 分离存储，保持轻量和高效更新。
 
-注意：last_activity 仅在模型被实际使用（API 调用或健康检测）时更新，
-同步操作不会更新此字段，因为同步只是更新元数据，不代表模型被使用。
+注意：
+- 使用 provider_id (UUID) 作为内部标识，而非 provider name
+- last_activity 仅在模型被实际使用（API 调用或健康检测）时更新，
+  同步操作不会更新此字段，因为同步只是更新元数据，不代表模型被使用
 """
 
 import json
@@ -63,7 +65,7 @@ class ModelInfo:
 @dataclass
 class ProviderModels:
     """单个 Provider 的模型集合"""
-    provider_name: str
+    provider_id: str  # Provider 的唯一 ID (UUID)
     models: dict[str, ModelInfo] = field(default_factory=dict)
     
     def to_dict(self) -> dict:
@@ -72,11 +74,11 @@ class ProviderModels:
         }
     
     @classmethod
-    def from_dict(cls, provider_name: str, data: dict) -> "ProviderModels":
+    def from_dict(cls, provider_id: str, data: dict) -> "ProviderModels":
         models = {}
         for model_id, model_data in data.get("models", {}).items():
             models[model_id] = ModelInfo.from_dict(model_id, model_data)
-        return cls(provider_name=provider_name, models=models)
+        return cls(provider_id=provider_id, models=models)
     
     def get_model_ids(self) -> list[str]:
         """获取所有模型 ID 列表"""
@@ -125,9 +127,9 @@ class ProviderModelsManager:
         data = self._load_data()
         
         self._providers = {}
-        for provider_name, provider_data in data.get("providers", {}).items():
-            self._providers[provider_name] = ProviderModels.from_dict(
-                provider_name, provider_data
+        for provider_id, provider_data in data.get("providers", {}).items():
+            self._providers[provider_id] = ProviderModels.from_dict(
+                provider_id, provider_data
             )
         
         self._loaded = True
@@ -137,7 +139,7 @@ class ProviderModelsManager:
         data = {
             "version": self.VERSION,
             "providers": {
-                name: p.to_dict() for name, p in self._providers.items()
+                provider_id: p.to_dict() for provider_id, p in self._providers.items()
             }
         }
         self._save_data(data)
@@ -149,51 +151,51 @@ class ProviderModelsManager:
     
     # ==================== Provider 操作 ====================
     
-    def get_provider(self, provider_name: str) -> Optional[ProviderModels]:
+    def get_provider(self, provider_id: str) -> Optional[ProviderModels]:
         """获取指定 Provider 的模型集合"""
         self._ensure_loaded()
-        return self._providers.get(provider_name)
+        return self._providers.get(provider_id)
     
     def get_all_providers(self) -> dict[str, ProviderModels]:
-        """获取所有 Provider"""
+        """获取所有 Provider（key 为 provider_id）"""
         self._ensure_loaded()
         return self._providers.copy()
     
-    def get_provider_model_ids(self, provider_name: str) -> list[str]:
+    def get_provider_model_ids(self, provider_id: str) -> list[str]:
         """获取指定 Provider 的模型 ID 列表"""
-        provider = self.get_provider(provider_name)
+        provider = self.get_provider(provider_id)
         if provider:
             return provider.get_model_ids()
         return []
     
-    def delete_provider(self, provider_name: str) -> bool:
+    def delete_provider(self, provider_id: str) -> bool:
         """删除 Provider（当 Provider 被删除时调用）"""
         self._ensure_loaded()
-        if provider_name in self._providers:
-            del self._providers[provider_name]
+        if provider_id in self._providers:
+            del self._providers[provider_id]
             self.save()
             return True
         return False
     
     # ==================== 模型操作 ====================
     
-    def get_model(self, provider_name: str, model_id: str) -> Optional[ModelInfo]:
+    def get_model(self, provider_id: str, model_id: str) -> Optional[ModelInfo]:
         """获取指定模型信息"""
-        provider = self.get_provider(provider_name)
+        provider = self.get_provider(provider_id)
         if provider:
             return provider.models.get(model_id)
         return None
     
     def update_models_from_remote(
         self,
-        provider_name: str,
+        provider_id: str,
         remote_models: list[dict]
     ) -> tuple[int, int, int]:
         """
         从中转站获取的模型列表更新本地存储
         
         Args:
-            provider_name: Provider 名称
+            provider_id: Provider 的唯一 ID (UUID)
             remote_models: 远程模型列表 [{"id": "...", "owned_by": "..."}, ...]
             
         Returns:
@@ -204,10 +206,10 @@ class ProviderModelsManager:
         now = datetime.now(timezone.utc).isoformat()
         
         # 确保 Provider 存在
-        if provider_name not in self._providers:
-            self._providers[provider_name] = ProviderModels(provider_name=provider_name)
+        if provider_id not in self._providers:
+            self._providers[provider_id] = ProviderModels(provider_id=provider_id)
         
-        provider = self._providers[provider_name]
+        provider = self._providers[provider_id]
         
         # 统计
         added = 0
@@ -262,7 +264,7 @@ class ProviderModelsManager:
     
     def add_model(
         self,
-        provider_name: str,
+        provider_id: str,
         model_id: str,
         owned_by: str = "",
         supported_endpoint_types: Optional[list[str]] = None
@@ -271,7 +273,7 @@ class ProviderModelsManager:
         手动添加单个模型
         
         Args:
-            provider_name: Provider 名称
+            provider_id: Provider 的唯一 ID (UUID)
             model_id: 模型 ID
             owned_by: 模型所有者
             supported_endpoint_types: 支持的端点类型列表
@@ -284,10 +286,10 @@ class ProviderModelsManager:
         now = datetime.now(timezone.utc).isoformat()
         
         # 确保 Provider 存在
-        if provider_name not in self._providers:
-            self._providers[provider_name] = ProviderModels(provider_name=provider_name)
+        if provider_id not in self._providers:
+            self._providers[provider_id] = ProviderModels(provider_id=provider_id)
         
-        provider = self._providers[provider_name]
+        provider = self._providers[provider_id]
         
         if model_id in provider.models:
             return False
@@ -304,11 +306,11 @@ class ProviderModelsManager:
         self.save()
         return True
     
-    def remove_model(self, provider_name: str, model_id: str) -> bool:
+    def remove_model(self, provider_id: str, model_id: str) -> bool:
         """删除单个模型"""
         self._ensure_loaded()
         
-        provider = self.get_provider(provider_name)
+        provider = self.get_provider(provider_id)
         if provider and model_id in provider.models:
             del provider.models[model_id]
             self.save()
@@ -317,7 +319,7 @@ class ProviderModelsManager:
     
     def update_activity(
         self,
-        provider_name: str,
+        provider_id: str,
         model_id: str,
         activity_type: ActivityType
     ) -> bool:
@@ -325,7 +327,7 @@ class ProviderModelsManager:
         更新模型的最后活动时间
         
         Args:
-            provider_name: Provider 名称
+            provider_id: Provider 的唯一 ID (UUID)
             model_id: 模型 ID
             activity_type: 活动类型
             
@@ -334,7 +336,7 @@ class ProviderModelsManager:
         """
         self._ensure_loaded()
         
-        model = self.get_model(provider_name, model_id)
+        model = self.get_model(provider_id, model_id)
         if model:
             model.last_activity = datetime.now(timezone.utc).isoformat()
             model.last_activity_type = activity_type
@@ -350,7 +352,7 @@ class ProviderModelsManager:
         批量更新模型活动时间
         
         Args:
-            updates: [(provider_name, model_id, activity_type), ...]
+            updates: [(provider_id, model_id, activity_type), ...]
             
         Returns:
             成功更新的数量
@@ -360,8 +362,8 @@ class ProviderModelsManager:
         now = datetime.now(timezone.utc).isoformat()
         count = 0
         
-        for provider_name, model_id, activity_type in updates:
-            model = self.get_model(provider_name, model_id)
+        for provider_id, model_id, activity_type in updates:
+            model = self.get_model(provider_id, model_id)
             if model:
                 model.last_activity = now
                 model.last_activity_type = activity_type
@@ -379,13 +381,13 @@ class ProviderModelsManager:
         获取所有 Provider 的模型 ID 映射
         
         Returns:
-            {provider_name: [model_id, ...]}
+            {provider_id: [model_id, ...]}
         """
         self._ensure_loaded()
         
         result = {}
-        for provider_name, provider in self._providers.items():
-            result[provider_name] = provider.get_model_ids()
+        for provider_id, provider in self._providers.items():
+            result[provider_id] = provider.get_model_ids()
         
         return result
     
@@ -411,7 +413,7 @@ class ProviderModelsManager:
         
         result: dict[str, list[str]] = {}
         
-        for provider_name, provider in self._providers.items():
+        for provider_id, provider in self._providers.items():
             models_needing_check = []
             
             for model_id, model in provider.models.items():
@@ -431,7 +433,7 @@ class ProviderModelsManager:
                     models_needing_check.append(model_id)
             
             if models_needing_check:
-                result[provider_name] = models_needing_check
+                result[provider_id] = models_needing_check
         
         return result
     

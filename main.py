@@ -85,8 +85,9 @@ def print_config_summary():
     # 从 provider_models_manager 获取每个 provider 的模型数量
     provider_models_map = provider_models_manager.get_all_provider_models_map()
     for p in config.providers:
-        model_count = len(provider_models_map.get(p.name, []))
-        print(f"  {Fore.CYAN}├─{Style.RESET_ALL} {p.name} (权重: {p.weight}, 模型: {model_count} 个)")
+        # 使用 provider_id 作为 key 查询模型数量
+        model_count = len(provider_models_map.get(p.id, []))
+        print(f"  {Fore.CYAN}├─{Style.RESET_ALL} {p.name} (ID: {p.id[:8]}..., 权重: {p.weight}, 模型: {model_count} 个)")
 
 
 async def auto_sync_model_mappings_task():
@@ -115,17 +116,17 @@ async def auto_sync_model_mappings_task():
             # 执行同步
             print(f"{Fore.CYAN}[AUTO-SYNC]{Style.RESET_ALL} 开始自动同步模型映射...")
             
-            # 获取所有Provider的模型列表
+            # 获取所有Provider的模型列表 (已使用 provider_id 作为 key)
             all_provider_models = await admin_manager.fetch_all_provider_models()
             
-            # 转换格式
+            # 转换格式 - key 是 provider_id
             provider_models_flat: dict[str, list[str]] = {}
-            for provider, models in all_provider_models.items():
-                provider_models_flat[provider] = [
+            for provider_id, models in all_provider_models.items():
+                provider_models_flat[provider_id] = [
                     m["id"] if isinstance(m, dict) else m for m in models
                 ]
             
-            # 执行同步
+            # 执行同步 (使用 provider_id 作为 key)
             results = model_mapping_manager.sync_all_mappings(provider_models_flat)
             
             total_matched = sum(r.get("matched_count", 0) for r in results)
@@ -233,7 +234,7 @@ class UpdateAPIKeyRequest(BaseModel):
     enabled: Optional[bool] = None
 
 class ProviderRequest(BaseModel):
-    """添加 Provider 请求（模型列表通过 /api/providers/{name}/models 同步）"""
+    """添加 Provider 请求（模型列表通过 /api/providers/{id}/models 同步）"""
     name: str
     base_url: str
     api_key: str
@@ -241,7 +242,8 @@ class ProviderRequest(BaseModel):
     timeout: Optional[float] = None
 
 class UpdateProviderRequest(BaseModel):
-    """更新 Provider 请求（模型列表通过 /api/providers/{name}/models 同步）"""
+    """更新 Provider 请求（模型列表通过 /api/providers/{id}/models 同步）"""
+    name: Optional[str] = None  # 允许修改显示名称
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     weight: Optional[int] = None
@@ -283,7 +285,7 @@ class SyncConfigRequest(BaseModel):
 
 class TestSingleModelRequest(BaseModel):
     """测试单个模型请求"""
-    provider: str
+    provider_id: str  # Provider ID (UUID)
     model: str
 
 
@@ -692,55 +694,68 @@ async def fetch_all_provider_models():
     """
     获取所有中转站的模型列表（从 provider_models.json 读取）
     
-    返回格式包含 owned_by 和 supported_endpoint_types 元信息
+    返回格式:
+    - key: provider_id (UUID)
+    - value: 包含 id, owned_by, supported_endpoint_types 和 provider_name 的模型列表
     """
     provider_models_map = provider_models_manager.get_all_provider_models_map()
     
-    # 转换为带元信息的格式
+    # 获取 provider_id -> name 的映射
+    id_name_map = admin_manager.get_provider_id_name_map()
+    
+    # 转换为带元信息的格式，key 是 provider_id
     result = {}
-    for provider_name, model_ids in provider_models_map.items():
-        provider_data = provider_models_manager.get_provider(provider_name)
+    for provider_id, model_ids in provider_models_map.items():
+        provider_data = provider_models_manager.get_provider(provider_id)
+        provider_name = id_name_map.get(provider_id, provider_id)  # 兜底用 id
+        
         if provider_data:
-            result[provider_name] = [
-                {
-                    "id": mid,
-                    "owned_by": provider_data.models.get(mid).owned_by if mid in provider_data.models else "",
-                    "supported_endpoint_types": provider_data.models.get(mid).supported_endpoint_types if mid in provider_data.models else []
-                }
-                for mid in model_ids
-            ]
+            result[provider_id] = {
+                "provider_name": provider_name,
+                "models": [
+                    {
+                        "id": mid,
+                        "owned_by": provider_data.models.get(mid).owned_by if mid in provider_data.models else "",
+                        "supported_endpoint_types": provider_data.models.get(mid).supported_endpoint_types if mid in provider_data.models else []
+                    }
+                    for mid in model_ids
+                ]
+            }
         else:
-            result[provider_name] = [{"id": mid, "owned_by": "", "supported_endpoint_types": []} for mid in model_ids]
+            result[provider_id] = {
+                "provider_name": provider_name,
+                "models": [{"id": mid, "owned_by": "", "supported_endpoint_types": []} for mid in model_ids]
+            }
     
     return {"provider_models": result}
 
 
 @app.post("/api/providers")
 async def add_provider(request: ProviderRequest):
-    """添加 Provider"""
-    success, message = admin_manager.add_provider(request.model_dump())
+    """添加 Provider，返回新生成的 provider_id"""
+    success, message, provider_id = admin_manager.add_provider(request.model_dump())
     if not success:
         raise HTTPException(status_code=400, detail=message)
     log_manager.log(
         level=LogLevel.INFO, log_type="admin", method="POST",
-        path="/api/providers", message=f"添加 Provider: {request.name}"
+        path="/api/providers", message=f"添加 Provider: {request.name} (ID: {provider_id})"
     )
-    return {"status": "success", "message": message}
+    return {"status": "success", "message": message, "provider_id": provider_id}
 
 
-@app.get("/api/providers/{name}")
-async def get_provider(name: str):
-    """获取指定 Provider"""
-    provider = admin_manager.get_provider(name)
+@app.get("/api/providers/{provider_id}")
+async def get_provider(provider_id: str):
+    """获取指定 Provider（通过 ID）"""
+    provider = admin_manager.get_provider_by_id(provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="Provider 不存在")
     return provider
 
 
-@app.put("/api/providers/{name}")
-async def update_provider(name: str, request: UpdateProviderRequest):
-    """更新 Provider"""
-    provider = admin_manager.get_provider(name)
+@app.put("/api/providers/{provider_id}")
+async def update_provider(provider_id: str, request: UpdateProviderRequest):
+    """更新 Provider（通过 ID）"""
+    provider = admin_manager.get_provider_by_id(provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="Provider 不存在")
     
@@ -748,33 +763,44 @@ async def update_provider(name: str, request: UpdateProviderRequest):
     update_data = request.model_dump(exclude_none=True)
     provider.update(update_data)
     
-    success, message = admin_manager.update_provider(name, provider)
+    success, message = admin_manager.update_provider(provider_id, provider)
     if not success:
         raise HTTPException(status_code=400, detail=message)
+    
+    provider_name = provider.get("name", provider_id)
     log_manager.log(
         level=LogLevel.INFO, log_type="admin", method="PUT",
-        path=f"/api/providers/{name}", message=f"更新 Provider: {name}"
+        path=f"/api/providers/{provider_id}", message=f"更新 Provider: {provider_name}"
     )
     return {"status": "success", "message": message}
 
 
-@app.delete("/api/providers/{name}")
-async def delete_provider(name: str):
-    """删除 Provider"""
-    success, message = admin_manager.delete_provider(name)
+@app.delete("/api/providers/{provider_id}")
+async def delete_provider(provider_id: str):
+    """删除 Provider（通过 ID）"""
+    # 先获取 provider 信息用于日志
+    provider = admin_manager.get_provider_by_id(provider_id)
+    
+    success, message = admin_manager.delete_provider(provider_id)
     if not success:
         raise HTTPException(status_code=404, detail=message)
+    
+    provider_name = provider.get("name", provider_id) if provider else provider_id
     log_manager.log(
         level=LogLevel.WARNING, log_type="admin", method="DELETE",
-        path=f"/api/providers/{name}", message=f"删除 Provider: {name}"
+        path=f"/api/providers/{provider_id}", message=f"删除 Provider: {provider_name}"
     )
     return {"status": "success", "message": message}
 
 
-@app.get("/api/providers/{name}/models")
-async def fetch_provider_models(name: str):
+@app.get("/api/providers/{provider_id}/models")
+async def fetch_provider_models(provider_id: str):
     """从中转站获取可用模型列表（并保存到 provider_models.json）"""
-    success, models, error, sync_stats = await admin_manager.fetch_provider_models(name)
+    provider = admin_manager.get_provider_by_id(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider 不存在")
+    
+    success, models, error, sync_stats = await admin_manager.fetch_provider_models(provider_id)
     if not success:
         raise HTTPException(status_code=400, detail=error or "获取模型列表失败")
     return {
@@ -1024,7 +1050,7 @@ async def test_mapping_health(unified_name: str):
 async def test_single_model_health(request: TestSingleModelRequest):
     """检测单个模型的健康状态"""
     result = await model_health_manager.test_single_model(
-        provider_name=request.provider,
+        provider_id=request.provider_id,
         model=request.model
     )
     return result.to_dict()
@@ -1033,13 +1059,16 @@ async def test_single_model_health(request: TestSingleModelRequest):
 # ==================== 系统管理 ====================
 
 
-@app.post("/api/admin/reset/{provider_name}")
-async def reset_provider(provider_name: str):
-    """重置指定 Provider 的状态"""
-    if provider_manager.reset(provider_name):
+@app.post("/api/admin/reset/{provider_id}")
+async def reset_provider(provider_id: str):
+    """重置指定 Provider 的状态（通过 ID）"""
+    provider = admin_manager.get_provider_by_id(provider_id)
+    
+    if provider_manager.reset(provider_id):
+        provider_name = provider.get("name", provider_id) if provider else provider_id
         return {"status": "success", "message": f"Provider '{provider_name}' 已重置"}
     else:
-        raise HTTPException(status_code=404, detail=f"Provider '{provider_name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' 不存在")
 
 
 @app.post("/api/admin/reset-all")
@@ -1066,10 +1095,10 @@ async def reload_config():
         router = ModelRouter(config, provider_manager)
         proxy = RequestProxy(config, provider_manager, router)
         
-        log_manager.log(
-            level=LogLevel.INFO, log_type="system", method="POST",
-            path="/api/admin/reload-config", message="配置已重新加载"
-        )
+        # log_manager.log(
+        #     level=LogLevel.INFO, log_type="system", method="POST",
+        #     path="/api/admin/reload-config", message="配置已重新加载"
+        # )
         return {"status": "success", "message": "配置已重新加载"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"重新加载配置失败: {str(e)}")

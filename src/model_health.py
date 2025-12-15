@@ -6,6 +6,9 @@
 - 单模型检测（返回完整响应体）
 - 批量检测（同渠道串行，跨渠道异步）
 - 结果持久化存储
+
+注意：使用 provider_id (UUID) 作为内部标识，而非 provider name
+存储格式为 "provider_id:model_name"
 """
 
 import json
@@ -31,7 +34,7 @@ from .provider_models import provider_models_manager
 @dataclass
 class ModelHealthResult:
     """单个模型的健康检测结果"""
-    provider: str           # 渠道名称
+    provider: str           # Provider ID (UUID)
     model: str              # 模型名称
     success: bool           # 检测是否成功
     latency_ms: float       # 响应延迟（毫秒）
@@ -55,9 +58,9 @@ class ModelHealthResult:
         )
     
     @staticmethod
-    def make_key(provider: str, model: str) -> str:
-        """生成存储键"""
-        return f"{provider}:{model}"
+    def make_key(provider_id: str, model: str) -> str:
+        """生成存储键（provider_id:model）"""
+        return f"{provider_id}:{model}"
 
 
 class ModelHealthManager:
@@ -132,10 +135,10 @@ class ModelHealthManager:
     
     # ==================== 结果查询 ====================
     
-    def get_result(self, provider: str, model: str) -> Optional[ModelHealthResult]:
+    def get_result(self, provider_id: str, model: str) -> Optional[ModelHealthResult]:
         """获取单个模型的检测结果"""
         self._ensure_loaded()
-        key = ModelHealthResult.make_key(provider, model)
+        key = ModelHealthResult.make_key(provider_id, model)
         return self._results.get(key)
     
     def get_all_results(self) -> dict[str, ModelHealthResult]:
@@ -144,24 +147,24 @@ class ModelHealthManager:
         return self._results.copy()
     
     def get_results_for_models(
-        self, 
+        self,
         resolved_models: dict[str, list[str]]
     ) -> dict[str, ModelHealthResult]:
         """
         获取指定模型集合的检测结果
         
         Args:
-            resolved_models: {provider: [model_ids]}
+            resolved_models: {provider_id: [model_ids]}
             
         Returns:
-            {provider:model: ModelHealthResult}
+            {provider_id:model: ModelHealthResult}
         """
         self._ensure_loaded()
         results = {}
         
-        for provider, models in resolved_models.items():
+        for provider_id, models in resolved_models.items():
             for model in models:
-                key = ModelHealthResult.make_key(provider, model)
+                key = ModelHealthResult.make_key(provider_id, model)
                 if key in self._results:
                     results[key] = self._results[key]
         
@@ -170,15 +173,15 @@ class ModelHealthManager:
     # ==================== 健康检测 ====================
     
     async def test_single_model(
-        self, 
-        provider_name: str, 
+        self,
+        provider_id: str,
         model: str
     ) -> ModelHealthResult:
         """
         检测单个模型，返回完整响应体
         
         Args:
-            provider_name: Provider 名称
+            provider_id: Provider 的唯一 ID (UUID)
             model: 模型名称
             
         Returns:
@@ -186,7 +189,7 @@ class ModelHealthManager:
         """
         if not self._admin_manager:
             return ModelHealthResult(
-                provider=provider_name,
+                provider=provider_id,
                 model=model,
                 success=False,
                 latency_ms=0.0,
@@ -195,16 +198,16 @@ class ModelHealthManager:
                 tested_at=datetime.now(timezone.utc).isoformat()
             )
         
-        # 获取 Provider 配置
-        provider = self._admin_manager.get_provider(provider_name)
+        # 获取 Provider 配置（通过 ID 查找）
+        provider = self._admin_manager.get_provider(provider_id)
         if not provider:
             return ModelHealthResult(
-                provider=provider_name,
+                provider=provider_id,
                 model=model,
                 success=False,
                 latency_ms=0.0,
                 response_body={},
-                error=f"Provider '{provider_name}' 不存在",
+                error=f"Provider ID '{provider_id}' 不存在",
                 tested_at=datetime.now(timezone.utc).isoformat()
             )
         
@@ -238,7 +241,7 @@ class ModelHealthManager:
                 
                 if response.status_code == 200:
                     result = ModelHealthResult(
-                        provider=provider_name,
+                        provider=provider_id,
                         model=model,
                         success=True,
                         latency_ms=latency_ms,
@@ -248,7 +251,7 @@ class ModelHealthManager:
                     )
                 else:
                     result = ModelHealthResult(
-                        provider=provider_name,
+                        provider=provider_id,
                         model=model,
                         success=False,
                         latency_ms=latency_ms,
@@ -260,7 +263,7 @@ class ModelHealthManager:
         except httpx.TimeoutException:
             latency_ms = (time.time() - start_time) * 1000
             result = ModelHealthResult(
-                provider=provider_name,
+                provider=provider_id,
                 model=model,
                 success=False,
                 latency_ms=latency_ms,
@@ -271,7 +274,7 @@ class ModelHealthManager:
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
             result = ModelHealthResult(
-                provider=provider_name,
+                provider=provider_id,
                 model=model,
                 success=False,
                 latency_ms=latency_ms,
@@ -280,14 +283,14 @@ class ModelHealthManager:
                 tested_at=datetime.now(timezone.utc).isoformat()
             )
         
-        # 保存结果
-        key = ModelHealthResult.make_key(provider_name, model)
+        # 保存结果（使用 provider_id 作为 key）
+        key = ModelHealthResult.make_key(provider_id, model)
         self._results[key] = result
         self.save()
         
         # 与熔断系统集成：根据健康检测结果更新模型状态
         provider_manager.update_model_health_from_test(
-            provider_name=provider_name,
+            provider_name=provider_id,  # 注意：provider_manager 可能还需要适配
             model_name=model,
             success=result.success,
             error_message=result.error
@@ -295,13 +298,13 @@ class ModelHealthManager:
         
         # 更新模型最后活动时间
         provider_models_manager.update_activity(
-            provider_name, model, "health_test"
+            provider_id, model, "health_test"
         )
         
         return result
     
     async def test_mapping_models(
-        self, 
+        self,
         resolved_models: dict[str, list[str]]
     ) -> list[ModelHealthResult]:
         """
@@ -310,25 +313,25 @@ class ModelHealthManager:
         策略：同渠道内串行检测，不同渠道间异步检测
         
         Args:
-            resolved_models: {provider: [model_ids]}
+            resolved_models: {provider_id: [model_ids]}
             
         Returns:
             所有检测结果列表
         """
         self._ensure_loaded()
         
-        async def test_provider_models(provider: str, models: list[str]) -> list[ModelHealthResult]:
+        async def test_provider_models(provider_id: str, models: list[str]) -> list[ModelHealthResult]:
             """串行检测单个渠道内的所有模型"""
             results = []
             for model in models:
-                result = await self.test_single_model(provider, model)
+                result = await self.test_single_model(provider_id, model)
                 results.append(result)
             return results
         
         # 为每个渠道创建异步任务
         tasks = [
-            test_provider_models(provider, models)
-            for provider, models in resolved_models.items()
+            test_provider_models(provider_id, models)
+            for provider_id, models in resolved_models.items()
         ]
         
         # 并发执行所有渠道的检测

@@ -2,6 +2,11 @@
 模型映射管理模块
 
 负责管理增强型模型映射，支持规则匹配、手动包含/排除、自动同步
+
+注意：所有 provider 相关的存储和引用都使用 provider_id (UUID)，而非 provider name。
+- resolved_models: {provider_id: [model_ids]}
+- excluded_providers: [provider_id, ...]
+- manual_includes/excludes: "model_id" 或 "provider_id:model_id"
 """
 
 import json
@@ -52,10 +57,10 @@ class ModelMapping:
     unified_name: str
     description: str = ""
     rules: list[MatchRule] = field(default_factory=list)
-    manual_includes: list[str] = field(default_factory=list)  # 格式: "model_id" 或 "provider:model_id"
-    manual_excludes: list[str] = field(default_factory=list)  # 格式: "model_id" 或 "provider:model_id"
-    excluded_providers: list[str] = field(default_factory=list)  # 排除的渠道列表
-    resolved_models: dict[str, list[str]] = field(default_factory=dict)  # {provider: [models]}
+    manual_includes: list[str] = field(default_factory=list)  # 格式: "model_id" 或 "provider_id:model_id"
+    manual_excludes: list[str] = field(default_factory=list)  # 格式: "model_id" 或 "provider_id:model_id"
+    excluded_providers: list[str] = field(default_factory=list)  # 排除的 provider_id 列表
+    resolved_models: dict[str, list[str]] = field(default_factory=dict)  # {provider_id: [models]}
     last_sync: Optional[str] = None
     
     def to_dict(self) -> dict:
@@ -380,71 +385,71 @@ class ModelMappingManager:
         
         Args:
             mapping: 映射配置
-            all_provider_models: 所有Provider的模型列表 {provider: [model_ids]}
+            all_provider_models: 所有Provider的模型列表 {provider_id: [model_ids]}
             
         Returns:
-            解析后的模型 {provider: [model_ids]}
+            解析后的模型 {provider_id: [model_ids]}
         """
         # 解析手动包含/排除的引用格式
         def parse_model_ref(ref: str) -> tuple[Optional[str], str]:
-            """解析模型引用，返回 (provider, model_id)"""
+            """解析模型引用，返回 (provider_id, model_id)"""
             if ":" in ref:
                 parts = ref.split(":", 1)
                 return parts[0], parts[1]
             return None, ref
         
-        # 获取排除的渠道列表
+        # 获取排除的渠道列表（使用 provider_id）
         excluded_providers = set(mapping.excluded_providers or [])
         
-        # 收集所有匹配的模型 (provider, model_id)
+        # 收集所有匹配的模型 (provider_id, model_id)
         matched: set[tuple[str, str]] = set()
         
         # 1. 应用所有规则（取并集），跳过被排除的渠道
-        for provider, models in all_provider_models.items():
+        for provider_id, models in all_provider_models.items():
             # 跳过被排除的渠道
-            if provider in excluded_providers:
+            if provider_id in excluded_providers:
                 continue
             for model_id in models:
                 if RuleMatcher.match_any(mapping.rules, model_id):
-                    matched.add((provider, model_id))
+                    matched.add((provider_id, model_id))
         
         # 2. 添加手动包含（手动包含不受排除渠道限制，因为是用户明确指定的）
         for ref in mapping.manual_includes:
-            provider, model_id = parse_model_ref(ref)
-            if provider:
-                # 指定了Provider（即使在排除列表中也允许，因为是用户明确指定）
-                if provider in all_provider_models and model_id in all_provider_models[provider]:
-                    matched.add((provider, model_id))
+            provider_id, model_id = parse_model_ref(ref)
+            if provider_id:
+                # 指定了 provider_id（即使在排除列表中也允许，因为是用户明确指定）
+                if provider_id in all_provider_models and model_id in all_provider_models[provider_id]:
+                    matched.add((provider_id, model_id))
             else:
-                # 未指定Provider，添加到所有包含该模型的Provider（排除被排除的渠道）
-                for prov, models in all_provider_models.items():
-                    if prov in excluded_providers:
+                # 未指定 provider_id，添加到所有包含该模型的 Provider（排除被排除的渠道）
+                for prov_id, models in all_provider_models.items():
+                    if prov_id in excluded_providers:
                         continue
                     if model_id in models:
-                        matched.add((prov, model_id))
+                        matched.add((prov_id, model_id))
         
         # 3. 移除手动排除（最高优先级）
         for ref in mapping.manual_excludes:
-            provider, model_id = parse_model_ref(ref)
-            if provider:
-                # 指定了Provider
-                matched.discard((provider, model_id))
+            provider_id, model_id = parse_model_ref(ref)
+            if provider_id:
+                # 指定了 provider_id
+                matched.discard((provider_id, model_id))
             else:
-                # 未指定Provider，从所有Provider中排除
+                # 未指定 provider_id，从所有 Provider 中排除
                 to_remove = [(p, m) for p, m in matched if m == model_id]
                 for item in to_remove:
                     matched.discard(item)
         
-        # 按Provider分组
+        # 按 provider_id 分组
         result: dict[str, list[str]] = {}
-        for provider, model_id in matched:
-            if provider not in result:
-                result[provider] = []
-            result[provider].append(model_id)
+        for provider_id, model_id in matched:
+            if provider_id not in result:
+                result[provider_id] = []
+            result[provider_id].append(model_id)
         
         # 排序
-        for provider in result:
-            result[provider].sort()
+        for provider_id in result:
+            result[provider_id].sort()
         
         return result
     
@@ -488,10 +493,10 @@ class ModelMappingManager:
         
         Args:
             unified_name: 统一模型名称
-            all_provider_models: 所有Provider的模型列表
+            all_provider_models: 所有Provider的模型列表 {provider_id: [model_ids]}
             
         Returns:
-            (成功标志, 消息, 解析后的模型)
+            (成功标志, 消息, 解析后的模型 {provider_id: [model_ids]})
         """
         self._ensure_loaded()
         
@@ -515,10 +520,10 @@ class ModelMappingManager:
         同步所有映射
         
         Args:
-            all_provider_models: 所有Provider的模型列表
+            all_provider_models: 所有Provider的模型列表 {provider_id: [model_ids]}
             
         Returns:
-            同步结果列表 [{unified_name, success, matched_count, providers}]
+            同步结果列表 [{unified_name, success, matched_count, provider_ids}]
         """
         self._ensure_loaded()
         
@@ -533,7 +538,7 @@ class ModelMappingManager:
                 "unified_name": unified_name,
                 "success": True,
                 "matched_count": total_models,
-                "providers": list(resolved.keys())
+                "provider_ids": list(resolved.keys())
             })
         
         # 更新全局同步时间
