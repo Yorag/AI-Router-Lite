@@ -24,6 +24,7 @@ from src.constants import (
     APP_DESCRIPTION,
     DEFAULT_SERVER_HOST,
     DEFAULT_SERVER_PORT,
+    CONFIG_FILE_PATH,
 )
 from src.models import (
     ChatCompletionRequest,
@@ -54,7 +55,7 @@ def print_banner():
     banner = f"""
 ╔══════════════════════════════════════════════════════════╗
 ║                                                          ║
-║   🚀 {APP_NAME} v{APP_VERSION}                              ║
+║    {APP_NAME} v{APP_VERSION}                              ║
 ║   {APP_DESCRIPTION}                          ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝
@@ -148,10 +149,10 @@ async def lifespan(app: FastAPI):
     print_banner()
     
     try:
-        config = config_manager.load("config.json")
+        config = config_manager.load(CONFIG_FILE_PATH)
         print(f"[STARTUP] 配置文件加载成功")
     except FileNotFoundError:
-        print(f"[ERROR] 配置文件 config.json 不存在！")
+        print(f"[ERROR] 配置文件 {CONFIG_FILE_PATH} 不存在！")
         print(f"[HINT] 请复制 config.example.json 并重命名为 config.json")
         sys.exit(1)
     except Exception as e:
@@ -773,7 +774,9 @@ async def update_provider(provider_id: str, request: UpdateProviderRequest):
         raise HTTPException(status_code=404, detail="Provider 不存在")
     
     # 合并更新
-    update_data = request.model_dump(exclude_none=True)
+    # 使用 exclude_unset=True 只包含用户显式传入的字段
+    # 而不是 exclude_none=True，这样可以正确处理 null 值（如清除 default_protocol）
+    update_data = request.model_dump(exclude_unset=True)
     provider.update(update_data)
     
     success, message = admin_manager.update_provider(provider_id, provider)
@@ -1255,7 +1258,7 @@ async def reload_config():
     global router, proxy
     
     try:
-        config = config_manager.reload("config.json")
+        config = config_manager.reload(CONFIG_FILE_PATH)
         
         # 重新注册 Provider
         provider_manager._providers.clear()
@@ -1302,7 +1305,7 @@ if static_dir.exists():
 if __name__ == "__main__":
     # 先尝试加载配置以获取端口
     try:
-        config = config_manager.load("config.json")
+        config = config_manager.load(CONFIG_FILE_PATH)
         host = config.server_host
         port = config.server_port
     except:

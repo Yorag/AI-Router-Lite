@@ -19,6 +19,8 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 import filelock
 
+from .constants import MODEL_MAPPINGS_STORAGE_PATH
+
 class RuleType(str, Enum):
     """匹配规则类型"""
     KEYWORD = "keyword"      # 关键字包含匹配
@@ -226,7 +228,7 @@ class ModelMappingManager:
     
     VERSION = "1.0"
     
-    def __init__(self, data_path: str = "data/model_mappings.json"):
+    def __init__(self, data_path: str = MODEL_MAPPINGS_STORAGE_PATH):
         self.data_path = Path(data_path)
         self.lock_path = self.data_path.with_suffix(".json.lock")
         self._mappings: dict[str, ModelMapping] = {}

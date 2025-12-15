@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from .constants import (
     DEFAULT_SERVER_PORT,
     DEFAULT_SERVER_HOST,
+    CONFIG_FILE_PATH,
 )
 
 
@@ -87,7 +88,7 @@ class ConfigManager:
             cls._instance = super().__new__(cls)
         return cls._instance
     
-    def load(self, config_path: str = "config.json") -> AppConfig:
+    def load(self, config_path: str = CONFIG_FILE_PATH) -> AppConfig:
         """
         加载配置文件
         
@@ -119,7 +120,7 @@ class ConfigManager:
             raise RuntimeError("配置尚未加载，请先调用 load() 方法")
         return self._config
     
-    def reload(self, config_path: str = "config.json") -> AppConfig:
+    def reload(self, config_path: str = CONFIG_FILE_PATH) -> AppConfig:
         """重新加载配置"""
         return self.load(config_path)
 

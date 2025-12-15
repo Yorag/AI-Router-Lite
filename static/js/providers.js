@@ -237,7 +237,6 @@ const Providers = {
                 <div class="form-group">
                     <label>API 基础 URL</label>
                     <input type="url" id="provider-url" required placeholder="https://api.example.com/v1">
-                    <div class="hint">OpenAI 兼容的 API 地址</div>
                 </div>
                 <div class="form-group">
                     <label>API Key</label>
@@ -285,7 +284,6 @@ const Providers = {
         try {
             await API.addProvider(data);
             Modal.close();
-            Toast.success('服务站已添加，请点击"📥 更新模型"按钮同步模型列表');
             await this.load();
             
             // 提示重新加载配置
@@ -361,7 +359,6 @@ const Providers = {
         try {
             await API.updateProvider(providerId, data);
             Modal.close();
-            Toast.success('服务站已更新');
             await this.load();
             this.showReloadHint();
         } catch (error) {
@@ -434,7 +431,7 @@ const Providers = {
         try {
             if (btn) {
                 btn.disabled = true;
-                btn.innerHTML = '⏳ 更新中...';
+                btn.innerHTML = '更新中...';
             }
             
             const result = await API.fetchProviderModels(providerId);

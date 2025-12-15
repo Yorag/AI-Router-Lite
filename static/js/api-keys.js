@@ -202,7 +202,6 @@ const APIKeys = {
         try {
             await API.updateAPIKey(keyId, { name });
             Modal.close();
-            Toast.success('密钥已更新');
             await this.load();
         } catch (error) {
             Toast.error('更新失败: ' + error.message);

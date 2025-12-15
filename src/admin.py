@@ -12,14 +12,14 @@ from typing import Optional
 import httpx
 
 from .config import config_manager, generate_provider_id
-from .constants import ADMIN_HTTP_TIMEOUT
+from .constants import ADMIN_HTTP_TIMEOUT, CONFIG_FILE_PATH
 from .provider_models import provider_models_manager
 
 
 class AdminManager:
     """管理功能管理器"""
     
-    def __init__(self, config_path: str = "config.json"):
+    def __init__(self, config_path: str = CONFIG_FILE_PATH):
         self.config_path = Path(config_path)
     
     def get_config(self) -> dict:

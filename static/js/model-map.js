@@ -432,8 +432,8 @@ const ModelMap = {
 
     async syncSingle(unifiedName) {
         try {
-            const result = await API.syncModelMappings(unifiedName);
-            Toast.success('同步完成');
+            await API.syncModelMappings(unifiedName);
+            Toast.success(`同步完成`);
             await this.load();
         } catch (error) {
             Toast.error('同步失败: ' + error.message);
@@ -593,7 +593,7 @@ const ModelMap = {
             const modelCount = Array.isArray(models) ? models.length : (models.models?.length || 0);
             const isExcluded = excludedProviders.includes(providerId);
             return `
-                <label class="provider-checkbox ${isExcluded ? 'excluded' : ''}">
+                <label class="provider-checkbox">
                     <input type="checkbox" name="excluded-provider" value="${providerId}" ${isExcluded ? 'checked' : ''}>
                     <span class="provider-name">${providerName}</span>
                     <span class="model-count">(${modelCount})</span>
@@ -922,7 +922,6 @@ const ModelMap = {
             });
             
             Modal.close();
-            Toast.success('模型映射已创建');
             
             // 立即同步
             await this.syncSingle(unifiedName);
@@ -957,7 +956,6 @@ const ModelMap = {
             });
             
             Modal.close();
-            Toast.success('模型映射已更新');
             
             // 立即同步
             await this.syncSingle(unifiedName);
@@ -987,7 +985,7 @@ const ModelMap = {
     // ==================== 协议配置功能 ====================
 
     /**
-     * 显示模型右键菜单
+     * 右键直接弹出协议配置模态框
      */
     showModelContextMenu(event, unifiedName, providerId) {
         event.preventDefault();
@@ -999,71 +997,23 @@ const ModelMap = {
         const model = target.dataset.model;
         if (!model) return false;
         
-        // 移除已有的上下文菜单
-        this.hideContextMenu();
-        
-        const protocolStatus = this.getModelProtocolStatus(unifiedName, providerId, model);
-        const providerName = this.providerIdNameMap[providerId] || providerId;
-        
-        // 创建上下文菜单
-        const menu = document.createElement('div');
-        menu.className = 'model-context-menu';
-        menu.id = 'model-context-menu';
-        menu.innerHTML = `
-            <div class="context-menu-header">
-                <strong>${model}</strong>
-                <span class="provider-info">(${providerName})</span>
-            </div>
-            <div class="context-menu-item" onclick="ModelMap.showProtocolModal('${unifiedName}', '${providerId}', '${model}')">
-                ⚙️ 配置协议
-            </div>
-            ${protocolStatus.source === 'model' ? `
-            <div class="context-menu-item danger" onclick="ModelMap.clearModelProtocol('${unifiedName}', '${providerId}', '${model}')">
-                🗑️ 清除协议配置
-            </div>
-            ` : ''}
-            <div class="context-menu-item" onclick="ModelMap.testSingleModelSilent('${providerId}', '${model}')">
-                🔍 检测健康
-            </div>
-        `;
-        
-        // 定位菜单
-        menu.style.position = 'fixed';
-        menu.style.left = event.clientX + 'px';
-        menu.style.top = event.clientY + 'px';
-        menu.style.zIndex = '10000';
-        
-        document.body.appendChild(menu);
-        
-        // 点击其他地方关闭菜单
-        setTimeout(() => {
-            document.addEventListener('click', this.hideContextMenu);
-        }, 10);
+        // 直接弹出协议配置模态框
+        this.showProtocolModal(unifiedName, providerId, model);
         
         return false;
-    },
-
-    hideContextMenu() {
-        const menu = document.getElementById('model-context-menu');
-        if (menu) {
-            menu.remove();
-        }
-        document.removeEventListener('click', ModelMap.hideContextMenu);
     },
 
     /**
      * 显示单个模型协议配置模态框
      */
     showProtocolModal(unifiedName, providerId, model) {
-        this.hideContextMenu();
-        
         const providerName = this.providerIdNameMap[providerId] || providerId;
         const protocolStatus = this.getModelProtocolStatus(unifiedName, providerId, model);
         const providerDefaultProtocol = this.providerDefaultProtocols[providerId] || '(未设置)';
         
         const protocolOptions = this.availableProtocols.map(p => {
             const selected = protocolStatus.protocol === p.value && protocolStatus.source === 'model' ? 'selected' : '';
-            return `<option value="${p.value}" ${selected}>${p.label} - ${p.description}</option>`;
+            return `<option value="${p.value}" ${selected}>${p.label}</option>`;
         }).join('');
         
         const content = `
@@ -1135,28 +1085,6 @@ const ModelMap = {
             this.render();
         } catch (error) {
             Toast.error('保存失败: ' + error.message);
-        }
-    },
-
-    /**
-     * 清除模型协议配置
-     */
-    async clearModelProtocol(unifiedName, providerId, model) {
-        this.hideContextMenu();
-        
-        try {
-            await API.deleteModelProtocol(unifiedName, providerId, model);
-            
-            // 更新本地缓存
-            if (this.mappings[unifiedName]?.model_settings) {
-                const key = `${providerId}:${model}`;
-                delete this.mappings[unifiedName].model_settings[key];
-            }
-            
-            Toast.success('已清除模型协议配置');
-            this.render();
-        } catch (error) {
-            Toast.error('清除失败: ' + error.message);
         }
     },
 

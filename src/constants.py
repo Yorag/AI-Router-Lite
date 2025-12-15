@@ -27,6 +27,9 @@ DEFAULT_SERVER_PORT: int = 8000
 # 默认服务主机
 DEFAULT_SERVER_HOST: str = "0.0.0.0"
 
+# 配置文件路径
+CONFIG_FILE_PATH: str = "config.json"
+
 
 # ==================== 健康检测配置 ====================
 
