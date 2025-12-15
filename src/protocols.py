@@ -347,10 +347,20 @@ class OpenAIResponseProtocol(BaseProtocol):
                 output_chunk["choices"][0]["delta"]["content"] = chunk.get("delta", "")
             elif chunk.get("type") == "response.completed":
                 output_chunk["choices"][0]["finish_reason"] = "stop"
-                # 提取 usage
+                # 提取 usage 并转换为 OpenAI Chat Completions 格式
                 if "usage" in chunk:
-                    output_chunk["usage"] = chunk["usage"]
-                    return f"data: {json.dumps(output_chunk)}\n\n", chunk["usage"]
+                    raw_usage = chunk["usage"]
+                    # Responses API 使用 input_tokens/output_tokens，需要转换为 prompt_tokens/completion_tokens
+                    normalized_usage = {
+                        "prompt_tokens": raw_usage.get("input_tokens", 0),
+                        "completion_tokens": raw_usage.get("output_tokens", 0),
+                        "total_tokens": raw_usage.get("total_tokens", 0)
+                    }
+                    # 如果 total_tokens 未提供，则计算
+                    if not normalized_usage["total_tokens"]:
+                        normalized_usage["total_tokens"] = normalized_usage["prompt_tokens"] + normalized_usage["completion_tokens"]
+                    output_chunk["usage"] = normalized_usage
+                    return f"data: {json.dumps(output_chunk)}\n\n", normalized_usage
             
             return f"data: {json.dumps(output_chunk)}\n\n", None
         except json.JSONDecodeError:
