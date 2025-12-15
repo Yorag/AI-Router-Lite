@@ -23,7 +23,6 @@ from .constants import (
     LOG_SUBSCRIBE_QUEUE_SIZE,
     LOG_RECENT_LIMIT_DEFAULT,
     LOG_DATE_LIMIT_DEFAULT,
-    LOG_HOURLY_STATS_DEFAULT_DAYS,
 )
 
 
@@ -390,21 +389,66 @@ class LogManager:
         
         return {}
     
-    def get_hourly_stats(self, days: int = LOG_HOURLY_STATS_DEFAULT_DAYS) -> dict:
-        """获取小时级别的统计数据（用于图表）"""
+    def get_daily_stats(self, days: int = 7) -> list[dict]:
+        """获取最近N天的每日统计数据
+        
+        Args:
+            days: 天数，默认7天
+            
+        Returns:
+            list[dict]: 每日统计列表，按日期升序排列
+            [
+                {
+                    "date": "2023-10-27",
+                    "total_requests": 100,
+                    "successful_requests": 90,
+                    "failed_requests": 10,
+                    "total_tokens": 5000,
+                    "model_usage": {...}
+                },
+                ...
+            ]
+        """
         from datetime import timedelta
         
-        result = {}
+        results = []
         now = datetime.now()
         
-        for i in range(days):
-            date = (now - timedelta(days=i)).strftime("%Y-%m-%d")
-            stats = self.get_stats(date)
-            if stats:
-                result[date] = stats.get("hourly_requests", {})
-        
-        return result
-    
+        # 遍历最近N天（包含今天）
+        # 注意：reversed让结果按日期升序排列
+        for i in reversed(range(days)):
+            date_str = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+            stats = self.get_stats(date_str)
+            
+            if not stats:
+                # 如果没有当天的统计文件，尝试从内存中的stats获取（如果是今天）
+                if i == 0:
+                    stats = self._stats.copy()
+                else:
+                    # 否则返回空统计
+                    stats = {
+                        "total_requests": 0,
+                        "successful_requests": 0,
+                        "failed_requests": 0,
+                        "total_tokens": 0,
+                        "hourly_requests": {},
+                        "model_usage": {},
+                        "provider_usage": {}
+                    }
+            
+            # 添加日期字段
+            daily_data = {
+                "date": date_str,
+                "total_requests": stats.get("total_requests", 0),
+                "successful_requests": stats.get("successful_requests", 0),
+                "failed_requests": stats.get("failed_requests", 0),
+                "total_tokens": stats.get("total_tokens", 0),
+                "model_usage": stats.get("model_usage", {})
+            }
+            results.append(daily_data)
+            
+        return results
+
     def clear_old_logs(self, keep_days: int = LOG_RETENTION_DAYS) -> int:
         """清理旧日志"""
         from datetime import timedelta

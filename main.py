@@ -702,10 +702,10 @@ async def get_log_stats(date: Optional[str] = None):
     return log_manager.get_stats(date)
 
 
-@app.get("/api/logs/hourly")
-async def get_hourly_stats(days: int = Query(7, ge=1, le=30)):
-    """获取小时级统计数据"""
-    return log_manager.get_hourly_stats(days)
+@app.get("/api/logs/daily")
+async def get_daily_stats(days: int = Query(7, ge=1, le=30)):
+    """获取每日统计数据（用于近一周趋势图）"""
+    return log_manager.get_daily_stats(days)
 
 
 # ==================== Provider 管理 ====================

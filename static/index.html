@@ -53,9 +53,23 @@
             <div id="page-dashboard" class="page active">
                 <div class="page-header">
                     <h2>仪表板</h2>
-                    <button class="btn btn-primary" onclick="Dashboard.refresh()">
-                        🔄 刷新
-                    </button>
+                    <div class="header-actions">
+                        <!-- 统计范围切换 -->
+                        <div class="stats-range-control">
+                            <div class="toggle-group">
+                                <button class="toggle-btn active" onclick="Dashboard.switchRange('week')" id="btn-range-week">近一周</button>
+                                <button class="toggle-btn" onclick="Dashboard.switchRange('day')" id="btn-range-day">指定日期</button>
+                            </div>
+                            <!-- 日期选择器（默认隐藏） -->
+                            <div class="date-picker-wrapper" id="date-picker-wrapper" style="display: none;">
+                                <input type="date" id="stats-date-picker" class="date-input" onchange="Dashboard.onDateChange()">
+                            </div>
+                        </div>
+
+                        <button class="btn btn-primary" onclick="Dashboard.refresh()">
+                            🔄 刷新
+                        </button>
+                    </div>
                 </div>
                 
                 <!-- 统计卡片 -->

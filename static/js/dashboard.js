@@ -5,8 +5,14 @@
 const Dashboard = {
     requestsChart: null,
     modelUsageChart: null,
+    currentRange: 'week', // 'week' or 'day'
+    selectedDate: null,   // YYYY-MM-DD
 
     async init() {
+        // 初始化日期选择器为今天
+        this.selectedDate = new Date().toISOString().split('T')[0];
+        document.getElementById('stats-date-picker').value = this.selectedDate;
+
         await this.load();
         this.initCharts();
     },
@@ -30,21 +36,68 @@ const Dashboard = {
         Toast.success('刷新完成');
     },
 
+    // 切换统计范围
+    switchRange(range) {
+        this.currentRange = range;
+        
+        // 更新按钮状态
+        document.getElementById('btn-range-week').classList.toggle('active', range === 'week');
+        document.getElementById('btn-range-day').classList.toggle('active', range === 'day');
+        
+        // 显示/隐藏日期选择器
+        document.getElementById('date-picker-wrapper').style.display = range === 'day' ? 'block' : 'none';
+
+        // 刷新数据
+        this.refresh();
+    },
+
+    // 日期变更
+    onDateChange() {
+        const date = document.getElementById('stats-date-picker').value;
+        if (date) {
+            this.selectedDate = date;
+            this.refresh();
+        }
+    },
+
     async loadStats() {
         try {
-            const stats = await API.getSystemStats();
+            // 获取系统基础状态（活跃服务站、API密钥数）- 这些是全局的，不受日期影响
+            const sysStats = await API.getSystemStats();
+            document.getElementById('stat-providers').textContent =
+                `${sysStats.providers.available_providers}/${sysStats.providers.total_providers}`;
+            document.getElementById('stat-keys').textContent =
+                sysStats.api_keys.enabled_keys || 0;
+
+            // 根据当前模式获取统计数据
+            let requestStats = {};
+
+            if (this.currentRange === 'week') {
+                // 近一周：获取过去7天的聚合数据
+                const dailyStats = await API.getDailyStats(7);
+                
+                // 聚合数据
+                requestStats = dailyStats.reduce((acc, day) => {
+                    acc.total_requests += day.total_requests;
+                    acc.successful_requests += day.successful_requests;
+                    return acc;
+                }, { total_requests: 0, successful_requests: 0 });
+
+            } else {
+                // 指定日期：获取单日数据
+                const logStats = await API.getLogStats(this.selectedDate);
+                requestStats = {
+                    total_requests: logStats.total_requests || 0,
+                    successful_requests: logStats.successful_requests || 0
+                };
+            }
             
-            // 更新统计卡片
-            document.getElementById('stat-providers').textContent = 
-                `${stats.providers.available_providers}/${stats.providers.total_providers}`;
-            document.getElementById('stat-keys').textContent = 
-                stats.api_keys.enabled_keys || 0;
-            document.getElementById('stat-requests').textContent = 
-                stats.logs.total_requests || 0;
+            // 更新请求统计卡片
+            document.getElementById('stat-requests').textContent = requestStats.total_requests;
             
             // 计算成功率
-            const total = stats.logs.total_requests || 0;
-            const success = stats.logs.successful_requests || 0;
+            const total = requestStats.total_requests || 0;
+            const success = requestStats.successful_requests || 0;
             const rate = total > 0 ? ((success / total) * 100).toFixed(1) : '100';
             document.getElementById('stat-success-rate').textContent = `${rate}%`;
             
@@ -186,39 +239,88 @@ const Dashboard = {
 
     async loadChartData() {
         try {
-            // 加载日志统计
-            const logStats = await API.getLogStats();
-            
-            // 更新请求趋势图（按小时）
-            if (this.requestsChart && logStats.hourly_requests) {
-                const hours = [];
-                const counts = [];
-                
-                for (let i = 0; i < 24; i++) {
-                    const hour = i.toString().padStart(2, '0');
-                    hours.push(`${hour}:00`);
-                    counts.push(logStats.hourly_requests[hour] || 0);
-                }
-                
-                this.requestsChart.data.labels = hours;
-                this.requestsChart.data.datasets[0].data = counts;
-                this.requestsChart.update();
+            if (this.currentRange === 'week') {
+                await this.loadWeekChartData();
+            } else {
+                await this.loadDayChartData();
             }
-            
-            // 更新模型使用分布图
-            if (this.modelUsageChart && logStats.model_usage) {
-                const models = Object.keys(logStats.model_usage);
-                const usage = Object.values(logStats.model_usage);
-                
-                if (models.length > 0) {
-                    this.modelUsageChart.data.labels = models;
-                    this.modelUsageChart.data.datasets[0].data = usage;
-                    this.modelUsageChart.update();
-                }
-            }
-            
         } catch (error) {
             console.error('Load chart data error:', error);
         }
+    },
+
+    // 加载近一周图表数据
+    async loadWeekChartData() {
+        const dailyStats = await API.getDailyStats(7);
+        
+        // 1. 更新趋势图 (按天)
+        if (this.requestsChart) {
+            const labels = dailyStats.map(d => d.date.slice(5)); // MM-DD
+            const data = dailyStats.map(d => d.total_requests);
+
+            this.requestsChart.data.labels = labels;
+            this.requestsChart.data.datasets[0].label = '日请求量';
+            this.requestsChart.data.datasets[0].data = data;
+            this.requestsChart.update();
+        }
+
+        // 2. 更新模型分布图 (聚合7天)
+        if (this.modelUsageChart) {
+            const aggregatedUsage = {};
+            dailyStats.forEach(day => {
+                if (day.model_usage) {
+                    Object.entries(day.model_usage).forEach(([model, count]) => {
+                        aggregatedUsage[model] = (aggregatedUsage[model] || 0) + count;
+                    });
+                }
+            });
+
+            this.updateModelChart(aggregatedUsage);
+        }
+    },
+
+    // 加载单日图表数据
+    async loadDayChartData() {
+        const logStats = await API.getLogStats(this.selectedDate);
+
+        // 1. 更新趋势图 (按小时)
+        if (this.requestsChart) {
+            const hours = [];
+            const counts = [];
+            
+            for (let i = 0; i < 24; i++) {
+                const hour = i.toString().padStart(2, '0');
+                hours.push(`${hour}:00`);
+                counts.push(logStats.hourly_requests ? (logStats.hourly_requests[hour] || 0) : 0);
+            }
+            
+            this.requestsChart.data.labels = hours;
+            this.requestsChart.data.datasets[0].label = '小时请求量';
+            this.requestsChart.data.datasets[0].data = counts;
+            this.requestsChart.update();
+        }
+
+        // 2. 更新模型分布图
+        if (this.modelUsageChart) {
+            this.updateModelChart(logStats.model_usage || {});
+        }
+    },
+
+    // 辅助：更新模型分布图
+    updateModelChart(usageData) {
+        if (!this.modelUsageChart) return;
+
+        const models = Object.keys(usageData);
+        const counts = Object.values(usageData);
+
+        // 如果没有数据，清空图表
+        if (models.length === 0) {
+            this.modelUsageChart.data.labels = [];
+            this.modelUsageChart.data.datasets[0].data = [];
+        } else {
+            this.modelUsageChart.data.labels = models;
+            this.modelUsageChart.data.datasets[0].data = counts;
+        }
+        this.modelUsageChart.update();
     }
 };

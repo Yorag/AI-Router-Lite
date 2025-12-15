@@ -2,11 +2,6 @@
  * API 模块 - 处理所有后端 API 调用
  */
 
-// API 相关常量配置
-const API_CONSTANTS = {
-    DEFAULT_HOURLY_STATS_DAYS: 7 // 默认小时统计天数
-};
-
 const API = {
     baseUrl: '',  // 使用相对路径
 
@@ -99,8 +94,8 @@ const API = {
         return this.request('GET', `/api/logs/stats${params}`);
     },
 
-    async getHourlyStats(days = API_CONSTANTS.DEFAULT_HOURLY_STATS_DAYS) {
-        return this.request('GET', `/api/logs/hourly?days=${days}`);
+    async getDailyStats(days = 7) {
+        return this.request('GET', `/api/logs/daily?days=${days}`);
     },
 
     // ==================== Provider ====================
