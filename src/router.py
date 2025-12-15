@@ -150,21 +150,16 @@ class ModelRouter:
         """
         获取所有可用的模型列表
         
-        Returns:
-            模型名列表（包括映射名和原始模型名）
-        """
-        models = set()
+        仅返回模型映射的统一名称。
+        实际请求时会在内部将统一名称映射到健康的真实模型。
         
-        # 添加增强型模型映射的统一名称
+        Returns:
+            模型映射的统一名称列表
+        """
+        # 加载并返回模型映射的统一名称
         model_mapping_manager.load()
         mappings = model_mapping_manager.get_all_mappings()
-        models.update(mappings.keys())
-        
-        # 添加所有 Provider 支持的原始模型名
-        for provider in self.provider_manager.get_available():
-            models.update(provider.config.supported_models)
-        
-        return sorted(models)
+        return sorted(mappings.keys())
     
     @staticmethod
     def _log_info(message: str) -> None:

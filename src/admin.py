@@ -128,64 +128,6 @@ class AdminManager:
             return True, "删除成功"
         return False, "保存配置失败"
     
-    # ==================== 模型映射管理 ====================
-    
-    def get_model_map(self) -> dict:
-        """获取模型映射配置"""
-        config = self.get_config()
-        return config.get("model_map", {})
-    
-    def update_model_map(self, model_map: dict) -> tuple[bool, str]:
-        """更新整个模型映射"""
-        config = self.get_config()
-        config["model_map"] = model_map
-        
-        if self.save_config(config):
-            return True, "更新成功"
-        return False, "保存配置失败"
-    
-    def add_model_mapping(self, unified_name: str, actual_models: list[str]) -> tuple[bool, str]:
-        """添加单个模型映射"""
-        config = self.get_config()
-        model_map = config.get("model_map", {})
-        
-        if unified_name in model_map:
-            return False, f"映射 '{unified_name}' 已存在"
-        
-        model_map[unified_name] = actual_models
-        config["model_map"] = model_map
-        
-        if self.save_config(config):
-            return True, "添加成功"
-        return False, "保存配置失败"
-    
-    def update_model_mapping(self, unified_name: str, actual_models: list[str]) -> tuple[bool, str]:
-        """更新单个模型映射"""
-        config = self.get_config()
-        model_map = config.get("model_map", {})
-        
-        model_map[unified_name] = actual_models
-        config["model_map"] = model_map
-        
-        if self.save_config(config):
-            return True, "更新成功"
-        return False, "保存配置失败"
-    
-    def delete_model_mapping(self, unified_name: str) -> tuple[bool, str]:
-        """删除模型映射"""
-        config = self.get_config()
-        model_map = config.get("model_map", {})
-        
-        if unified_name not in model_map:
-            return False, f"映射 '{unified_name}' 不存在"
-        
-        del model_map[unified_name]
-        config["model_map"] = model_map
-        
-        if self.save_config(config):
-            return True, "删除成功"
-        return False, "保存配置失败"
-    
     # ==================== 获取远程模型列表 ====================
     
     async def fetch_provider_models(self, provider_name: str) -> tuple[bool, list[dict], str]:

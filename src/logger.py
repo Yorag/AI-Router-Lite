@@ -44,8 +44,9 @@ class RequestLog:
     type: str  # request, response, error, system
     method: str
     path: str
-    model: Optional[str] = None
-    provider: Optional[str] = None
+    model: Optional[str] = None  # 用户请求的模型名
+    provider: Optional[str] = None  # 实际使用的 Provider 名称
+    actual_model: Optional[str] = None  # 实际使用的模型名（Provider 实际调用的模型）
     status_code: Optional[int] = None
     duration_ms: Optional[float] = None
     message: Optional[str] = None
@@ -54,11 +55,15 @@ class RequestLog:
     api_key_id: Optional[str] = None
     request_tokens: Optional[int] = None
     response_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
     
     def to_dict(self) -> dict:
         """转换为字典"""
         data = asdict(self)
         data["timestamp_str"] = datetime.fromtimestamp(self.timestamp).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        # 添加格式化的实际模型信息（Provider:Model格式）
+        if self.provider and self.actual_model:
+            data["actual_model_full"] = f"{self.provider}:{self.actual_model}"
         return data
 
 
@@ -97,6 +102,9 @@ class LogManager:
         
         # 加载今天的统计数据
         self._load_today_stats()
+        
+        # 加载今天的日志到内存
+        self._load_today_logs()
     
     def _get_log_file_path(self, date: Optional[str] = None) -> Path:
         """获取日志文件路径"""
@@ -120,6 +128,39 @@ class LogManager:
             except Exception:
                 pass
     
+    def _load_today_logs(self) -> None:
+        """加载今天的日志到内存"""
+        log_file = self._get_log_file_path()
+        if log_file.exists():
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip():
+                            data = json.loads(line)
+                            log_entry = RequestLog(
+                                id=data.get("id", ""),
+                                timestamp=data.get("timestamp", 0),
+                                level=data.get("level", "info"),
+                                type=data.get("type", ""),
+                                method=data.get("method", ""),
+                                path=data.get("path", ""),
+                                model=data.get("model"),
+                                provider=data.get("provider"),
+                                actual_model=data.get("actual_model"),
+                                status_code=data.get("status_code"),
+                                duration_ms=data.get("duration_ms"),
+                                message=data.get("message"),
+                                error=data.get("error"),
+                                client_ip=data.get("client_ip"),
+                                api_key_id=data.get("api_key_id"),
+                                request_tokens=data.get("request_tokens"),
+                                response_tokens=data.get("response_tokens"),
+                                total_tokens=data.get("total_tokens")
+                            )
+                            self._logs.append(log_entry)
+            except Exception as e:
+                print(f"[LogManager] 加载日志失败: {e}")
+    
     def _save_stats(self) -> None:
         """保存统计数据"""
         stats_file = self._get_stats_file_path()
@@ -141,6 +182,7 @@ class LogManager:
             path: str,
             model: Optional[str] = None,
             provider: Optional[str] = None,
+            actual_model: Optional[str] = None,
             status_code: Optional[int] = None,
             duration_ms: Optional[float] = None,
             message: Optional[str] = None,
@@ -148,7 +190,8 @@ class LogManager:
             client_ip: Optional[str] = None,
             api_key_id: Optional[str] = None,
             request_tokens: Optional[int] = None,
-            response_tokens: Optional[int] = None) -> RequestLog:
+            response_tokens: Optional[int] = None,
+            total_tokens: Optional[int] = None) -> RequestLog:
         """记录日志"""
         log_entry = RequestLog(
             id=self._generate_log_id(),
@@ -159,6 +202,7 @@ class LogManager:
             path=path,
             model=model,
             provider=provider,
+            actual_model=actual_model,
             status_code=status_code,
             duration_ms=duration_ms,
             message=message,
@@ -166,7 +210,8 @@ class LogManager:
             client_ip=client_ip,
             api_key_id=api_key_id,
             request_tokens=request_tokens,
-            response_tokens=response_tokens
+            response_tokens=response_tokens,
+            total_tokens=total_tokens
         )
         
         # 添加到内存缓存

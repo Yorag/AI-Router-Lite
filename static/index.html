@@ -124,10 +124,9 @@
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>密钥 ID</th>
+                                <th>密钥</th>
                                 <th>名称</th>
                                 <th>状态</th>
-                                <th>速率限制</th>
                                 <th>总请求</th>
                                 <th>最后使用</th>
                                 <th>创建时间</th>
@@ -146,10 +145,10 @@
                 <div class="page-header">
                     <h2>服务站管理</h2>
                     <div class="header-actions">
-                        <button class="btn btn-secondary" onclick="Providers.testAll()">
-                            🧪 测试全部
-                        </button>
-                        <button class="btn btn-primary" onclick="Providers.showCreateModal()">
+                            <button id="btn-update-all-channels" class="btn btn-secondary" onclick="Providers.updateAllChannels()">
+                                🔄 更新全部渠道
+                            </button>
+                            <button class="btn btn-primary" onclick="Providers.showCreateModal()">
                             ➕ 添加服务站
                         </button>
                     </div>
@@ -234,6 +233,8 @@
                             <label>类型</label>
                             <select id="filter-type" onchange="Logs.applyFilters()">
                                 <option value="">全部</option>
+                                <option value="system">System</option>
+                                <option value="admin">Admin</option>
                                 <option value="request">Request</option>
                                 <option value="response">Response</option>
                                 <option value="error">Error</option>

@@ -62,8 +62,25 @@ const Logs = {
         }
         
         const meta = [];
-        if (log.model) meta.push(`模型: ${log.model}`);
-        if (log.provider) meta.push(`服务站: ${log.provider}`);
+        // 请求的模型
+        if (log.model) meta.push(`请求模型: ${log.model}`);
+        // 实际使用的模型（Provider:model格式）
+        if (log.actual_model_full) {
+            meta.push(`实际模型: ${log.actual_model_full}`);
+        } else if (log.provider && log.actual_model) {
+            meta.push(`实际模型: ${log.provider}:${log.actual_model}`);
+        } else if (log.provider) {
+            meta.push(`服务站: ${log.provider}`);
+        }
+        // Token 使用量
+        if (log.total_tokens) {
+            let tokenInfo = `Tokens: ${log.total_tokens}`;
+            if (log.request_tokens || log.response_tokens) {
+                tokenInfo += ` (${log.request_tokens || 0}/${log.response_tokens || 0})`;
+            }
+            meta.push(tokenInfo);
+        }
+        // 耗时和状态
         if (log.duration_ms) meta.push(`耗时: ${Math.round(log.duration_ms)}ms`);
         if (log.status_code) meta.push(`状态: ${log.status_code}`);
         
@@ -184,16 +201,18 @@ const Logs = {
     }
 };
 
-// 添加高亮动画
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes highlight {
-        0% {
-            background-color: rgba(99, 102, 241, 0.3);
+// 添加高亮动画（使用 IIFE 避免变量名冲突）
+(function() {
+    const highlightStyle = document.createElement('style');
+    highlightStyle.textContent = `
+        @keyframes highlight {
+            0% {
+                background-color: rgba(99, 102, 241, 0.3);
+            }
+            100% {
+                background-color: transparent;
+            }
         }
-        100% {
-            background-color: transparent;
-        }
-    }
-`;
-document.head.appendChild(style);
+    `;
+    document.head.appendChild(highlightStyle);
+})();

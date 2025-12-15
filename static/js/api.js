@@ -4,7 +4,6 @@
 
 // API 相关常量配置
 const API_CONSTANTS = {
-    DEFAULT_RATE_LIMIT: 60,      // 默认速率限制（每分钟请求数）
     DEFAULT_HOURLY_STATS_DAYS: 7 // 默认小时统计天数
 };
 
@@ -65,8 +64,8 @@ const API = {
         return this.request('GET', '/api/keys');
     },
 
-    async createAPIKey(name, rateLimit = API_CONSTANTS.DEFAULT_RATE_LIMIT) {
-        return this.request('POST', '/api/keys', { name, rate_limit: rateLimit });
+    async createAPIKey(name) {
+        return this.request('POST', '/api/keys', { name });
     },
 
     async getAPIKey(keyId) {

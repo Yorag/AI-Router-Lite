@@ -264,8 +264,6 @@ const ModelMap = {
 
     // 静默检测单个模型（点击灰色/红色模型标签时触发）
     async testSingleModelSilent(provider, model) {
-        Toast.info(`正在检测 ${model}...`);
-        
         try {
             const result = await API.testSingleModelHealth(provider, model);
             
@@ -304,7 +302,6 @@ const ModelMap = {
     // ==================== 同步操作 ====================
 
     async syncAll() {
-        Toast.info('正在同步所有映射...');
         try {
             const result = await API.syncModelMappings();
             Toast.success(`同步完成，共 ${result.synced_count} 个映射`);
@@ -315,7 +312,6 @@ const ModelMap = {
     },
 
     async syncSingle(unifiedName) {
-        Toast.info(`正在同步映射 "${unifiedName}"...`);
         try {
             const result = await API.syncModelMappings(unifiedName);
             Toast.success('同步完成');
@@ -348,8 +344,6 @@ const ModelMap = {
     // ==================== 健康检测 ====================
 
     async testMappingHealth(unifiedName) {
-        Toast.info(`正在检测映射 "${unifiedName}" 下的所有模型...`);
-        
         try {
             const result = await API.testMappingHealth(unifiedName);
             
@@ -381,8 +375,6 @@ const ModelMap = {
     },
 
     async testSingleModel(provider, model) {
-        Toast.info(`正在检测 ${provider}:${model}...`);
-        
         try {
             const result = await API.testSingleModelHealth(provider, model);
             

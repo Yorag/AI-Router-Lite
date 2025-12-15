@@ -71,35 +71,6 @@ const Modal = {
             this.close();
             if (onConfirm) onConfirm();
         };
-    },
-
-    /**
-     * 显示成功创建密钥的弹窗
-     */
-    showKeyCreated(key, info) {
-        const content = `
-            <p style="color: var(--text-secondary);">您的 API 密钥已创建成功：</p>
-            <div class="key-display">${key}</div>
-            <button class="btn btn-secondary copy-btn" onclick="Modal.copyKey('${key}')">
-                📋 复制密钥
-            </button>
-            <div class="key-warning">
-                ⚠️ 请立即保存此密钥，关闭后将无法再次查看完整密钥！
-            </div>
-            <div class="form-actions">
-                <button class="btn btn-primary" onclick="Modal.close(); APIKeys.load();">我已保存</button>
-            </div>
-        `;
-        
-        this.show('密钥创建成功', content);
-    },
-
-    copyKey(key) {
-        navigator.clipboard.writeText(key).then(() => {
-            Toast.success('密钥已复制到剪贴板');
-        }).catch(() => {
-            Toast.error('复制失败，请手动复制');
-        });
     }
 };
 

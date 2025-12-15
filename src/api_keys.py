@@ -15,7 +15,6 @@ from datetime import datetime
 
 from .constants import (
     API_KEYS_STORAGE_PATH,
-    API_KEY_DEFAULT_RATE_LIMIT,
     API_KEY_PREFIX,
     API_KEY_ID_RANDOM_BYTES,
     API_KEY_SECRET_BYTES,
@@ -26,25 +25,25 @@ from .constants import (
 class APIKey:
     """API 密钥"""
     key_id: str
-    key_hash: str  # 存储哈希值而非明文
+    key_hash: str  # 存储哈希值用于验证
     name: str
     created_at: float
+    key_plain: str = ""  # 存储完整密钥明文，用于显示
     last_used: Optional[float] = None
     enabled: bool = True
-    rate_limit: int = API_KEY_DEFAULT_RATE_LIMIT  # 每分钟请求限制
     total_requests: int = 0
     
     def to_dict(self) -> dict:
-        """转换为字典（不包含敏感信息）"""
+        """转换为字典"""
         return {
             "key_id": self.key_id,
+            "key_plain": self.key_plain,
             "name": self.name,
             "created_at": self.created_at,
             "created_at_str": datetime.fromtimestamp(self.created_at).strftime("%Y-%m-%d %H:%M:%S"),
             "last_used": self.last_used,
             "last_used_str": datetime.fromtimestamp(self.last_used).strftime("%Y-%m-%d %H:%M:%S") if self.last_used else None,
             "enabled": self.enabled,
-            "rate_limit": self.rate_limit,
             "total_requests": self.total_requests
         }
 
@@ -93,17 +92,15 @@ class APIKeyManager:
         full_key = f"{key_id}-{key_secret}"
         return key_id, full_key
     
-    def create_key(self, name: str, rate_limit: int = API_KEY_DEFAULT_RATE_LIMIT) -> tuple[str, dict]:
+    def create_key(self, name: str) -> tuple[str, dict]:
         """
         创建新的 API 密钥
         
         Args:
             name: 密钥名称
-            rate_limit: 每分钟请求限制
             
         Returns:
             (完整密钥, 密钥信息字典)
-            注意：完整密钥只在创建时返回一次
         """
         key_id, full_key = self._generate_key()
         key_hash = self._hash_key(full_key)
@@ -113,7 +110,7 @@ class APIKeyManager:
             key_hash=key_hash,
             name=name,
             created_at=time.time(),
-            rate_limit=rate_limit
+            key_plain=full_key  # 存储明文密钥
         )
         
         self._keys[key_id] = api_key
@@ -158,8 +155,8 @@ class APIKeyManager:
         """列出所有密钥"""
         return [key.to_dict() for key in self._keys.values()]
     
-    def update_key(self, key_id: str, name: Optional[str] = None, 
-                   enabled: Optional[bool] = None, rate_limit: Optional[int] = None) -> bool:
+    def update_key(self, key_id: str, name: Optional[str] = None,
+                   enabled: Optional[bool] = None) -> bool:
         """更新密钥信息"""
         api_key = self._keys.get(key_id)
         if not api_key:
@@ -169,8 +166,6 @@ class APIKeyManager:
             api_key.name = name
         if enabled is not None:
             api_key.enabled = enabled
-        if rate_limit is not None:
-            api_key.rate_limit = rate_limit
         
         self._save()
         return True

@@ -177,7 +177,7 @@ class ProviderManager:
     def register(self, config: ProviderConfig) -> None:
         """注册一个 Provider"""
         self._providers[config.name] = ProviderState(config=config)
-        self._log_info(f"已注册 Provider: {config.name}")
+        # self._log_info(f"已注册 Provider: {config.name}")
     
     def register_all(self, configs: list[ProviderConfig]) -> None:
         """批量注册 Provider"""

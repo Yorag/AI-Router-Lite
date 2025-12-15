@@ -10,11 +10,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-# 从统一常量模块导入健康检测相关常量
+# 从统一常量模块导入服务器默认配置
 from .constants import (
-    HEALTH_CHECK_SKIP_THRESHOLD_HOURS,
-    AUTO_HEALTH_CHECK_INTERVAL_HOURS,
-    HEALTH_TEST_FAILURE_COOLDOWN_SECONDS,
     DEFAULT_SERVER_PORT,
     DEFAULT_SERVER_HOST,
 )
@@ -35,10 +32,6 @@ class AppConfig(BaseModel):
     """应用配置"""
     server_port: int = Field(default=8000, ge=1, le=65535, description="服务端口")
     server_host: str = Field(default="0.0.0.0", description="服务监听地址")
-    model_map: dict[str, list[str]] = Field(
-        default_factory=dict,
-        description="模型映射：用户请求的模型名 -> 实际模型名列表"
-    )
     providers: list[ProviderConfig] = Field(
         default_factory=list,
         description="Provider 列表"

@@ -25,7 +25,6 @@ from src.constants import (
     APP_DESCRIPTION,
     DEFAULT_SERVER_HOST,
     DEFAULT_SERVER_PORT,
-    API_KEY_DEFAULT_RATE_LIMIT,
 )
 from src.models import (
     ChatCompletionRequest,
@@ -36,7 +35,7 @@ from src.models import (
 )
 from src.provider import provider_manager
 from src.router import ModelRouter
-from src.proxy import RequestProxy, ProxyError
+from src.proxy import RequestProxy, ProxyError, ProxyResult, StreamContext
 from src.api_keys import api_key_manager
 from src.logger import log_manager, LogLevel
 from src.admin import admin_manager
@@ -70,11 +69,16 @@ def print_banner():
 def print_config_summary():
     """打印配置摘要"""
     config = get_config()
+    
+    # 加载增强型模型映射
+    model_mapping_manager.load()
+    mappings_count = len(model_mapping_manager.get_all_mappings())
+    
     print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} 服务地址: http://{config.server_host}:{config.server_port}")
     print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} 管理面板: http://{config.server_host}:{config.server_port}/admin")
     print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} 最大重试次数: {config.max_retries}")
     print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} 请求超时: {config.request_timeout}s")
-    print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} 模型映射: {len(config.model_map)} 个")
+    print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} 模型映射: {mappings_count} 个")
     print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} Provider 数量: {len(config.providers)} 个")
     
     for p in config.providers:
@@ -168,6 +172,17 @@ async def lifespan(app: FastAPI):
     print(f"{Fore.GREEN}[STARTUP]{Style.RESET_ALL} 服务启动完成，等待请求...")
     print("-" * 60)
     
+    # 记录系统启动日志
+    model_mapping_manager.load()
+    mappings_count = len(model_mapping_manager.get_all_mappings())
+    log_manager.log(
+        level=LogLevel.INFO,
+        log_type="system",
+        method="STARTUP",
+        path="/",
+        message=f"服务启动完成 - {len(config.providers)} 个 Provider, {mappings_count} 个模型映射"
+    )
+    
     yield
     
     # 关闭时
@@ -205,12 +220,10 @@ app.add_middleware(
 
 class CreateAPIKeyRequest(BaseModel):
     name: str
-    rate_limit: int = API_KEY_DEFAULT_RATE_LIMIT
 
 class UpdateAPIKeyRequest(BaseModel):
     name: Optional[str] = None
     enabled: Optional[bool] = None
-    rate_limit: Optional[int] = None
 
 class ProviderRequest(BaseModel):
     name: str
@@ -281,6 +294,48 @@ async def root():
     }
 
 
+# ==================== API 密钥认证 ====================
+
+def get_api_key_from_header(raw_request: Request) -> Optional[str]:
+    """从请求头提取 API 密钥"""
+    auth_header = raw_request.headers.get("Authorization")
+    if not auth_header:
+        return None
+    
+    # 支持 Bearer token 格式
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]
+    
+    return auth_header
+
+
+async def verify_api_key(raw_request: Request) -> None:
+    """
+    验证 API 密钥的依赖函数
+    
+    Raises:
+        HTTPException: 密钥无效或缺失时抛出 401 错误
+    """
+    api_key = get_api_key_from_header(raw_request)
+    
+    if not api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="缺少 API 密钥，请在 Authorization 头中提供 Bearer token"
+        )
+    
+    # 验证密钥
+    key_obj = api_key_manager.validate_key(api_key)
+    
+    if not key_obj:
+        raise HTTPException(
+            status_code=401,
+            detail="无效的 API 密钥或密钥已被禁用"
+        )
+    
+    # validate_key 已经更新了 last_used 和 total_requests
+
+
 @app.get("/v1/models")
 async def list_models():
     """
@@ -299,11 +354,16 @@ async def list_models():
 
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request: ChatCompletionRequest, raw_request: Request):
+async def chat_completions(
+    request: ChatCompletionRequest,
+    raw_request: Request,
+    _: None = Depends(verify_api_key)
+):
     """
     聊天补全端点 (OpenAI 兼容)
     
-    支持流式和非流式响应
+    需要有效的 API 密钥认证。
+    支持流式和非流式响应。
     """
     original_model = request.model
     is_stream = request.stream or False
@@ -332,9 +392,59 @@ async def chat_completions(request: ChatCompletionRequest, raw_request: Request)
     
     try:
         if is_stream:
-            # 流式响应
+            # 流式响应 - 使用 StreamContext 收集元数据
+            stream_context = StreamContext(provider_name="", actual_model="")
+            
+            async def stream_with_logging():
+                """包装流式响应，在完成后记录日志"""
+                try:
+                    async for chunk in proxy.forward_stream(request, original_model, stream_context):
+                        yield chunk
+                    
+                    # 流式请求完成后记录日志
+                    duration_ms = (time.time() - start_time) * 1000
+                    print(
+                        f"{Fore.GREEN}[RESPONSE]{Style.RESET_ALL} "
+                        f"模型: {original_model}, 实际: {stream_context.provider_name}:{stream_context.actual_model}, "
+                        f"耗时: {duration_ms:.0f}ms, "
+                        f"Tokens: {stream_context.total_tokens or 'N/A'}"
+                    )
+                    log_manager.log(
+                        level=LogLevel.INFO,
+                        log_type="response",
+                        method="POST",
+                        path="/v1/chat/completions",
+                        model=original_model,
+                        provider=stream_context.provider_name,
+                        actual_model=stream_context.actual_model,
+                        status_code=200,
+                        duration_ms=duration_ms,
+                        client_ip=client_ip,
+                        request_tokens=stream_context.request_tokens,
+                        response_tokens=stream_context.response_tokens,
+                        total_tokens=stream_context.total_tokens,
+                        message=f"实际模型: {stream_context.provider_name}:{stream_context.actual_model}"
+                    )
+                except ProxyError as e:
+                    # 流式请求中的错误
+                    duration_ms = (time.time() - start_time) * 1000
+                    log_manager.log(
+                        level=LogLevel.ERROR,
+                        log_type="error",
+                        method="POST",
+                        path="/v1/chat/completions",
+                        model=original_model,
+                        provider=e.provider_name,
+                        actual_model=e.actual_model,
+                        status_code=e.status_code or 500,
+                        duration_ms=duration_ms,
+                        error=e.message,
+                        client_ip=client_ip
+                    )
+                    raise
+            
             return StreamingResponse(
-                proxy.forward_stream(request, original_model),
+                stream_with_logging(),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -344,9 +454,18 @@ async def chat_completions(request: ChatCompletionRequest, raw_request: Request)
             )
         else:
             # 非流式响应
-            response = await proxy.forward_request(request, original_model)
+            result: ProxyResult = await proxy.forward_request(request, original_model)
             
             duration_ms = (time.time() - start_time) * 1000
+            
+            # 打印详细日志
+            print(
+                f"{Fore.GREEN}[RESPONSE]{Style.RESET_ALL} "
+                f"模型: {original_model}, 实际: {result.provider_name}:{result.actual_model}, "
+                f"耗时: {duration_ms:.0f}ms, "
+                f"Tokens: {result.total_tokens or 'N/A'} "
+                f"(请求: {result.request_tokens or 'N/A'}, 响应: {result.response_tokens or 'N/A'})"
+            )
             
             # 记录响应日志
             log_manager.log(
@@ -355,12 +474,18 @@ async def chat_completions(request: ChatCompletionRequest, raw_request: Request)
                 method="POST",
                 path="/v1/chat/completions",
                 model=original_model,
+                provider=result.provider_name,
+                actual_model=result.actual_model,
                 status_code=200,
                 duration_ms=duration_ms,
-                client_ip=client_ip
+                client_ip=client_ip,
+                request_tokens=result.request_tokens,
+                response_tokens=result.response_tokens,
+                total_tokens=result.total_tokens,
+                message=f"实际模型: {result.provider_name}:{result.actual_model}"
             )
             
-            return JSONResponse(content=response)
+            return JSONResponse(content=result.response)
             
     except ProxyError as e:
         duration_ms = (time.time() - start_time) * 1000
@@ -374,6 +499,7 @@ async def chat_completions(request: ChatCompletionRequest, raw_request: Request)
             path="/v1/chat/completions",
             model=original_model,
             provider=e.provider_name,
+            actual_model=e.actual_model,
             status_code=e.status_code or 500,
             duration_ms=duration_ms,
             error=e.message,
@@ -453,13 +579,11 @@ async def list_api_keys():
 async def create_api_key(request: CreateAPIKeyRequest):
     """创建新的 API 密钥"""
     full_key, key_info = api_key_manager.create_key(
-        name=request.name,
-        rate_limit=request.rate_limit
+        name=request.name
     )
     return {
-        "key": full_key,  # 仅在创建时返回完整密钥
-        "info": key_info,
-        "warning": "请保存此密钥，它不会再次显示"
+        "key": full_key,
+        "info": key_info
     }
 
 
@@ -478,8 +602,7 @@ async def update_api_key(key_id: str, request: UpdateAPIKeyRequest):
     success = api_key_manager.update_key(
         key_id=key_id,
         name=request.name,
-        enabled=request.enabled,
-        rate_limit=request.rate_limit
+        enabled=request.enabled
     )
     if not success:
         raise HTTPException(status_code=404, detail="密钥不存在")
@@ -575,6 +698,10 @@ async def add_provider(request: ProviderRequest):
     success, message = admin_manager.add_provider(request.model_dump())
     if not success:
         raise HTTPException(status_code=400, detail=message)
+    log_manager.log(
+        level=LogLevel.INFO, log_type="admin", method="POST",
+        path="/api/providers", message=f"添加 Provider: {request.name}"
+    )
     return {"status": "success", "message": message}
 
 
@@ -601,6 +728,10 @@ async def update_provider(name: str, request: UpdateProviderRequest):
     success, message = admin_manager.update_provider(name, provider)
     if not success:
         raise HTTPException(status_code=400, detail=message)
+    log_manager.log(
+        level=LogLevel.INFO, log_type="admin", method="PUT",
+        path=f"/api/providers/{name}", message=f"更新 Provider: {name}"
+    )
     return {"status": "success", "message": message}
 
 
@@ -610,6 +741,10 @@ async def delete_provider(name: str):
     success, message = admin_manager.delete_provider(name)
     if not success:
         raise HTTPException(status_code=404, detail=message)
+    log_manager.log(
+        level=LogLevel.WARNING, log_type="admin", method="DELETE",
+        path=f"/api/providers/{name}", message=f"删除 Provider: {name}"
+    )
     return {"status": "success", "message": message}
 
 
@@ -651,6 +786,10 @@ async def create_model_mapping(request: CreateModelMappingRequest):
     )
     if not success:
         raise HTTPException(status_code=400, detail=message)
+    log_manager.log(
+        level=LogLevel.INFO, log_type="admin", method="POST",
+        path="/api/model-mappings", message=f"创建模型映射: {request.unified_name}"
+    )
     return {"status": "success", "message": message}
 
 
@@ -676,6 +815,10 @@ async def update_model_mapping(unified_name: str, request: UpdateModelMappingReq
     )
     if not success:
         raise HTTPException(status_code=400, detail=message)
+    log_manager.log(
+        level=LogLevel.INFO, log_type="admin", method="PUT",
+        path=f"/api/model-mappings/{unified_name}", message=f"更新模型映射: {unified_name}"
+    )
     return {"status": "success", "message": message}
 
 
@@ -685,6 +828,10 @@ async def delete_model_mapping(unified_name: str):
     success, message = model_mapping_manager.delete_mapping(unified_name)
     if not success:
         raise HTTPException(status_code=404, detail=message)
+    log_manager.log(
+        level=LogLevel.WARNING, log_type="admin", method="DELETE",
+        path=f"/api/model-mappings/{unified_name}", message=f"删除模型映射: {unified_name}"
+    )
     return {"status": "success", "message": message}
 
 
@@ -898,6 +1045,10 @@ async def reload_config():
         router = ModelRouter(config, provider_manager)
         proxy = RequestProxy(config, provider_manager, router)
         
+        log_manager.log(
+            level=LogLevel.INFO, log_type="system", method="POST",
+            path="/api/admin/reload-config", message="配置已重新加载"
+        )
         return {"status": "success", "message": "配置已重新加载"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"重新加载配置失败: {str(e)}")

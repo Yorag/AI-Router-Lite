@@ -100,9 +100,6 @@ MODEL_HEALTH_STORAGE_PATH: str = "data/model_health.json"
 # API 密钥存储路径
 API_KEYS_STORAGE_PATH: str = "data/api_keys.json"
 
-# 默认速率限制（每分钟请求数）
-API_KEY_DEFAULT_RATE_LIMIT: int = 60
-
 # API 密钥 ID 前缀
 API_KEY_PREFIX: str = "sk-"
 

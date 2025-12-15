@@ -1345,35 +1345,6 @@ body {
     font-size: 1.25rem;
 }
 
-/* ==================== 创建密钥成功弹窗 ==================== */
-
-.key-display {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius-sm);
-    padding: 16px;
-    margin: 16px 0;
-    word-break: break-all;
-    font-family: 'Monaco', 'Menlo', monospace;
-    font-size: 0.875rem;
-}
-
-.key-warning {
-    background: rgba(245, 158, 11, 0.1);
-    border: 1px solid var(--warning-color);
-    border-radius: var(--border-radius-sm);
-    padding: 12px;
-    margin-top: 16px;
-    color: var(--warning-color);
-    font-size: 0.875rem;
-}
-
-.copy-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 12px;
-}
 
 /* ==================== 响应式 ==================== */
 
@@ -1605,4 +1576,43 @@ body {
     color: var(--text-muted);
     font-weight: normal;
     margin-left: 8px;
+}
+
+/* ==================== API 密钥显示样式 ==================== */
+
+/* 密钥单元格 */
+.key-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.key-cell .key-code {
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 0.8125rem;
+    background: var(--bg-tertiary);
+    padding: 4px 8px;
+    border-radius: var(--border-radius-sm);
+    word-break: break-all;
+}
+
+/* 图标按钮 */
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    cursor: pointer;
+    transition: var(--transition);
+    font-size: 0.875rem;
+}
+
+.btn-icon:hover {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
 }

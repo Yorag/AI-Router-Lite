@@ -11,6 +11,7 @@ const PROVIDER_CONSTANTS = {
 const Providers = {
     providers: [],
     autoUpdateInterval: null,
+    isUpdatingAll: false,  // 防止重复点击"更新全部渠道"按钮
 
     async init() {
         await this.load();
@@ -334,9 +335,24 @@ const Providers = {
     modelDetails: {},
 
     async fetchModels(name) {
-        Toast.info(`正在获取 ${name} 的模型列表...`);
+        // 获取对应的按钮用于防重复控制
+        const providerId = this.escapeId(name);
+        const providerCard = document.getElementById(`provider-${providerId}`);
+        const btn = providerCard?.querySelector('.provider-card-actions .btn-secondary');
+        
+        // 防止重复点击
+        if (btn && btn.disabled) {
+            return;
+        }
+        
+        const originalText = btn?.innerHTML;
         
         try {
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '⏳ 更新中...';
+            }
+            
             const result = await API.fetchProviderModels(name);
             const models = result.models || [];
             
@@ -364,6 +380,11 @@ const Providers = {
             this.showReloadHint();
         } catch (error) {
             Toast.error('获取模型失败: ' + error.message);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
         }
     },
 
@@ -395,21 +416,47 @@ const Providers = {
             await this.updateAllModels();
         }, PROVIDER_CONSTANTS.AUTO_UPDATE_MODELS_INTERVAL_MS);
         
-        const hours = PROVIDER_CONSTANTS.AUTO_UPDATE_MODELS_INTERVAL_MS / (60 * 60 * 1000);
-        Toast.info(`已开启自动更新模型（每${hours}小时）`);
     },
 
     stopAutoUpdateModels() {
         if (this.autoUpdateInterval) {
             clearInterval(this.autoUpdateInterval);
             this.autoUpdateInterval = null;
-            Toast.info('已停止自动更新模型');
+        }
+    },
+
+    // 手动触发更新全部渠道（带防重复控制）
+    async updateAllChannels() {
+        // 防止重复点击
+        if (this.isUpdatingAll) {
+            Toast.warning('正在更新中，请稍候...');
+            return;
+        }
+        
+        const btn = document.getElementById('btn-update-all-channels');
+        const originalText = btn?.innerHTML;
+        
+        try {
+            this.isUpdatingAll = true;
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '⏳ 更新中...';
+            }
+            
+            // 复用现有的 updateAllModels 逻辑
+            await this.updateAllModels();
+            
+        } finally {
+            this.isUpdatingAll = false;
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
         }
     },
 
     async updateAllModels() {
         // 批量更新所有服务站的模型列表
-        Toast.info('正在更新所有服务站的模型列表...');
         
         try {
             let updatedCount = 0;

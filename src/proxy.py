@@ -8,6 +8,7 @@ import json
 import time
 import uuid
 from typing import AsyncIterator, Optional
+from dataclasses import dataclass
 
 import httpx
 from colorama import Fore, Style
@@ -18,6 +19,27 @@ from .provider import ProviderManager, ProviderState
 from .router import ModelRouter
 
 
+@dataclass
+class ProxyResult:
+    """代理请求结果"""
+    response: dict  # 原始响应
+    provider_name: str  # 实际使用的 Provider 名称
+    actual_model: str  # 实际使用的模型名
+    request_tokens: Optional[int] = None  # 请求 token 数
+    response_tokens: Optional[int] = None  # 响应 token 数
+    total_tokens: Optional[int] = None  # 总 token 数
+
+
+@dataclass
+class StreamContext:
+    """流式请求上下文（用于跟踪流式请求的元数据）"""
+    provider_name: str
+    actual_model: str
+    request_tokens: Optional[int] = None
+    response_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+
+
 class ProxyError(Exception):
     """代理错误"""
     
@@ -25,12 +47,14 @@ class ProxyError(Exception):
         self,
         message: str,
         status_code: Optional[int] = None,
-        provider_name: Optional[str] = None
+        provider_name: Optional[str] = None,
+        actual_model: Optional[str] = None
     ):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
         self.provider_name = provider_name
+        self.actual_model = actual_model
 
 
 class RequestProxy:
@@ -65,7 +89,7 @@ class RequestProxy:
         self,
         request: ChatCompletionRequest,
         original_model: str
-    ) -> dict:
+    ) -> ProxyResult:
         """
         转发非流式请求（带重试机制）
         
@@ -74,7 +98,7 @@ class RequestProxy:
             original_model: 用户请求的原始模型名
             
         Returns:
-            响应字典
+            ProxyResult 对象，包含响应和元数据
             
         Raises:
             ProxyError: 所有 Provider 都失败时抛出
@@ -110,14 +134,28 @@ class RequestProxy:
                 response = await self._do_request(provider, request, actual_model)
                 self.provider_manager.mark_success(provider.config.name, model_name=actual_model)
                 
+                # 提取 token 使用量
+                usage = response.get("usage", {})
+                request_tokens = usage.get("prompt_tokens")
+                response_tokens = usage.get("completion_tokens")
+                total_tokens = usage.get("total_tokens")
+                
                 # 将响应中的模型名替换回用户请求的模型名
                 if "model" in response:
                     response["model"] = original_model
                 
-                return response
+                return ProxyResult(
+                    response=response,
+                    provider_name=provider.config.name,
+                    actual_model=actual_model,
+                    request_tokens=request_tokens,
+                    response_tokens=response_tokens,
+                    total_tokens=total_tokens
+                )
                 
             except ProxyError as e:
                 last_error = e
+                last_error.actual_model = actual_model
                 self.provider_manager.mark_failure(
                     provider.config.name,
                     model_name=actual_model,
@@ -135,7 +173,8 @@ class RequestProxy:
     async def forward_stream(
         self,
         request: ChatCompletionRequest,
-        original_model: str
+        original_model: str,
+        stream_context: Optional[StreamContext] = None
     ) -> AsyncIterator[str]:
         """
         转发流式请求（带重试机制）
@@ -143,6 +182,7 @@ class RequestProxy:
         Args:
             request: 聊天补全请求
             original_model: 用户请求的原始模型名
+            stream_context: 可选的流上下文对象，用于收集流式请求的元数据
             
         Yields:
             SSE 格式的响应数据块
@@ -172,13 +212,18 @@ class RequestProxy:
             provider, actual_model = selection
             tried_providers.add(provider.config.name)
             
+            # 更新流上下文
+            if stream_context is not None:
+                stream_context.provider_name = provider.config.name
+                stream_context.actual_model = actual_model
+            
             self._log_info(
                 f"[流式尝试 {attempt + 1}/{self.config.max_retries}] "
                 f"Provider: {provider.config.name}, 模型: {actual_model}"
             )
             
             try:
-                async for chunk in self._do_stream_request(provider, request, actual_model, original_model):
+                async for chunk in self._do_stream_request(provider, request, actual_model, original_model, stream_context):
                     yield chunk
                 
                 self.provider_manager.mark_success(provider.config.name, model_name=actual_model)
@@ -186,6 +231,7 @@ class RequestProxy:
                 
             except ProxyError as e:
                 last_error = e
+                last_error.actual_model = actual_model
                 self.provider_manager.mark_failure(
                     provider.config.name,
                     model_name=actual_model,
@@ -266,7 +312,8 @@ class RequestProxy:
         provider: ProviderState,
         request: ChatCompletionRequest,
         actual_model: str,
-        original_model: str
+        original_model: str,
+        stream_context: Optional[StreamContext] = None
     ) -> AsyncIterator[str]:
         """
         执行单次流式请求
@@ -278,6 +325,8 @@ class RequestProxy:
         body = request.model_dump(exclude_none=True)
         body["model"] = actual_model
         body["stream"] = True
+        # 请求包含 usage 信息（如果 Provider 支持）
+        body["stream_options"] = {"include_usage": True}
         
         headers = {
             "Authorization": f"Bearer {provider.config.api_key}",
@@ -297,7 +346,8 @@ class RequestProxy:
                     raise ProxyError(
                         f"HTTP {response.status_code}: {error_body.decode()[:200]}",
                         status_code=response.status_code,
-                        provider_name=provider.config.name
+                        provider_name=provider.config.name,
+                        actual_model=actual_model
                     )
                 
                 async for line in response.aiter_lines():
@@ -317,6 +367,14 @@ class RequestProxy:
                             chunk = json.loads(data)
                             if "model" in chunk:
                                 chunk["model"] = original_model
+                            
+                            # 提取流式响应中的 usage 信息（通常在最后一个 chunk 中）
+                            if stream_context is not None and "usage" in chunk:
+                                usage = chunk["usage"]
+                                stream_context.request_tokens = usage.get("prompt_tokens")
+                                stream_context.response_tokens = usage.get("completion_tokens")
+                                stream_context.total_tokens = usage.get("total_tokens")
+                            
                             yield f"data: {json.dumps(chunk)}\n\n"
                         except json.JSONDecodeError:
                             # 无法解析的直接透传
@@ -329,13 +387,15 @@ class RequestProxy:
             raise ProxyError(
                 "流式请求超时",
                 status_code=408,
-                provider_name=provider.config.name
+                provider_name=provider.config.name,
+                actual_model=actual_model
             )
         except httpx.RequestError as e:
             raise ProxyError(
                 f"流式网络错误: {str(e)}",
                 status_code=502,
-                provider_name=provider.config.name
+                provider_name=provider.config.name,
+                actual_model=actual_model
             )
     
     @staticmethod

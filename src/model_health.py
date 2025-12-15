@@ -24,6 +24,7 @@ from .constants import (
     HEALTH_TEST_MAX_TOKENS,
     HEALTH_TEST_MESSAGE,
 )
+from .provider import provider_manager
 
 
 @dataclass
@@ -282,6 +283,14 @@ class ModelHealthManager:
         key = ModelHealthResult.make_key(provider_name, model)
         self._results[key] = result
         self.save()
+        
+        # 与熔断系统集成：根据健康检测结果更新模型状态
+        provider_manager.update_model_health_from_test(
+            provider_name=provider_name,
+            model_name=model,
+            success=result.success,
+            error_message=result.error
+        )
         
         return result
     
