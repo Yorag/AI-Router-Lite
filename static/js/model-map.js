@@ -15,6 +15,7 @@ const ModelMap = {
     previewResult: {},      // 预览结果缓存
     healthResults: {},      // 健康检测结果缓存 {provider_id:model -> result}
     availableProtocols: [], // 可用协议类型缓存
+    expandedMappings: new Set(), // 记录已展开的映射卡片 (unifiedName)
 
     // 规则类型选项
     RULE_TYPES: [
@@ -257,12 +258,18 @@ const ModelMap = {
         
         const escapedUnifiedName = unifiedName ? unifiedName.replace(/'/g, "\\'") : '';
         
+        // 根据 expandedMappings 决定初始状态
+        const isExpanded = unifiedName && this.expandedMappings.has(unifiedName);
+        const collapsedClass = isExpanded ? '' : 'collapsed';
+        const contentDisplay = isExpanded ? 'block' : 'none';
+        const toggleText = isExpanded ? '▼ 收起匹配详情' : '▶ 展开匹配详情';
+        
         return `
-            <div class="resolved-models collapsed" id="resolved-models-toggle">
-                <div class="resolved-toggle" onclick="ModelMap.toggleResolved(this)">
-                    <span>▶ 展开匹配详情</span>
+            <div class="resolved-models ${collapsedClass}">
+                <div class="resolved-toggle" onclick="ModelMap.toggleResolved(this, '${escapedUnifiedName}')">
+                    <span>${toggleText}</span>
                 </div>
-                <div class="resolved-content" style="display: none;">
+                <div class="resolved-content" style="display: ${contentDisplay};">
                     ${unifiedName ? `
                     <div class="protocol-config-hint">
                         <span>💡 点击模型可检测健康状态，右键可配置协议</span>
@@ -335,11 +342,11 @@ const ModelMap = {
                 tooltipContent = '';
                 clickAction = '';
             } else {
-                // 失败的模型：显示完整响应体JSON
+                // 失败的模型：显示完整响应体JSON（压缩为一行）
                 try {
-                    let jsonStr = JSON.stringify(result.response_body, null, 2);
+                    let jsonStr = JSON.stringify(result.response_body);
                     if (result.error) {
-                        tooltipContent = `错误: ${result.error}\n\n响应:\n${jsonStr}`;
+                        tooltipContent = `错误: ${result.error} | 响应: ${jsonStr}`;
                     } else {
                         tooltipContent = jsonStr;
                     }
@@ -360,6 +367,9 @@ const ModelMap = {
                 protocolBadge = `<span class="protocol-badge ${badgeClass}" title="${protocolStatus.source === 'model' ? '模型级配置' : 'Provider 默认'}">${protocolStatus.protocol}</span>`;
             } else {
                 protocolBadge = `<span class="protocol-badge protocol-none" title="未配置协议，将被跳过">⚠️</span>`;
+                // 未配置协议的模型禁用左键点击健康检测
+                clickAction = '';
+                tooltipContent = '未配置协议，请右键配置后再检测';
             }
         }
         
@@ -382,6 +392,12 @@ const ModelMap = {
 
     // 静默检测单个模型（点击灰色/红色模型标签时触发）
     async testSingleModelSilent(providerId, model) {
+        // 禁用模型标签，防止重复点击
+        const modelTag = document.querySelector(`.model-tag[data-provider-id="${providerId}"][data-model="${model}"]`);
+        if (modelTag) {
+            modelTag.style.pointerEvents = 'none';
+        }
+        
         try {
             const result = await API.testSingleModelHealth(providerId, model);
             
@@ -399,10 +415,14 @@ const ModelMap = {
             this.render();
         } catch (error) {
             Toast.error('检测失败: ' + error.message);
+            // 发生错误时恢复模型标签状态
+            if (modelTag) {
+                modelTag.style.pointerEvents = '';
+            }
         }
     },
 
-    toggleResolved(el) {
+    toggleResolved(el, unifiedName = null) {
         const container = el.parentElement;
         const content = container.querySelector('.resolved-content');
         const isCollapsed = container.classList.contains('collapsed');
@@ -411,10 +431,18 @@ const ModelMap = {
             container.classList.remove('collapsed');
             content.style.display = 'block';
             el.querySelector('span').textContent = '▼ 收起匹配详情';
+            // 记录展开状态
+            if (unifiedName) {
+                this.expandedMappings.add(unifiedName);
+            }
         } else {
             container.classList.add('collapsed');
             content.style.display = 'none';
             el.querySelector('span').textContent = '▶ 展开匹配详情';
+            // 移除展开状态
+            if (unifiedName) {
+                this.expandedMappings.delete(unifiedName);
+            }
         }
     },
 
