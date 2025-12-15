@@ -536,6 +536,33 @@ body {
     background: var(--bg-tertiary);
 }
 
+/* Provider 统计信息 Tooltip */
+.provider-status-item[data-tooltip] {
+    position: relative;
+}
+
+.provider-status-item[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 12px;
+    background: rgba(30, 41, 59, 0.9);
+    backdrop-filter: blur(4px);
+    color: #cbd5e1; /* 浅灰色文字 */
+    border-radius: var(--border-radius-sm);
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', monospace;
+    white-space: pre; /* 支持换行 */
+    z-index: 1000;
+    margin-bottom: 8px;
+    box-shadow: var(--shadow-md);
+    pointer-events: none;
+    text-align: left;
+    min-width: max-content;
+}
+
 .provider-card-header {
     display: flex;
     justify-content: space-between;

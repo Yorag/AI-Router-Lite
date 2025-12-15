@@ -114,10 +114,11 @@ const Dashboard = {
 
     async loadProviderStatus() {
         try {
-            const data = await API.getStats();
+            // 获取基础状态（用于显示状态标签和冷却信息）
+            const baseData = await API.getStats();
             const container = document.getElementById('provider-status-list');
             
-            if (!data.providers || Object.keys(data.providers).length === 0) {
+            if (!baseData.providers || Object.keys(baseData.providers).length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">📡</div>
@@ -126,9 +127,29 @@ const Dashboard = {
                 `;
                 return;
             }
+
+            // 获取当前时间范围的统计数据（用于 Tooltip）
+            let rangeStats = {};
+            if (this.currentRange === 'week') {
+                const dailyStats = await API.getDailyStats(7);
+                // 聚合7天的数据
+                rangeStats = this.aggregateDailyStats(dailyStats);
+            } else {
+                const logStats = await API.getLogStats(this.selectedDate);
+                rangeStats = logStats.provider_model_stats || {};
+            }
             
-            container.innerHTML = Object.entries(data.providers).map(([id, info]) => `
-                <div class="provider-status-item">
+            container.innerHTML = Object.entries(baseData.providers).map(([id, info]) => {
+                // 使用当前时间范围的统计数据生成 Tooltip
+                // 注意：rangeStats 是按 providerName 索引的，而 info.name 是 providerName
+                const providerName = info.name || id;
+                const providerModelsStats = rangeStats[providerName];
+                
+                const tooltip = this.getProviderStatsTooltip(providerModelsStats);
+                const tooltipAttr = tooltip ? `data-tooltip="${tooltip}"` : '';
+                
+                return `
+                <div class="provider-status-item" ${tooltipAttr}>
                     <div class="provider-status-info">
                         <h4>${info.name || id}</h4>
                         <div class="stats">
@@ -138,11 +159,38 @@ const Dashboard = {
                     </div>
                     <span class="status-badge ${info.status}">${this.getStatusText(info.status)}</span>
                 </div>
-            `).join('');
+            `}).join('');
             
         } catch (error) {
             console.error('Load provider status error:', error);
         }
+    },
+
+    // 聚合每日统计数据
+    aggregateDailyStats(dailyStats) {
+        const aggregated = {}; // provider -> model -> stats
+        
+        dailyStats.forEach(day => {
+            const dayStats = day.provider_model_stats || {};
+            Object.entries(dayStats).forEach(([provider, models]) => {
+                if (!aggregated[provider]) aggregated[provider] = {};
+                
+                Object.entries(models).forEach(([model, stats]) => {
+                    if (!aggregated[provider][model]) {
+                        aggregated[provider][model] = {
+                            total: 0, successful: 0, failed: 0, tokens: 0
+                        };
+                    }
+                    
+                    aggregated[provider][model].total += stats.total || 0;
+                    aggregated[provider][model].successful += stats.successful || 0;
+                    aggregated[provider][model].failed += stats.failed || 0;
+                    aggregated[provider][model].tokens += stats.tokens || 0;
+                });
+            });
+        });
+        
+        return aggregated;
     },
 
     getStatusText(status) {
@@ -152,6 +200,35 @@ const Dashboard = {
             'permanently_disabled': '已禁用'
         };
         return statusMap[status] || status;
+    },
+
+    // 生成服务站统计信息 Tooltip 内容
+    getProviderStatsTooltip(providerModelsStats) {
+        if (!providerModelsStats) return '';
+
+        const statsList = [];
+        
+        Object.entries(providerModelsStats).forEach(([modelName, stat]) => {
+            if (stat.total > 0) {
+                const successRate = stat.total > 0
+                    ? ((stat.successful / stat.total) * 100).toFixed(1) + '%'
+                    : '0.0%';
+                
+                statsList.push({
+                    name: modelName,
+                    total: stat.total,
+                    successRate: successRate,
+                    tokens: stat.tokens
+                });
+            }
+        });
+
+        if (statsList.length === 0) return '';
+
+        // 格式化每一行
+        return statsList.map(m =>
+            `${m.name} 请求: ${m.total} 成功率: ${m.successRate} Token: ${m.tokens || 0}`
+        ).join('&#10;');
     },
 
     initCharts() {

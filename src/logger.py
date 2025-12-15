@@ -102,6 +102,7 @@ class LogManager:
             "model_usage": {},  # model -> count
             "provider_usage": {},  # provider -> count (保持向后兼容)
             "provider_stats": {},  # provider -> {total, successful, failed} (新增详细统计)
+            "provider_model_stats": {}, # provider -> model -> {total, successful, failed, tokens} (新增模型级详细统计)
         }
         
         # 加载今天的统计数据
@@ -314,7 +315,44 @@ class LogManager:
                     provider_stat["successful"] += 1
                 else:
                     provider_stat["failed"] += 1
-            
+                
+                # 新增：Provider 模型级详细统计
+                if "provider_model_stats" not in self._stats:
+                    self._stats["provider_model_stats"] = {}
+                
+                if log_entry.provider not in self._stats["provider_model_stats"]:
+                    self._stats["provider_model_stats"][log_entry.provider] = {}
+                
+                # 使用 actual_model 作为 key，如果为空则使用 model
+                model_key = log_entry.actual_model or log_entry.model or "unknown"
+                
+                if model_key not in self._stats["provider_model_stats"][log_entry.provider]:
+                    self._stats["provider_model_stats"][log_entry.provider][model_key] = {
+                        "total": 0,
+                        "successful": 0,
+                        "failed": 0,
+                        "tokens": 0
+                    }
+                
+                model_stat = self._stats["provider_model_stats"][log_entry.provider][model_key]
+                model_stat["total"] += 1
+                if is_success:
+                    model_stat["successful"] += 1
+                else:
+                    model_stat["failed"] += 1
+                
+                # 模型级 Token 统计
+                current_tokens = 0
+                if log_entry.request_tokens:
+                    current_tokens += log_entry.request_tokens
+                if log_entry.response_tokens:
+                    current_tokens += log_entry.response_tokens
+                # 如果日志中有 total_tokens，优先使用（可能包含未分开的 token）
+                if log_entry.total_tokens and log_entry.total_tokens > current_tokens:
+                    current_tokens = log_entry.total_tokens
+                
+                model_stat["tokens"] += current_tokens
+
             # Token 统计（只有 response 才有 token 信息）
             if log_entry.request_tokens:
                 self._stats["total_tokens"] += log_entry.request_tokens
@@ -471,6 +509,30 @@ class LogManager:
         
         return {}
     
+    def get_provider_model_stats(self, date: Optional[str] = None) -> dict:
+        """获取 Provider 模型级别的详细统计数据
+        
+        Args:
+            date: 指定日期 (YYYY-MM-DD)，None 表示今天
+            
+        Returns:
+            dict: Provider 模型统计数据
+            {
+                "provider_name": {
+                    "model_name": {
+                        "total": int,
+                        "successful": int,
+                        "failed": int,
+                        "tokens": int
+                    },
+                    ...
+                },
+                ...
+            }
+        """
+        stats = self.get_stats(date)
+        return stats.get("provider_model_stats", {})
+
     def get_daily_stats(self, days: int = 7) -> list[dict]:
         """获取最近N天的每日统计数据
         
@@ -525,7 +587,8 @@ class LogManager:
                 "successful_requests": stats.get("successful_requests", 0),
                 "failed_requests": stats.get("failed_requests", 0),
                 "total_tokens": stats.get("total_tokens", 0),
-                "model_usage": stats.get("model_usage", {})
+                "model_usage": stats.get("model_usage", {}),
+                "provider_model_stats": stats.get("provider_model_stats", {})
             }
             results.append(daily_data)
             

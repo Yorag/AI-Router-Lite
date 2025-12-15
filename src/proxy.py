@@ -136,18 +136,27 @@ class RequestProxy:
             
             try:
                 response = await self._do_request(provider, request, actual_model)
-                self.provider_manager.mark_success(provider.config.id, model_name=actual_model)
+                
+                # 提取 token 使用量
+                usage = response.get("usage", {})
+                request_tokens = usage.get("prompt_tokens", 0)
+                response_tokens = usage.get("completion_tokens", 0)
+                total_tokens = usage.get("total_tokens", 0)
+                
+                # 如果 API 没有返回 total_tokens，尝试计算
+                if not total_tokens and (request_tokens or response_tokens):
+                    total_tokens = (request_tokens or 0) + (response_tokens or 0)
+                
+                self.provider_manager.mark_success(
+                    provider.config.id,
+                    model_name=actual_model,
+                    tokens=total_tokens or 0
+                )
                 
                 # 更新模型最后活动时间（使用 provider_id）
                 provider_models_manager.update_activity(
                     provider.config.id, actual_model, "call"
                 )
-                
-                # 提取 token 使用量
-                usage = response.get("usage", {})
-                request_tokens = usage.get("prompt_tokens")
-                response_tokens = usage.get("completion_tokens")
-                total_tokens = usage.get("total_tokens")
                 
                 # 将响应中的模型名替换回用户请求的模型名
                 if "model" in response:
@@ -237,7 +246,18 @@ class RequestProxy:
                 async for chunk in self._do_stream_request(provider, request, actual_model, original_model, stream_context):
                     yield chunk
                 
-                self.provider_manager.mark_success(provider.config.id, model_name=actual_model)
+                # 提取流式上下文中的 token 使用量
+                total_tokens = 0
+                if stream_context and stream_context.total_tokens:
+                    total_tokens = stream_context.total_tokens
+                elif stream_context and (stream_context.request_tokens or stream_context.response_tokens):
+                    total_tokens = (stream_context.request_tokens or 0) + (stream_context.response_tokens or 0)
+                
+                self.provider_manager.mark_success(
+                    provider.config.id,
+                    model_name=actual_model,
+                    tokens=total_tokens
+                )
                 
                 # 更新模型最后活动时间（使用 provider_id）
                 provider_models_manager.update_activity(

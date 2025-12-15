@@ -19,8 +19,8 @@ const Providers = {
 
     async load() {
         try {
-            const data = await API.listProviders();
-            this.providers = data.providers || [];
+            const providersData = await API.listProviders();
+            this.providers = providersData.providers || [];
             this.render();
         } catch (error) {
             console.error('Load providers error:', error);
