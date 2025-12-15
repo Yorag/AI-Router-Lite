@@ -205,6 +205,9 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
     
+    # 保存统计数据到磁盘
+    log_manager.flush_stats()
+    
     await proxy.close()
     print(f"{Fore.YELLOW}[SHUTDOWN]{Style.RESET_ALL} 服务已关闭")
 

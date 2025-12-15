@@ -90,6 +90,9 @@ class LogManager:
         # 日志计数器
         self._log_counter = 0
         
+        # 统计数据变更标记（用于判断是否需要保存）
+        self._stats_dirty = False
+        
         # 统计数据
         self._stats = {
             "total_requests": 0,
@@ -163,14 +166,31 @@ class LogManager:
             except Exception as e:
                 print(f"[LogManager] 加载日志失败: {e}")
     
-    def _save_stats(self) -> None:
-        """保存统计数据"""
+    def _save_stats(self, force: bool = False) -> None:
+        """保存统计数据
+        
+        Args:
+            force: 是否强制保存（忽略 dirty 标记）
+        """
+        if not force and not self._stats_dirty:
+            return
+            
         stats_file = self._get_stats_file_path()
         try:
             with open(stats_file, "w", encoding="utf-8") as f:
                 json.dump(self._stats, f, indent=2, ensure_ascii=False)
+            self._stats_dirty = False
         except Exception as e:
             print(f"[LogManager] 保存统计数据失败: {e}")
+    
+    def flush_stats(self) -> None:
+        """强制保存统计数据到磁盘
+        
+        应在服务关闭时调用，确保所有统计数据被持久化
+        """
+        if self._stats_dirty:
+            self._save_stats(force=True)
+            print("[LogManager] 统计数据已保存")
     
     def _generate_log_id(self) -> str:
         """生成日志 ID"""
@@ -242,13 +262,22 @@ class LogManager:
             print(f"[LogManager] 写入日志失败: {e}")
     
     def _update_stats(self, log_entry: RequestLog) -> None:
-        """更新统计数据"""
-        if log_entry.type in ("request", "response"):
+        """更新统计数据
+        
+        注意：只在 response 或 error 类型的日志时更新统计，
+        避免 request + response 两条日志导致重复计数。
+        - response: 请求成功完成
+        - error: 请求失败
+        """
+        if log_entry.type in ("response", "error"):
             self._stats["total_requests"] += 1
             
             if log_entry.status_code and 200 <= log_entry.status_code < 400:
                 self._stats["successful_requests"] += 1
             elif log_entry.status_code and log_entry.status_code >= 400:
+                self._stats["failed_requests"] += 1
+            elif log_entry.type == "error":
+                # error 类型但没有 status_code 的情况，也计入失败
                 self._stats["failed_requests"] += 1
             
             # 小时统计
@@ -265,14 +294,17 @@ class LogManager:
                 self._stats["provider_usage"][log_entry.provider] = \
                     self._stats["provider_usage"].get(log_entry.provider, 0) + 1
             
-            # Token 统计
+            # Token 统计（只有 response 才有 token 信息）
             if log_entry.request_tokens:
                 self._stats["total_tokens"] += log_entry.request_tokens
             if log_entry.response_tokens:
                 self._stats["total_tokens"] += log_entry.response_tokens
+            
+            # 标记统计数据已变更
+            self._stats_dirty = True
         
         # 定期保存统计
-        if self._stats["total_requests"] % LOG_STATS_SAVE_INTERVAL == 0:
+        if self._stats_dirty and self._stats["total_requests"] % LOG_STATS_SAVE_INTERVAL == 0:
             self._save_stats()
     
     def _notify_subscribers(self, log_entry: RequestLog) -> None:
