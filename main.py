@@ -639,7 +639,7 @@ async def get_logs(
     limit: int = Query(100, ge=1, le=1000),
     level: Optional[str] = None,
     log_type: Optional[str] = None,
-    model: Optional[str] = None,
+    keyword: Optional[str] = None,
     provider: Optional[str] = None
 ):
     """获取日志"""
@@ -648,7 +648,7 @@ async def get_logs(
             limit=limit,
             level=level,
             log_type=log_type,
-            model=model,
+            keyword=keyword,
             provider=provider
         )
     }

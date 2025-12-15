@@ -336,9 +336,17 @@ class LogManager:
                         limit: int = LOG_RECENT_LIMIT_DEFAULT,
                         level: Optional[str] = None,
                         log_type: Optional[str] = None,
-                        model: Optional[str] = None,
+                        keyword: Optional[str] = None,
                         provider: Optional[str] = None) -> list[dict]:
-        """获取最近的日志"""
+        """获取最近的日志
+        
+        Args:
+            limit: 返回日志数量限制
+            level: 日志级别过滤
+            log_type: 日志类型过滤
+            keyword: 关键词过滤，在 message、model、provider、actual_model、error、api_key_name 字段中搜索
+            provider: Provider 过滤
+        """
         logs = list(self._logs)
         
         # 过滤
@@ -346,8 +354,24 @@ class LogManager:
             logs = [l for l in logs if l.level == level]
         if log_type:
             logs = [l for l in logs if l.type == log_type]
-        if model:
-            logs = [l for l in logs if l.model == model]
+        if keyword:
+            # 关键词过滤：在多个字段中搜索
+            keyword_lower = keyword.lower()
+            filtered_logs = []
+            for l in logs:
+                # 收集所有可搜索的字段
+                searchable_fields = [
+                    l.message or "",
+                    l.model or "",
+                    l.provider or "",
+                    l.actual_model or "",
+                    l.error or "",
+                    l.api_key_name or ""
+                ]
+                combined_text = " ".join(searchable_fields).lower()
+                if keyword_lower in combined_text:
+                    filtered_logs.append(l)
+            logs = filtered_logs
         if provider:
             logs = [l for l in logs if l.provider == provider]
         

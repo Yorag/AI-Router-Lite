@@ -82,7 +82,7 @@ const API = {
         if (options.limit) params.append('limit', options.limit);
         if (options.level) params.append('level', options.level);
         if (options.type) params.append('log_type', options.type);
-        if (options.model) params.append('model', options.model);
+        if (options.keyword) params.append('keyword', options.keyword);
         if (options.provider) params.append('provider', options.provider);
         
         const query = params.toString();

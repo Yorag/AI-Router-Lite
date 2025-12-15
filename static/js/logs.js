@@ -19,14 +19,14 @@ const Logs = {
         const limit = document.getElementById('filter-limit')?.value || 100;
         const level = document.getElementById('filter-level')?.value || '';
         const type = document.getElementById('filter-type')?.value || '';
-        const model = document.getElementById('filter-model')?.value || '';
+        const keyword = document.getElementById('filter-keyword')?.value || '';
         
         try {
             const data = await API.getLogs({
                 limit: parseInt(limit),
                 level: level || undefined,
                 type: type || undefined,
-                model: model || undefined
+                keyword: keyword || undefined
             });
             
             this.logs = data.logs || [];
@@ -186,11 +186,23 @@ const Logs = {
         // 检查过滤条件
         const level = document.getElementById('filter-level')?.value || '';
         const type = document.getElementById('filter-type')?.value || '';
-        const model = document.getElementById('filter-model')?.value || '';
+        const keyword = document.getElementById('filter-keyword')?.value || '';
         
         if (level && log.level !== level) return;
         if (type && log.type !== type) return;
-        if (model && log.model !== model) return;
+        // 关键词过滤：在消息、模型、provider、error 等字段中搜索
+        if (keyword) {
+            const searchText = keyword.toLowerCase();
+            const matchFields = [
+                log.message,
+                log.model,
+                log.provider,
+                log.actual_model,
+                log.error,
+                log.api_key_name
+            ].filter(Boolean).join(' ').toLowerCase();
+            if (!matchFields.includes(searchText)) return;
+        }
         
         // 添加新日志到页面顶部
         const container = document.getElementById('logs-container');
