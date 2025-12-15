@@ -65,17 +65,14 @@ const Logs = {
             let tokenInfo = '';
             if (log.total_tokens) {
                 if (log.request_tokens || log.response_tokens) {
-                    tokenInfo = `tokens: ${log.request_tokens || 0}+${log.response_tokens || 0}=${log.total_tokens}`;
+                    tokenInfo = `Tokens: ${log.total_tokens} ↑${log.request_tokens || 0} ↓${log.response_tokens || 0}`;
                 } else {
-                    tokenInfo = `tokens: ${log.total_tokens}`;
+                    tokenInfo = `Tokens: ${log.total_tokens}`;
                 }
             }
             const durationInfo = log.duration_ms ? `${Math.round(log.duration_ms)}ms` : '';
             const infoItems = [tokenInfo, durationInfo].filter(Boolean).join(', ');
             mainMessage = `${keyLabel} ${log.model} ==> ${log.provider}:${log.actual_model}${infoItems ? `, {${infoItems}}` : ''}`;
-        } else if (log.type === 'request' && log.model) {
-            // 请求日志: [密钥] 请求模型
-            mainMessage = `${keyLabel} ${log.model}`;
         } else if (log.type === 'error') {
             // 错误日志: [密钥] 请求模型 错误信息
             mainMessage = `${keyLabel} ${log.model || ''} ${log.error || log.message || ''}`;
@@ -92,14 +89,14 @@ const Logs = {
         const meta = [];
         
         // 对于非 response 类型，显示额外信息
-        if (log.type !== 'response' && log.type !== 'request' && log.type !== 'error') {
+        if (log.type !== 'response' && log.type !== 'error') {
             if (log.api_key_name) meta.push(`密钥: ${log.api_key_name}`);
             if (log.model) meta.push(`模型: ${log.model}`);
             if (log.provider) meta.push(`服务站: ${log.provider}`);
             if (log.total_tokens) {
                 let tokenInfo = `Tokens: ${log.total_tokens}`;
                 if (log.request_tokens || log.response_tokens) {
-                    tokenInfo += ` (${log.request_tokens || 0}/${log.response_tokens || 0})`;
+                    tokenInfo = `Tokens: ${log.total_tokens} ↑${log.request_tokens || 0} ↓${log.response_tokens || 0}`;
                 }
                 meta.push(tokenInfo);
             }

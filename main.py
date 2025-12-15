@@ -390,25 +390,6 @@ async def chat_completions(
     api_key_id = api_key.key_id
     api_key_name = api_key.name
     
-    # 记录请求日志
-    print(
-        f"[REQUEST] "
-        f"[{api_key_name}] {original_model}, 流式: {is_stream}, 消息数: {len(request.messages)}"
-    )
-    
-    # 记录到日志系统
-    log_manager.log(
-        level=LogLevel.INFO,
-        log_type="request",
-        method="POST",
-        path="/v1/chat/completions",
-        model=original_model,
-        client_ip=client_ip,
-        api_key_id=api_key_id,
-        api_key_name=api_key_name,
-        message=f"[{api_key_name}] {original_model}, 流式: {is_stream}"
-    )
-    
     try:
         if is_stream:
             # 流式响应 - 使用 StreamContext 收集元数据
@@ -422,9 +403,9 @@ async def chat_completions(
                     
                     # 流式请求完成后记录日志
                     duration_ms = (time.time() - start_time) * 1000
-                    token_info = f"tokens: {stream_context.total_tokens or 'N/A'}"
+                    token_info = f"Tokens: {stream_context.total_tokens or 'N/A'}"
                     if stream_context.request_tokens or stream_context.response_tokens:
-                        token_info = f"tokens: {stream_context.request_tokens or 0}+{stream_context.response_tokens or 0}={stream_context.total_tokens or 'N/A'}"
+                        token_info = f"Tokens: {stream_context.total_tokens or 'N/A'} ↑{stream_context.request_tokens or 0} ↓{stream_context.response_tokens or 0}"
                     print(
                         f"[RESPONSE] "
                         f"[{api_key_name}] {original_model} ==> {stream_context.provider_name}:{stream_context.actual_model}, "
@@ -484,9 +465,9 @@ async def chat_completions(
             duration_ms = (time.time() - start_time) * 1000
             
             # 打印详细日志
-            token_info = f"tokens: {result.total_tokens or 'N/A'}"
+            token_info = f"Tokens: {result.total_tokens or 'N/A'}"
             if result.request_tokens or result.response_tokens:
-                token_info = f"tokens: {result.request_tokens or 0}+{result.response_tokens or 0}={result.total_tokens or 'N/A'}"
+                token_info = f"Tokens: {result.total_tokens or 'N/A'} ↑{result.request_tokens or 0} ↓{result.response_tokens or 0}"
             print(
                 f"[RESPONSE] "
                 f"[{api_key_name}] {original_model} ==> {result.provider_name}:{result.actual_model}, "

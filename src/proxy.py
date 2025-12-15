@@ -388,9 +388,11 @@ class RequestProxy:
                             # 提取流式响应中的 usage 信息（通常在最后一个 chunk 中）
                             if stream_context is not None and "usage" in chunk:
                                 usage = chunk["usage"]
-                                stream_context.request_tokens = usage.get("prompt_tokens")
-                                stream_context.response_tokens = usage.get("completion_tokens")
-                                stream_context.total_tokens = usage.get("total_tokens")
+                                # 某些 Provider 可能返回 "usage": null，需要检查
+                                if usage is not None:
+                                    stream_context.request_tokens = usage.get("prompt_tokens")
+                                    stream_context.response_tokens = usage.get("completion_tokens")
+                                    stream_context.total_tokens = usage.get("total_tokens")
                             
                             yield f"data: {json.dumps(chunk)}\n\n"
                         except json.JSONDecodeError:
