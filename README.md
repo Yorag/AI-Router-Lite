@@ -21,14 +21,16 @@
    * 手动包含/排除特定模型，优先级最高
    * 自动同步：定时从各中转站拉取最新模型列表并更新映射
    * 预览功能：在保存前预览规则匹配结果
+   * 支持排除特定渠道
 3. **流式响应支持**：完整支持 SSE 流式传输，实现真正的打字机效果。
 4. **双层熔断机制**：
    * **渠道级熔断**：整个 Provider 不可用时熔断
    * **模型级熔断**：单个模型失败时仅熔断该模型，不影响同渠道其他模型
-   * **401/403 (Key 错误/余额不足/模型不存在)**：永久拉黑。
-   * **429 (超频)**：暂时停用 1 分钟。
-   * **5xx (服务器崩)**：暂时停用 5 分钟。
-   * **Timeout (超时)**：暂时停用 2 分钟。
+   * **401/403 (Key 错误/余额不足)**：永久拉黑（渠道级）
+   * **404 (模型不存在)**：永久禁用（模型级）
+   * **429 (超频)**：暂时停用 1 分钟（模型级）
+   * **5xx (服务器崩)**：暂时停用 5 分钟（模型级）
+   * **Timeout (超时)**：暂时停用 2 分钟（渠道级）
 5. **模型健康检测**：
    * 单模型检测：返回完整响应体，便于验证模型真伪
    * 批量检测：同渠道内串行，跨渠道异步，高效检测
@@ -37,12 +39,13 @@
 6. **Provider 模型元信息管理**：
    * 独立存储模型元信息（owned_by、supported_endpoint_types）
    * 跟踪模型最后活动时间（API 调用 / 健康检测）
-   * 首次启动自动从 config.json 迁移数据
-   * 同步时自动增量更新（新增/更新/删除）
+   * 同步时自动增量更新（新增/更新/删除），并输出详细变化日志
+   * 支持并发同步所有渠道模型列表
 7. **无感故障转移 (Failover)**：当首选渠道报错时，自动在后台切换到备用渠道重试，用户端无感知。
 8. **加权路由选择**：根据配置的权重值，优先选择高权重的 Provider。
-9. **可视化管理面板**：功能完善的 Web 管理界面，让你轻松管理所有配置。
-10. **极简配置**：核心配置通过 `config.json` 管理，运行时数据自动持久化，无需数据库。
+9. **Provider ID 体系**：每个 Provider 拥有唯一的 UUID 标识，支持修改显示名称而不影响内部引用。
+10. **可视化管理面板**：功能完善的 Web 管理界面，让你轻松管理所有配置。
+11. **极简配置**：核心配置通过 `config.json` 管理，运行时数据自动持久化，无需数据库。
 
 ## 🎨 管理面板
 
@@ -64,14 +67,16 @@
 - 查看密钥使用统计
 
 ### 🌐 服务站管理
-- 添加/编辑/删除 Provider
+- 添加/编辑/删除 Provider（每个 Provider 拥有唯一 ID）
 - 一键获取中转站实际支持的模型列表（含 owned_by 等元信息）
 - 模型列表增量同步：显示新增/更新/删除统计
+- 并发同步所有渠道模型列表
 - 测试 Provider 可用性
 
 ### 🔄 增强型模型映射
 - 可视化配置模型映射规则（关键字/正则/前缀/精确匹配）
-- 手动包含或排除特定模型
+- 手动包含或排除特定模型（支持 `model_id` 或 `provider_id:model_id` 格式）
+- 排除特定渠道（使用 provider_id）
 - 实时预览规则匹配结果
 - 一键同步：从所有中转站拉取最新模型列表并匹配
 - 自动同步：可配置定时自动同步间隔
@@ -169,30 +174,33 @@ pip install -r requirements.txt
   "server_host": "0.0.0.0",
   "max_retries": 3,
   "request_timeout": 120,
-  "model_map": {
-    "gpt-4": ["gpt-4", "gpt-4-0613", "gpt-4-turbo"],
-    "claude-3": ["claude-3-opus-20240229", "claude-3-sonnet-20240229"]
-  },
   "providers": [
     {
-      "name": "Site_A_Cheap",
-      "base_url": "https://api.site-a.com/v1",
-      "api_key": "sk-xxxxxx",
+      "name": "Provider_A",
+      "base_url": "https://api.example-a.com/v1",
+      "api_key": "sk-your-api-key-here",
       "weight": 10,
-      "timeout": 60,
-      "supported_models": ["gpt-3.5-turbo", "gpt-4"]
+      "timeout": 60
     },
     {
-      "name": "Site_B_Stable",
-      "base_url": "https://api.site-b.xyz/v1",
-      "api_key": "sk-yyyyyy",
+      "name": "Provider_B",
+      "base_url": "https://api.example-b.com/v1",
+      "api_key": "sk-another-api-key",
       "weight": 5,
-      "timeout": 90,
-      "supported_models": ["gpt-4", "claude-3-opus-20240229"]
+      "timeout": 90
+    },
+    {
+      "name": "Provider_C_Backup",
+      "base_url": "https://api.backup-site.com/v1",
+      "api_key": "sk-backup-key",
+      "weight": 1,
+      "timeout": 120
     }
   ]
 }
 ```
+
+> **注意**：模型列表不再需要在配置文件中手动维护。启动后通过管理面板的「服务站管理」同步模型列表，模型映射通过「模型映射」功能配置。
 
 ### 4. 启动服务
 
@@ -270,9 +278,10 @@ python main.py
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/api/providers` | GET/POST | Provider 管理 |
-| `/api/providers/{name}` | GET/PUT/DELETE | 单个 Provider 操作 |
-| `/api/providers/{name}/models` | GET | 获取中转站模型列表（自动保存到 provider_models.json） |
-| `/api/providers/all-models` | GET | 获取所有中转站的模型列表（含 owned_by 元信息） |
+| `/api/providers/{provider_id}` | GET/PUT/DELETE | 单个 Provider 操作（通过 ID） |
+| `/api/providers/{provider_id}/models` | GET | 获取中转站模型列表（自动保存到 provider_models.json） |
+| `/api/providers/all-models` | GET | 获取所有中转站的模型列表（含 owned_by 元信息，key 为 provider_id） |
+| `/api/providers/sync-all-models` | POST | 并发同步所有中转站的模型列表 |
 
 ### 增强型模型映射
 
@@ -297,7 +306,7 @@ python main.py
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/api/admin/reset/{name}` | POST | 重置指定 Provider 状态 |
+| `/api/admin/reset/{provider_id}` | POST | 重置指定 Provider 状态（通过 ID） |
 | `/api/admin/reset-all` | POST | 重置所有 Provider 状态 |
 | `/api/admin/reload-config` | POST | 重新加载配置 |
 | `/api/admin/system-stats` | GET | 系统统计信息 |
@@ -316,8 +325,11 @@ python main.py
 | **exact** | 精确匹配 | 仅匹配完全相同的模型名 |
 
 **手动包含/排除**：优先级最高，可覆盖规则匹配结果
-- 格式：`model_id` 或 `provider:model_id`
+- 格式：`model_id` 或 `provider_id:model_id`
 - 排除规则优先于包含规则
+- 手动包含的模型不受「排除渠道」限制（因为是用户明确指定的）
+
+**排除渠道**：可以排除特定 Provider 的所有模型参与映射（使用 provider_id）
 
 ### 路由策略（双层熔断检查）
 
@@ -338,9 +350,10 @@ python main.py
 |:-------|:---------|:---------|:---------|
 | **401/403** | 鉴权失败/余额不足 | 🚫 **永久停用** | 渠道级 |
 | **404** | 模型不存在 | 🚫 **永久停用** | 模型级 |
-| **429** | 速率限制 | ⏳ **60 秒** | 渠道级 |
-| **500/502** | 服务端错误 | ⏳ **300 秒** | 渠道级 |
+| **429** | 速率限制 | ⏳ **60 秒** | 模型级 |
+| **500/502** | 服务端错误 | ⏳ **300 秒** | 模型级 |
 | **Timeout** | 连接超时 | ⏳ **120 秒** | 渠道级 |
+| **Network** | 网络错误 | ⏳ **120 秒** | 渠道级 |
 
 ## 📚 依赖库说明
 
@@ -360,6 +373,7 @@ python main.py
 - [x] **v0.3 (Reliability)**: 完善重试机制 (Retry Loop) 和错误分级冷却系统。
 - [x] **v0.4 (Monitor)**: Web 管理面板，可视化管理 Provider、模型映射、API 密钥和日志。
 - [x] **v0.5 (Intelligence)**: 增强型模型映射（规则匹配、自动同步）、模型健康检测、双层熔断机制、Provider 模型元信息独立存储。
+- [x] **v0.6 (Refactor)**: Provider ID 体系重构，支持修改显示名称；并发同步所有渠道模型；优化熔断级别分类。
 - [ ] **v1.0**: 完整稳定版本，包含负载均衡优化和更多中转站协议支持。
 
 ## ⚠️ 免责声明
