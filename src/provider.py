@@ -9,8 +9,11 @@ Provider 管理和熔断逻辑模块
 import time
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from .config import ProviderConfig
+
+if TYPE_CHECKING:
+    from .logger import LogManager
 from .constants import (
     HEALTH_CHECK_SKIP_THRESHOLD_HOURS,
     HEALTH_TEST_FAILURE_COOLDOWN_SECONDS,
@@ -124,10 +127,7 @@ class ProviderState:
     cooldown_until: float = 0.0
     cooldown_reason: Optional[CooldownReason] = None
     
-    # 统计数据
-    total_requests: int = 0
-    successful_requests: int = 0
-    failed_requests: int = 0
+    # 错误信息（用于展示最后一次错误）
     last_error: Optional[str] = None
     last_error_time: Optional[float] = None
     
@@ -147,13 +147,6 @@ class ProviderState:
                 return True
             return False
         return True
-    
-    @property
-    def success_rate(self) -> float:
-        """计算成功率"""
-        if self.total_requests == 0:
-            return 1.0
-        return self.successful_requests / self.total_requests
 
 
 class ProviderManager:
@@ -172,6 +165,15 @@ class ProviderManager:
         self._providers: dict[str, ProviderState] = {}
         # 模型状态：key = "provider_id:model_name"
         self._model_states: dict[str, ModelState] = {}
+        # 日志管理器引用（延迟获取，避免循环导入）
+        self._log_manager: Optional["LogManager"] = None
+    
+    def _get_log_manager(self) -> "LogManager":
+        """延迟获取日志管理器（避免循环导入）"""
+        if self._log_manager is None:
+            from .logger import log_manager
+            self._log_manager = log_manager
+        return self._log_manager
     
     def _get_model_key(self, provider_id: str, model_name: str) -> str:
         """生成模型状态的唯一键（provider_id:model_name）"""
@@ -306,13 +308,11 @@ class ProviderManager:
         Args:
             provider_id: Provider 的唯一 ID
             model_name: 模型名称（可选，用于更新模型级统计）
-        """
-        provider = self._providers.get(provider_id)
-        if provider:
-            provider.total_requests += 1
-            provider.successful_requests += 1
         
-        # 同时更新模型级统计
+        注意：Provider 级别的统计数据现在从日志系统持久化获取，
+        此方法仅更新模型级统计。
+        """
+        # 更新模型级统计
         if model_name:
             model_state = self.get_model_state(provider_id, model_name)
             model_state.total_requests += 1
@@ -334,14 +334,15 @@ class ProviderManager:
             model_name: 模型名称（用于模型级熔断）
             status_code: HTTP 状态码
             error_message: 错误消息
+        
+        注意：Provider 级别的统计数据现在从日志系统持久化获取，
+        此方法仅更新错误信息和模型级统计。
         """
         provider = self._providers.get(provider_id)
         if not provider:
             return
         
-        # 更新 Provider 级统计
-        provider.total_requests += 1
-        provider.failed_requests += 1
+        # 更新 Provider 级错误信息（用于展示）
         provider.last_error = error_message
         provider.last_error_time = time.time()
         
@@ -473,7 +474,10 @@ class ProviderManager:
             self.reset(name)
     
     def get_stats(self) -> dict:
-        """获取统计信息（包括渠道级和模型级）"""
+        """获取统计信息（包括渠道级和模型级）
+        
+        Provider 统计数据从日志系统获取（持久化），运行时状态从内存获取
+        """
         stats = {
             "total_providers": len(self._providers),
             "available_providers": len(self.get_available()),
@@ -481,14 +485,29 @@ class ProviderManager:
             "models": {}
         }
         
+        # 从日志系统获取持久化的 Provider 统计数据（按 provider name 索引）
+        log_manager = self._get_log_manager()
+        persisted_provider_stats = log_manager.get_provider_stats()
+        
         for provider_id, provider in self._providers.items():
+            provider_name = provider.config.name
+            
+            # 从日志系统获取持久化的统计数据
+            persisted = persisted_provider_stats.get(provider_name, {})
+            total_requests = persisted.get("total", 0)
+            successful_requests = persisted.get("successful", 0)
+            failed_requests = persisted.get("failed", 0)
+            
+            # 计算成功率
+            success_rate = 1.0 if total_requests == 0 else successful_requests / total_requests
+            
             stats["providers"][provider_id] = {
-                "name": provider.config.name,
+                "name": provider_name,
                 "status": provider.status.value,
-                "total_requests": provider.total_requests,
-                "successful_requests": provider.successful_requests,
-                "failed_requests": provider.failed_requests,
-                "success_rate": f"{provider.success_rate:.1%}",
+                "total_requests": total_requests,
+                "successful_requests": successful_requests,
+                "failed_requests": failed_requests,
+                "success_rate": f"{success_rate:.1%}",
                 "last_error": provider.last_error,
                 "cooldown_reason": provider.cooldown_reason.value if provider.cooldown_reason else None,
             }
@@ -497,7 +516,7 @@ class ProviderManager:
                 remaining = max(0, provider.cooldown_until - time.time())
                 stats["providers"][provider_id]["cooldown_remaining"] = f"{remaining:.0f}s"
         
-        # 模型级统计
+        # 模型级统计（保持内存数据，因为模型粒度更细）
         for key, model_state in self._model_states.items():
             if model_state.total_requests > 0 or model_state.status != ModelStatus.HEALTHY:
                 stats["models"][key] = {

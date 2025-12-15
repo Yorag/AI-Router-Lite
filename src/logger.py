@@ -100,7 +100,8 @@ class LogManager:
             "total_tokens": 0,
             "hourly_requests": {},  # hour -> count
             "model_usage": {},  # model -> count
-            "provider_usage": {},  # provider -> count
+            "provider_usage": {},  # provider -> count (保持向后兼容)
+            "provider_stats": {},  # provider -> {total, successful, failed} (新增详细统计)
         }
         
         # 加载今天的统计数据
@@ -271,8 +272,11 @@ class LogManager:
         if log_entry.type in ("response", "error"):
             self._stats["total_requests"] += 1
             
+            # 判断是成功还是失败
+            is_success = False
             if log_entry.status_code and 200 <= log_entry.status_code < 400:
                 self._stats["successful_requests"] += 1
+                is_success = True
             elif log_entry.status_code and log_entry.status_code >= 400:
                 self._stats["failed_requests"] += 1
             elif log_entry.type == "error":
@@ -288,10 +292,28 @@ class LogManager:
                 self._stats["model_usage"][log_entry.model] = \
                     self._stats["model_usage"].get(log_entry.model, 0) + 1
             
-            # Provider 使用统计
+            # Provider 使用统计（保持向后兼容）
             if log_entry.provider:
                 self._stats["provider_usage"][log_entry.provider] = \
                     self._stats["provider_usage"].get(log_entry.provider, 0) + 1
+                
+                # 新增：Provider 详细统计（成功/失败）
+                if "provider_stats" not in self._stats:
+                    self._stats["provider_stats"] = {}
+                
+                if log_entry.provider not in self._stats["provider_stats"]:
+                    self._stats["provider_stats"][log_entry.provider] = {
+                        "total": 0,
+                        "successful": 0,
+                        "failed": 0
+                    }
+                
+                provider_stat = self._stats["provider_stats"][log_entry.provider]
+                provider_stat["total"] += 1
+                if is_success:
+                    provider_stat["successful"] += 1
+                else:
+                    provider_stat["failed"] += 1
             
             # Token 统计（只有 response 才有 token 信息）
             if log_entry.request_tokens:
@@ -410,6 +432,42 @@ class LogManager:
                     return json.load(f)
             except Exception:
                 pass
+        
+        return {}
+    
+    def get_provider_stats(self, date: Optional[str] = None) -> dict:
+        """获取 Provider 级别的统计数据
+        
+        Args:
+            date: 指定日期 (YYYY-MM-DD)，None 表示今天
+            
+        Returns:
+            dict: Provider 统计数据
+            {
+                "provider_name": {
+                    "total": int,
+                    "successful": int,
+                    "failed": int
+                },
+                ...
+            }
+        """
+        stats = self.get_stats(date)
+        
+        # 优先使用新的 provider_stats 字段
+        if "provider_stats" in stats:
+            return stats["provider_stats"]
+        
+        # 向后兼容：如果只有 provider_usage，转换为新格式（只有 total）
+        if "provider_usage" in stats:
+            return {
+                provider: {
+                    "total": count,
+                    "successful": count,  # 旧数据没有区分，假设全部成功
+                    "failed": 0
+                }
+                for provider, count in stats["provider_usage"].items()
+            }
         
         return {}
     

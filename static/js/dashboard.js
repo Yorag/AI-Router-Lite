@@ -65,12 +65,10 @@ const Dashboard = {
 
     async loadStats() {
         try {
-            // 获取系统基础状态（活跃服务站、API密钥数）- 这些是全局的，不受日期影响
+            // 获取系统基础状态（活跃服务站）- 这个是全局的，不受日期影响
             const sysStats = await API.getSystemStats();
             document.getElementById('stat-providers').textContent =
                 `${sysStats.providers.available_providers}/${sysStats.providers.total_providers}`;
-            document.getElementById('stat-keys').textContent =
-                sysStats.api_keys.enabled_keys || 0;
 
             // 根据当前模式获取统计数据
             let requestStats = {};
@@ -83,20 +81,25 @@ const Dashboard = {
                 requestStats = dailyStats.reduce((acc, day) => {
                     acc.total_requests += day.total_requests;
                     acc.successful_requests += day.successful_requests;
+                    acc.total_tokens += day.total_tokens || 0;
                     return acc;
-                }, { total_requests: 0, successful_requests: 0 });
+                }, { total_requests: 0, successful_requests: 0, total_tokens: 0 });
 
             } else {
                 // 指定日期：获取单日数据
                 const logStats = await API.getLogStats(this.selectedDate);
                 requestStats = {
                     total_requests: logStats.total_requests || 0,
-                    successful_requests: logStats.successful_requests || 0
+                    successful_requests: logStats.successful_requests || 0,
+                    total_tokens: logStats.total_tokens || 0
                 };
             }
             
             // 更新请求统计卡片
             document.getElementById('stat-requests').textContent = requestStats.total_requests;
+            
+            // 更新 Tokens 统计卡片
+            document.getElementById('stat-tokens').textContent = requestStats.total_tokens;
             
             // 计算成功率
             const total = requestStats.total_requests || 0;

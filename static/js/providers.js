@@ -93,7 +93,7 @@ const Providers = {
         const statusBadgeClass = isEnabled ? 'info' : 'warning';
         const statusText = isEnabled ? `权重: ${provider.weight}` : '已禁用';
         const toggleBtnText = isEnabled ? '⏸️ 禁用' : '▶️ 启用';
-        const toggleBtnClass = isEnabled ? 'btn-warning' : 'btn-success';
+        const toggleBtnClass = 'btn-secondary';
 
         return `
             <div class="provider-card ${!isEnabled ? 'disabled' : ''}" id="provider-${providerDomId}" data-provider-id="${providerUuid}">
