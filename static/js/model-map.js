@@ -28,6 +28,9 @@ const ModelMap = {
 
     async load() {
         try {
+            // 先加载 provider 的 ID -> Name 映射，用于渲染时显示名称
+            await this.loadProviderIdNameMap();
+            
             const data = await API.getModelMappings();
             this.mappings = data.mappings || {};
             this.syncConfig = data.sync_config || {};
@@ -39,6 +42,17 @@ const ModelMap = {
         } catch (error) {
             console.error('Load model mappings error:', error);
             Toast.error('加载模型映射失败');
+        }
+    },
+
+    async loadProviderIdNameMap() {
+        try {
+            const data = await API.fetchAllProviderModels();
+            this.processProviderModelsData(data.provider_models || {});
+        } catch (error) {
+            console.error('Load provider ID-Name map error:', error);
+            // 不阻塞后续流程，只是显示 ID 而非名称
+            this.providerIdNameMap = {};
         }
     },
 
@@ -86,15 +100,15 @@ const ModelMap = {
                 <div class="model-map-item">
                     <div class="model-map-header">
                         <div class="model-map-title">
-                            <h4>📌 ${unifiedName}</h4>
+                            <h4> ${unifiedName}</h4>
                             ${mapping.description ? `<span class="model-map-desc">${mapping.description}</span>` : ''}
                         </div>
                         <div class="actions">
                             <button class="btn btn-sm btn-primary" onclick="ModelMap.syncSingle('${unifiedName}')" title="同步此映射">
-                                🔄 同步
+                                 同步
                             </button>
                             <button class="btn btn-sm btn-secondary" onclick="ModelMap.testMappingHealth('${unifiedName}')" title="检测此映射下所有模型的健康状态">
-                                🔬 检测健康
+                                 检测健康
                             </button>
                             <button class="btn btn-sm btn-secondary" onclick="ModelMap.showEditModal('${unifiedName}')">
                                 编辑

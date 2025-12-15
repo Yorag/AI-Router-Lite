@@ -123,7 +123,7 @@ const Providers = {
         const isEnabled = provider.enabled !== false;
         const statusBadgeClass = isEnabled ? 'info' : 'warning';
         const statusText = isEnabled ? `权重: ${provider.weight}` : '已禁用';
-        const toggleBtnText = isEnabled ? '⏸️ 禁用' : '▶️ 启用';
+        const toggleBtnText = isEnabled ? '禁用' : '启用';
 
         return `
             <div class="provider-card ${!isEnabled ? 'disabled' : ''}" id="provider-${providerDomId}" data-provider-id="${providerUuid}">
@@ -147,16 +147,16 @@ const Providers = {
                         ${toggleBtnText}
                     </button>
                     <button class="btn btn-sm btn-secondary btn-fetch-models" onclick="Providers.fetchModels('${providerUuid}')">
-                        📥 更新模型
+                        更新模型
                     </button>
                     <button class="btn btn-sm btn-secondary" onclick="Providers.showEditModal('${providerUuid}')">
-                        ✏️ 编辑
+                        编辑
                     </button>
                     <button class="btn btn-sm btn-secondary" onclick="Providers.reset('${providerUuid}')">
-                        🔄 重置状态
+                        重置状态
                     </button>
                     <button class="btn btn-sm btn-danger" onclick="Providers.confirmDelete('${providerUuid}')">
-                        🗑️ 删除
+                        删除
                     </button>
                 </div>
             </div>
