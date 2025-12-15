@@ -784,7 +784,10 @@ class ModelMappingManager:
     
     def get_resolved_models_for_unified(self, unified_name: str) -> list[str]:
         """
-        获取统一模型名称对应的所有实际模型（用于请求路由）
+        获取统一模型名称对应的所有实际模型
+        
+        注意：此方法返回的是去重后的 model_id 列表，丢失了 provider_id 关联信息。
+        如需保留 provider_id 关联，请直接使用 get_mapping() 获取映射后访问 resolved_models 属性。
         
         Args:
             unified_name: 统一模型名称

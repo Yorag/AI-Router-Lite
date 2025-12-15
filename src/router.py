@@ -22,25 +22,27 @@ class ModelRouter:
         self.config = config
         self.provider_manager = provider_manager
     
-    def resolve_model(self, requested_model: str) -> list[str]:
+    def resolve_model(self, requested_model: str) -> dict[str, list[str]]:
         """
-        解析用户请求的模型名，返回实际模型名列表
+        解析用户请求的模型名，返回 Provider 和模型的映射关系
         
-        使用增强型模型映射，如果没有匹配则直接返回原始模型名。
+        使用增强型模型映射，保留 provider_id 关联信息，确保请求只被路由到
+        明确配置的 Provider + Model 组合。
+        
+        如果没有匹配的映射，则返回空字典（表示应使用原始模型名直接匹配）。
         
         Args:
             requested_model: 用户请求的模型名（可能是映射名）
             
         Returns:
-            实际模型名列表
+            {provider_id: [model_ids]} 格式的映射，空字典表示无映射配置
         """
-        # 从增强型模型映射获取
-        resolved = model_mapping_manager.get_resolved_models_for_unified(requested_model)
-        if resolved:
-            return resolved
+        mapping = model_mapping_manager.get_mapping(requested_model)
+        if mapping and mapping.resolved_models:
+            return mapping.resolved_models.copy()
         
-        # 否则直接返回原始模型名
-        return [requested_model]
+        # 没有映射配置，返回空字典
+        return {}
     
     def find_providers(
         self,
@@ -62,27 +64,51 @@ class ModelRouter:
             此方法会同时检查：
             1. Provider 渠道级是否可用
             2. Provider + Model 组合是否可用（模型级熔断）
+            3. Provider 是否在统一模型映射的 resolved_models 中（防止路由到不在映射范围内的 Provider）
         """
         exclude = exclude or set()
-        actual_models = self.resolve_model(requested_model)
         candidates: list[tuple[ProviderState, str, int]] = []
         
-        # 遍历所有渠道级可用的 Provider
-        for provider in self.provider_manager.get_available():
-            # 跳过被排除的 Provider（使用 id）
-            if provider.config.id in exclude:
-                continue
-            
-            # 获取该 Provider 支持的模型列表（使用 provider_id）
-            supported_models = self._get_supported_models(provider.config.id)
-            
-            # 检查 Provider 支持的模型
-            for actual_model in actual_models:
-                if actual_model in supported_models:
-                    # 双层检查：还需检查该 Provider + Model 组合是否可用（使用 id）
-                    if self.provider_manager.is_model_available(provider.config.id, actual_model):
-                        candidates.append((provider, actual_model, provider.config.weight))
+        # 解析模型映射（返回 {provider_id: [model_ids]} 格式）
+        resolved_models = self.resolve_model(requested_model)
+        
+        if resolved_models:
+            # 有映射配置：只匹配 resolved_models 中明确指定的 provider_id 和 model_id 组合
+            for provider_id, model_ids in resolved_models.items():
+                # 跳过被排除的 Provider
+                if provider_id in exclude:
+                    continue
+                
+                # 获取 Provider 状态
+                provider = self.provider_manager.get(provider_id)
+                if not provider or not provider.is_available:
+                    continue
+                
+                # 获取该 Provider 实际支持的模型列表（用于二次验证）
+                supported_models = self._get_supported_models(provider_id)
+                
+                # 遍历映射中指定的模型
+                for model_id in model_ids:
+                    # 验证 Provider 确实支持该模型
+                    if model_id not in supported_models:
+                        continue
+                    
+                    # 双层检查：检查该 Provider + Model 组合是否可用（模型级熔断）
+                    if self.provider_manager.is_model_available(provider_id, model_id):
+                        candidates.append((provider, model_id, provider.config.weight))
                         break  # 每个 Provider 只加入一次
+        else:
+            # 没有映射配置：使用原始模型名，遍历所有支持该模型的 Provider
+            # 这是向后兼容的逻辑，用于未配置映射的模型
+            for provider in self.provider_manager.get_available():
+                if provider.config.id in exclude:
+                    continue
+                
+                supported_models = self._get_supported_models(provider.config.id)
+                
+                if requested_model in supported_models:
+                    if self.provider_manager.is_model_available(provider.config.id, requested_model):
+                        candidates.append((provider, requested_model, provider.config.weight))
         
         # 按权重降序排序
         candidates.sort(key=lambda x: x[2], reverse=True)
