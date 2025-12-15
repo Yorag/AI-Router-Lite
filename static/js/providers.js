@@ -15,6 +15,37 @@ const Providers = {
 
     async init() {
         await this.load();
+        // 页面初始化时从后端加载模型详情缓存（支持 ToolTip 显示）
+        await this.loadModelDetailsCache();
+    },
+
+    /**
+     * 从后端加载模型详情缓存
+     * 用于页面刷新后恢复 ToolTip 数据
+     */
+    async loadModelDetailsCache() {
+        try {
+            const allModelsData = await API.fetchAllProviderModels();
+            const providerModels = allModelsData.provider_models || {};
+            
+            // 更新本地模型详情缓存
+            for (const [providerId, providerData] of Object.entries(providerModels)) {
+                const models = providerData.models || [];
+                if (models.length > 0) {
+                    this.modelDetails[providerId] = {};
+                    models.forEach(m => {
+                        this.modelDetails[providerId][m.id] = {
+                            id: m.id,
+                            owned_by: m.owned_by || '',
+                            supported_endpoint_types: m.supported_endpoint_types || []
+                        };
+                    });
+                }
+            }
+        } catch (err) {
+            // 静默失败，不影响页面加载
+            console.warn('加载模型详情缓存失败:', err);
+        }
     },
 
     async load() {
@@ -93,7 +124,6 @@ const Providers = {
         const statusBadgeClass = isEnabled ? 'info' : 'warning';
         const statusText = isEnabled ? `权重: ${provider.weight}` : '已禁用';
         const toggleBtnText = isEnabled ? '⏸️ 禁用' : '▶️ 启用';
-        const toggleBtnClass = 'btn-secondary';
 
         return `
             <div class="provider-card ${!isEnabled ? 'disabled' : ''}" id="provider-${providerDomId}" data-provider-id="${providerUuid}">
@@ -113,10 +143,10 @@ const Providers = {
                 </div>
                 
                 <div class="provider-card-actions">
-                    <button class="btn btn-sm ${toggleBtnClass}" onclick="Providers.toggleEnabled('${providerUuid}', ${!isEnabled})">
+                    <button class="btn btn-sm btn-secondary" onclick="Providers.toggleEnabled('${providerUuid}', ${!isEnabled})">
                         ${toggleBtnText}
                     </button>
-                    <button class="btn btn-sm btn-secondary" onclick="Providers.fetchModels('${providerUuid}')">
+                    <button class="btn btn-sm btn-secondary btn-fetch-models" onclick="Providers.fetchModels('${providerUuid}')">
                         📥 更新模型
                     </button>
                     <button class="btn btn-sm btn-secondary" onclick="Providers.showEditModal('${providerUuid}')">
@@ -179,8 +209,6 @@ const Providers = {
                     <input type="number" id="provider-weight" value="1" min="1" max="100">
                     <div class="hint">权重越高，被选中的概率越大</div>
                 </div>
-                <div class="form-group">
-                </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
                     <button type="submit" class="btn btn-primary">添加服务站</button>
@@ -222,9 +250,7 @@ const Providers = {
     showEditModal(providerId) {
         const provider = this.providers.find(p => p.id === providerId);
         if (!provider) return;
-        
-        const modelCount = (provider.supported_models || []).length;
-        
+                
         const content = `
             <form onsubmit="Providers.update(event, '${providerId}')">
                 <div class="form-group">
@@ -337,7 +363,7 @@ const Providers = {
         // 获取对应的按钮用于防重复控制
         const providerDomId = this.escapeId(providerId);
         const providerCard = document.getElementById(`provider-${providerDomId}`);
-        const btn = providerCard?.querySelector('.provider-card-actions .btn-secondary');
+        const btn = providerCard?.querySelector('.provider-card-actions .btn-fetch-models');
         
         // 防止重复点击
         if (btn && btn.disabled) {
@@ -386,10 +412,19 @@ const Providers = {
 
     getModelTooltip(providerId, modelId) {
         const details = this.modelDetails[providerId]?.[modelId];
-        if (!details || !details.owned_by) {
+        if (!details) {
             return '';
         }
-        return `owned_by: ${details.owned_by}`;
+        
+        const parts = [];
+        if (details.owned_by) {
+            parts.push(`owned_by: ${details.owned_by}`);
+        }
+        if (details.supported_endpoint_types && details.supported_endpoint_types.length > 0) {
+            parts.push(`types: ${details.supported_endpoint_types.join(', ')}`);
+        }
+        
+        return parts.join('\n');
     },
 
     toggleAutoUpdate() {

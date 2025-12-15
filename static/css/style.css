@@ -637,10 +637,12 @@ body {
     background: var(--text-color);
     border-radius: var(--border-radius-sm);
     font-size: 0.75rem;
-    white-space: nowrap;
+    white-space: pre;
+    text-align: left;
     z-index: 100;
     margin-bottom: 4px;
     color: #ffffff;
+    max-width: 300px;
 }
 
 .model-tag.model-more-btn,
