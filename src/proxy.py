@@ -17,6 +17,7 @@ from .config import AppConfig
 from .models import ChatCompletionRequest
 from .provider import ProviderManager, ProviderState
 from .router import ModelRouter
+from .provider_models import provider_models_manager
 
 
 @dataclass
@@ -134,6 +135,11 @@ class RequestProxy:
                 response = await self._do_request(provider, request, actual_model)
                 self.provider_manager.mark_success(provider.config.name, model_name=actual_model)
                 
+                # 更新模型最后活动时间
+                provider_models_manager.update_activity(
+                    provider.config.name, actual_model, "call"
+                )
+                
                 # 提取 token 使用量
                 usage = response.get("usage", {})
                 request_tokens = usage.get("prompt_tokens")
@@ -227,6 +233,12 @@ class RequestProxy:
                     yield chunk
                 
                 self.provider_manager.mark_success(provider.config.name, model_name=actual_model)
+                
+                # 更新模型最后活动时间
+                provider_models_manager.update_activity(
+                    provider.config.name, actual_model, "call"
+                )
+                
                 return  # 成功完成，退出重试循环
                 
             except ProxyError as e:

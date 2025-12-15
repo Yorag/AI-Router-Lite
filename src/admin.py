@@ -13,6 +13,7 @@ import httpx
 
 from .config import config_manager
 from .constants import ADMIN_HTTP_TIMEOUT
+from .provider_models import provider_models_manager
 
 
 class AdminManager:
@@ -52,9 +53,21 @@ class AdminManager:
     # ==================== Provider 管理 ====================
     
     def list_providers(self) -> list[dict]:
-        """列出所有 Provider"""
+        """
+        列出所有 Provider（合并模型列表）
+        
+        从 config.json 读取 Provider 配置，并从 provider_models.json 获取模型列表，
+        合并后返回给前端，保持 API 兼容性。
+        """
         config = self.get_config()
         providers = config.get("providers", [])
+        
+        # 从 provider_models_manager 获取模型列表，合并到返回结果
+        for provider in providers:
+            provider_name = provider.get("name", "")
+            model_ids = provider_models_manager.get_provider_model_ids(provider_name)
+            provider["supported_models"] = model_ids
+        
         return providers
     
     def get_provider(self, name: str) -> Optional[dict]:
@@ -66,7 +79,12 @@ class AdminManager:
         return None
     
     def add_provider(self, provider_data: dict) -> tuple[bool, str]:
-        """添加 Provider"""
+        """
+        添加 Provider
+        
+        注意：模型列表不在 config.json 中存储，
+        需要通过 /api/providers/{name}/models 接口同步获取。
+        """
         config = self.get_config()
         providers = config.get("providers", [])
         
@@ -84,8 +102,9 @@ class AdminManager:
         # 设置默认值
         if "weight" not in provider_data:
             provider_data["weight"] = 1
-        if "supported_models" not in provider_data:
-            provider_data["supported_models"] = []
+        
+        # 移除 supported_models 字段（如果前端意外传入）
+        provider_data.pop("supported_models", None)
         
         providers.append(provider_data)
         config["providers"] = providers
@@ -130,15 +149,26 @@ class AdminManager:
     
     # ==================== 获取远程模型列表 ====================
     
-    async def fetch_provider_models(self, provider_name: str) -> tuple[bool, list[dict], str]:
+    async def fetch_provider_models(
+        self,
+        provider_name: str,
+        save_to_storage: bool = True
+    ) -> tuple[bool, list[dict], str, dict]:
         """
         从中转站获取可用模型列表
         
-        仅提取 id 和 owned_by 字段。
+        仅提取 id 和 owned_by 字段，并可选保存到 provider_models.json。
+        
+        Args:
+            provider_name: Provider 名称
+            save_to_storage: 是否保存到持久化存储（默认 True）
+            
+        Returns:
+            (成功标志, 模型列表, 错误信息, 同步统计 {added, updated, removed})
         """
         provider = self.get_provider(provider_name)
         if not provider:
-            return False, [], "Provider 不存在"
+            return False, [], "Provider 不存在", {}
         
         base_url = provider.get("base_url", "").rstrip("/")
         api_key = provider.get("api_key", "")
@@ -159,18 +189,43 @@ class AdminManager:
                             if m.get("id"):
                                 models.append({
                                     "id": m.get("id"),
-                                    "owned_by": m.get("owned_by", "")
+                                    "owned_by": m.get("owned_by", ""),
+                                    "supported_endpoint_types": m.get("supported_endpoint_types", [])
                                 })
                     # 按 id 排序
                     models.sort(key=lambda x: x["id"])
-                    return True, models, ""
+                    
+                    # 保存到持久化存储
+                    sync_stats = {}
+                    if save_to_storage:
+                        added, updated, removed = provider_models_manager.update_models_from_remote(
+                            provider_name, models
+                        )
+                        sync_stats = {
+                            "added": added,
+                            "updated": updated,
+                            "removed": removed
+                        }
+                    
+                    return True, models, "", sync_stats
                 else:
-                    return False, [], f"HTTP {response.status_code}"
+                    return False, [], f"HTTP {response.status_code}", {}
         except Exception as e:
-            return False, [], str(e)
+            return False, [], str(e), {}
     
-    async def fetch_all_provider_models(self) -> dict[str, list[dict]]:
-        """获取所有中转站的模型列表（并发请求）"""
+    async def fetch_all_provider_models(
+        self,
+        save_to_storage: bool = True
+    ) -> dict[str, list[dict]]:
+        """
+        获取所有中转站的模型列表（并发请求）
+        
+        Args:
+            save_to_storage: 是否保存到持久化存储（默认 True）
+            
+        Returns:
+            {provider_name: [{"id": ..., "owned_by": ...}, ...]}
+        """
         result = {}
         providers = self.list_providers()
         
@@ -180,7 +235,9 @@ class AdminManager:
         # 并发获取所有 provider 的模型列表
         async def fetch_single(provider: dict) -> tuple[str, bool, list[dict]]:
             name = provider.get("name", "")
-            success, models, _ = await self.fetch_provider_models(name)
+            success, models, _, _ = await self.fetch_provider_models(
+                name, save_to_storage=save_to_storage
+            )
             return name, success, models
         
         tasks = [fetch_single(p) for p in providers]

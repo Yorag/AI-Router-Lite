@@ -10,7 +10,7 @@
 APP_NAME: str = "AI-Router-Lite"
 
 # 应用版本
-APP_VERSION: str = "0.4.0"
+APP_VERSION: str = "0.5.0"
 
 # 应用描述
 APP_DESCRIPTION: str = "轻量级 AI 聚合路由 + 管理面板"
@@ -93,6 +93,12 @@ LOG_HOURLY_STATS_DEFAULT_DAYS: int = 7
 
 # 模型健康检测结果存储路径
 MODEL_HEALTH_STORAGE_PATH: str = "data/model_health.json"
+
+
+# ==================== Provider 模型元信息配置 ====================
+
+# Provider 模型元信息存储路径
+PROVIDER_MODELS_STORAGE_PATH: str = "data/provider_models.json"
 
 
 # ==================== API 密钥配置 ====================

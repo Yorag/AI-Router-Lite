@@ -11,6 +11,7 @@ from colorama import Fore, Style
 from .config import AppConfig
 from .provider import ProviderManager, ProviderState
 from .model_mapping import model_mapping_manager
+from .provider_models import provider_models_manager
 
 
 class ModelRouter:
@@ -71,9 +72,13 @@ class ModelRouter:
             if provider.config.name in exclude:
                 continue
             
+            # 获取该 Provider 支持的模型列表
+            # 优先从 provider_models_manager 获取，其次从 config 获取
+            supported_models = self._get_supported_models(provider.config.name)
+            
             # 检查 Provider 支持的模型
             for actual_model in actual_models:
-                if actual_model in provider.config.supported_models:
+                if actual_model in supported_models:
                     # 双层检查：还需检查该 Provider + Model 组合是否可用
                     if self.provider_manager.is_model_available(provider.config.name, actual_model):
                         candidates.append((provider, actual_model, provider.config.weight))
@@ -145,6 +150,21 @@ class ModelRouter:
         
         # 兜底返回最后一个
         return candidates[-1]
+    
+    def _get_supported_models(self, provider_name: str) -> set[str]:
+        """
+        获取指定 Provider 支持的模型集合
+        
+        从 provider_models_manager 获取（包含 owned_by, supported_endpoint_types 等元信息）
+        
+        Args:
+            provider_name: Provider 名称
+            
+        Returns:
+            支持的模型 ID 集合
+        """
+        model_ids = provider_models_manager.get_provider_model_ids(provider_name)
+        return set(model_ids) if model_ids else set()
     
     def get_available_models(self) -> list[str]:
         """

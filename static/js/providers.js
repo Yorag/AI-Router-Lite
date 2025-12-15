@@ -179,9 +179,7 @@ const Providers = {
                     <div class="hint">权重越高，被选中的概率越大</div>
                 </div>
                 <div class="form-group">
-                    <label>支持的模型（可选）</label>
-                    <textarea id="provider-models" rows="4" placeholder="可留空，添加后点击"更新模型"按钮自动获取"></textarea>
-                    <div class="hint">可留空，添加服务站后点击卡片上的"📥 更新模型"按钮自动获取</div>
+                    <div class="hint">💡 模型列表会在添加后通过"📥 更新模型"按钮自动获取</div>
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
@@ -199,22 +197,19 @@ const Providers = {
         const baseUrl = document.getElementById('provider-url').value.trim();
         const apiKey = document.getElementById('provider-key').value.trim();
         const weight = parseInt(document.getElementById('provider-weight').value) || 1;
-        const modelsText = document.getElementById('provider-models').value.trim();
         
-        const models = modelsText ? modelsText.split('\n').map(m => m.trim()).filter(m => m) : [];
-        
+        // 模型列表不再在此处提交，通过"更新模型"按钮同步获取
         const data = {
             name,
             base_url: baseUrl,
             api_key: apiKey,
-            weight,
-            supported_models: models
+            weight
         };
         
         try {
             await API.addProvider(data);
             Modal.close();
-            Toast.success('服务站已添加');
+            Toast.success('服务站已添加，请点击"📥 更新模型"按钮同步模型列表');
             await this.load();
             
             // 提示重新加载配置
@@ -228,7 +223,7 @@ const Providers = {
         const provider = this.providers.find(p => p.name === name);
         if (!provider) return;
         
-        const modelsText = (provider.supported_models || []).join('\n');
+        const modelCount = (provider.supported_models || []).length;
         
         const content = `
             <form onsubmit="Providers.update(event, '${name}')">
@@ -250,9 +245,8 @@ const Providers = {
                     <input type="number" id="edit-provider-weight" value="${provider.weight}" min="1" max="100">
                 </div>
                 <div class="form-group">
-                    <label>支持的模型</label>
-                    <textarea id="edit-provider-models" rows="4">${modelsText}</textarea>
-                    <div class="hint">每行输入一个模型名称</div>
+                    <label>当前模型数量</label>
+                    <div class="hint">📦 ${modelCount} 个模型（通过"📥 更新模型"按钮管理）</div>
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
@@ -269,15 +263,12 @@ const Providers = {
         const baseUrl = document.getElementById('edit-provider-url').value.trim();
         const apiKey = document.getElementById('edit-provider-key').value.trim();
         const weight = parseInt(document.getElementById('edit-provider-weight').value) || 1;
-        const modelsText = document.getElementById('edit-provider-models').value.trim();
         
-        const models = modelsText ? modelsText.split('\n').map(m => m.trim()).filter(m => m) : [];
-        
+        // 模型列表不再在此处提交，通过"更新模型"按钮同步获取
         const data = {
             base_url: baseUrl,
             api_key: apiKey,
-            weight,
-            supported_models: models
+            weight
         };
         
         try {
@@ -355,6 +346,7 @@ const Providers = {
             
             const result = await API.fetchProviderModels(name);
             const models = result.models || [];
+            const syncStats = result.sync_stats || {};
             
             if (models.length === 0) {
                 Toast.warning('未获取到任何模型');
@@ -367,15 +359,11 @@ const Providers = {
                 this.modelDetails[name][m.id] = m;
             });
             
-            // 提取模型 ID 列表
-            const modelIds = models.map(m => m.id);
-            
-            // 更新 provider 的模型列表
-            await API.updateProvider(name, {
-                supported_models: modelIds
-            });
-            
-            Toast.success(`已更新 ${modelIds.length} 个模型`);
+            // 模型已自动保存到 provider_models.json，无需再调用 updateProvider
+            const statsMsg = syncStats.added !== undefined
+                ? `(新增: ${syncStats.added}, 更新: ${syncStats.updated}, 移除: ${syncStats.removed})`
+                : '';
+            Toast.success(`已同步 ${models.length} 个模型 ${statsMsg}`);
             await this.load();
             this.showReloadHint();
         } catch (error) {
@@ -460,6 +448,8 @@ const Providers = {
         
         try {
             let updatedCount = 0;
+            let totalModels = 0;
+            
             for (const provider of this.providers) {
                 try {
                     const result = await API.fetchProviderModels(provider.name);
@@ -472,19 +462,16 @@ const Providers = {
                             this.modelDetails[provider.name][m.id] = m;
                         });
                         
-                        // 提取模型 ID 列表并更新
-                        const modelIds = models.map(m => m.id);
-                        await API.updateProvider(provider.name, {
-                            supported_models: modelIds
-                        });
+                        // 模型已自动保存到 provider_models.json，无需再调用 updateProvider
                         updatedCount++;
+                        totalModels += models.length;
                     }
                 } catch (err) {
                     console.error(`更新 ${provider.name} 模型失败:`, err);
                 }
             }
             
-            Toast.success(`已更新 ${updatedCount} 个服务站的模型列表`);
+            Toast.success(`已同步 ${updatedCount} 个服务站，共 ${totalModels} 个模型`);
             await this.load();
             this.showReloadHint();
         } catch (error) {

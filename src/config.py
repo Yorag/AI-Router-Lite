@@ -18,12 +18,16 @@ from .constants import (
 
 
 class ProviderConfig(BaseModel):
-    """单个 Provider 的配置"""
+    """
+    单个 Provider 的配置
+    
+    注意：模型列表存储在 data/provider_models.json 中，
+    通过 /api/providers/{name}/models 接口同步获取。
+    """
     name: str = Field(..., description="Provider 名称，用于日志标识")
     base_url: str = Field(..., description="API 基础 URL")
     api_key: str = Field(..., description="API Key")
     weight: int = Field(default=1, ge=1, description="权重，数值越高优先级越高")
-    supported_models: list[str] = Field(default_factory=list, description="支持的模型列表")
     timeout: Optional[float] = Field(default=None, ge=1.0, description="请求超时时间（秒），未配置时使用全局 request_timeout")
     enabled: bool = Field(default=True, description="是否启用该服务站")
 

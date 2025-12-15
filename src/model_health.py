@@ -25,6 +25,7 @@ from .constants import (
     HEALTH_TEST_MESSAGE,
 )
 from .provider import provider_manager
+from .provider_models import provider_models_manager
 
 
 @dataclass
@@ -290,6 +291,11 @@ class ModelHealthManager:
             model_name=model,
             success=result.success,
             error_message=result.error
+        )
+        
+        # 更新模型最后活动时间
+        provider_models_manager.update_activity(
+            provider_name, model, "health_test"
         )
         
         return result

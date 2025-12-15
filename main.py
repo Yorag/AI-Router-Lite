@@ -41,6 +41,7 @@ from src.logger import log_manager, LogLevel
 from src.admin import admin_manager
 from src.model_mapping import model_mapping_manager
 from src.model_health import model_health_manager
+from src.provider_models import provider_models_manager
 
 
 # 初始化 colorama
@@ -81,8 +82,11 @@ def print_config_summary():
     print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} 模型映射: {mappings_count} 个")
     print(f"{Fore.GREEN}[CONFIG]{Style.RESET_ALL} Provider 数量: {len(config.providers)} 个")
     
+    # 从 provider_models_manager 获取每个 provider 的模型数量
+    provider_models_map = provider_models_manager.get_all_provider_models_map()
     for p in config.providers:
-        print(f"  {Fore.CYAN}├─{Style.RESET_ALL} {p.name} (权重: {p.weight}, 模型: {len(p.supported_models)} 个)")
+        model_count = len(provider_models_map.get(p.name, []))
+        print(f"  {Fore.CYAN}├─{Style.RESET_ALL} {p.name} (权重: {p.weight}, 模型: {model_count} 个)")
 
 
 async def auto_sync_model_mappings_task():
@@ -161,6 +165,9 @@ async def lifespan(app: FastAPI):
     # 初始化模型健康检测管理器
     model_health_manager.set_admin_manager(admin_manager)
     
+    # 加载 provider_models 数据
+    provider_models_manager.load()
+    
     # 初始化路由器和代理
     router = ModelRouter(config, provider_manager)
     proxy = RequestProxy(config, provider_manager, router)
@@ -226,18 +233,18 @@ class UpdateAPIKeyRequest(BaseModel):
     enabled: Optional[bool] = None
 
 class ProviderRequest(BaseModel):
+    """添加 Provider 请求（模型列表通过 /api/providers/{name}/models 同步）"""
     name: str
     base_url: str
     api_key: str
     weight: int = 1
-    supported_models: list[str] = []
     timeout: Optional[float] = None
 
 class UpdateProviderRequest(BaseModel):
+    """更新 Provider 请求（模型列表通过 /api/providers/{name}/models 同步）"""
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     weight: Optional[int] = None
-    supported_models: Optional[list[str]] = None
     timeout: Optional[float] = None
     enabled: Optional[bool] = None
 
@@ -682,13 +689,29 @@ async def list_providers():
 
 @app.get("/api/providers/all-models")
 async def fetch_all_provider_models():
-    """获取所有中转站的模型列表（从本地缓存读取）"""
-    # 从本地配置读取已缓存的模型列表，而非发起网络请求
-    providers = admin_manager.list_providers()
-    result = {
-        p["name"]: p.get("supported_models", [])
-        for p in providers
-    }
+    """
+    获取所有中转站的模型列表（从 provider_models.json 读取）
+    
+    返回格式包含 owned_by 和 supported_endpoint_types 元信息
+    """
+    provider_models_map = provider_models_manager.get_all_provider_models_map()
+    
+    # 转换为带元信息的格式
+    result = {}
+    for provider_name, model_ids in provider_models_map.items():
+        provider_data = provider_models_manager.get_provider(provider_name)
+        if provider_data:
+            result[provider_name] = [
+                {
+                    "id": mid,
+                    "owned_by": provider_data.models.get(mid).owned_by if mid in provider_data.models else "",
+                    "supported_endpoint_types": provider_data.models.get(mid).supported_endpoint_types if mid in provider_data.models else []
+                }
+                for mid in model_ids
+            ]
+        else:
+            result[provider_name] = [{"id": mid, "owned_by": "", "supported_endpoint_types": []} for mid in model_ids]
+    
     return {"provider_models": result}
 
 
@@ -750,11 +773,14 @@ async def delete_provider(name: str):
 
 @app.get("/api/providers/{name}/models")
 async def fetch_provider_models(name: str):
-    """从中转站获取可用模型列表"""
-    success, models, error = await admin_manager.fetch_provider_models(name)
+    """从中转站获取可用模型列表（并保存到 provider_models.json）"""
+    success, models, error, sync_stats = await admin_manager.fetch_provider_models(name)
     if not success:
         raise HTTPException(status_code=400, detail=error or "获取模型列表失败")
-    return {"models": models}
+    return {
+        "models": models,
+        "sync_stats": sync_stats
+    }
 
 
 # ==================== 模型映射管理（增强型） ====================
@@ -842,13 +868,12 @@ async def sync_model_mappings(unified_name: Optional[str] = None):
     
     Args:
         unified_name: 指定要同步的映射名称，不传则同步全部
+    
+    注意：使用 provider_models.json 中的模型列表，如果该文件为空，
+    请先在服务站管理中同步模型列表。
     """
-    # 从本地配置读取已缓存的模型列表（快速，无网络请求）
-    providers = admin_manager.list_providers()
-    provider_models_flat: dict[str, list[str]] = {
-        p["name"]: p.get("supported_models", [])
-        for p in providers
-    }
+    # 从 provider_models_manager 获取模型列表
+    provider_models_flat = provider_models_manager.get_all_provider_models_map()
     
     if unified_name:
         # 同步单个映射
@@ -887,15 +912,11 @@ async def preview_model_mapping(request: PreviewResolveRequest):
     
     用于在创建/编辑映射时实时预览规则匹配的效果
     
-    注意：使用本地缓存的模型列表（来自config.json），而非实时网络请求，
-    以提供快速的预览响应。如需获取最新模型列表，请先在服务站管理中更新模型。
+    注意：使用 provider_models.json 中的模型列表，而非实时网络请求，
+    以提供快速的预览响应。如需获取最新模型列表，请先在服务站管理中同步模型。
     """
-    # 从本地配置读取已缓存的模型列表（快速，无网络请求）
-    providers = admin_manager.list_providers()
-    provider_models_flat: dict[str, list[str]] = {
-        p["name"]: p.get("supported_models", [])
-        for p in providers
-    }
+    # 从 provider_models_manager 获取模型列表
+    provider_models_flat = provider_models_manager.get_all_provider_models_map()
     
     # 预览解析结果
     resolved = model_mapping_manager.preview_resolve(

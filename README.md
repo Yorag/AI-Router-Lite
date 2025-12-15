@@ -1,7 +1,7 @@
 # 🚀 AI-Router-Lite (轻量级 AI 聚合路由)
 
 > **告别"API 焦虑症"：自动检测、自动切换、统一接口。**
-> 一个专为个人开发者设计的轻量级 AI 模型中转聚合工具 (CLI 版)。
+> 一个专为个人开发者设计的轻量级 AI 模型中转聚合工具。
 
 ## 📖 背景与痛点
 
@@ -33,10 +33,16 @@
    * 单模型检测：返回完整响应体，便于验证模型真伪
    * 批量检测：同渠道内串行，跨渠道异步，高效检测
    * 检测结果持久化存储，支持查询历史记录
-6. **无感故障转移 (Failover)**：当首选渠道报错时，自动在后台切换到备用渠道重试，用户端无感知。
-7. **加权路由选择**：根据配置的权重值，优先选择高权重的 Provider。
-8. **可视化管理面板**：功能完善的 Web 管理界面，让你轻松管理所有配置。
-9. **极简配置**：核心配置通过 `config.json` 管理，运行时数据自动持久化，无需数据库。
+   * **熔断集成**：检测结果自动更新熔断系统状态
+6. **Provider 模型元信息管理**：
+   * 独立存储模型元信息（owned_by、supported_endpoint_types）
+   * 跟踪模型最后活动时间（API 调用 / 健康检测）
+   * 首次启动自动从 config.json 迁移数据
+   * 同步时自动增量更新（新增/更新/删除）
+7. **无感故障转移 (Failover)**：当首选渠道报错时，自动在后台切换到备用渠道重试，用户端无感知。
+8. **加权路由选择**：根据配置的权重值，优先选择高权重的 Provider。
+9. **可视化管理面板**：功能完善的 Web 管理界面，让你轻松管理所有配置。
+10. **极简配置**：核心配置通过 `config.json` 管理，运行时数据自动持久化，无需数据库。
 
 ## 🎨 管理面板
 
@@ -59,7 +65,8 @@
 
 ### 🌐 服务站管理
 - 添加/编辑/删除 Provider
-- 一键获取中转站实际支持的模型列表
+- 一键获取中转站实际支持的模型列表（含 owned_by 等元信息）
+- 模型列表增量同步：显示新增/更新/删除统计
 - 测试 Provider 可用性
 
 ### 🔄 增强型模型映射
@@ -74,6 +81,7 @@
 - 查看检测结果和响应延迟
 - 返回完整响应体，便于验证模型真伪（如检测假 GPT-4）
 - 检测结果持久化存储
+- **熔断联动**：检测失败自动触发模型级熔断
 
 ### 📜 日志监控
 - 实时日志流（SSE 推送）
@@ -95,6 +103,7 @@ ai-router-lite/
 │   ├── api_keys.json       # API 密钥数据
 │   ├── model_mappings.json # 增强型模型映射数据
 │   ├── model_health.json   # 模型健康检测结果
+│   ├── provider_models.json # Provider 模型元信息存储
 │   └── logs/               # 日志文件目录
 ├── src/
 │   ├── __init__.py
@@ -108,7 +117,8 @@ ai-router-lite/
 │   ├── logger.py           # 日志记录模块
 │   ├── admin.py            # 管理功能模块
 │   ├── model_mapping.py    # 增强型模型映射模块
-│   └── model_health.py     # 模型健康检测模块
+│   ├── model_health.py     # 模型健康检测模块（含熔断集成）
+│   └── provider_models.py  # Provider 模型元信息管理模块
 └── static/                 # 前端静态文件
     ├── index.html          # 管理面板主页
     ├── css/
@@ -195,7 +205,7 @@ python main.py
 ```
 ╔══════════════════════════════════════════════════════════╗
 ║                                                          ║
-║   🚀 AI-Router-Lite v0.4.0                              ║
+║   🚀 AI-Router-Lite v0.5.0                              ║
 ║   轻量级 AI 聚合路由 + 管理面板                          ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝
@@ -203,7 +213,11 @@ python main.py
 [CONFIG] 服务地址: http://0.0.0.0:8000
 [CONFIG] 管理面板: http://0.0.0.0:8000/admin
 [CONFIG] 最大重试次数: 3
+[CONFIG] 请求超时: 120s
+[CONFIG] 模型映射: 5 个
 [CONFIG] Provider 数量: 2 个
+  ├─ Site_A (权重: 10, 模型: 25 个)
+  ├─ Site_B (权重: 5, 模型: 18 个)
 [STARTUP] 服务启动完成，等待请求...
 ```
 
@@ -257,8 +271,8 @@ python main.py
 |------|------|------|
 | `/api/providers` | GET/POST | Provider 管理 |
 | `/api/providers/{name}` | GET/PUT/DELETE | 单个 Provider 操作 |
-| `/api/providers/{name}/models` | GET | 获取中转站实际模型列表 |
-| `/api/providers/all-models` | GET | 获取所有中转站的模型列表 |
+| `/api/providers/{name}/models` | GET | 获取中转站模型列表（自动保存到 provider_models.json） |
+| `/api/providers/all-models` | GET | 获取所有中转站的模型列表（含 owned_by 元信息） |
 
 ### 增强型模型映射
 
@@ -346,7 +360,7 @@ python main.py
 - [x] **v0.2 (Stability)**: 引入流式响应 (Streaming) 转发，实现真正的打字机效果。
 - [x] **v0.3 (Reliability)**: 完善重试机制 (Retry Loop) 和错误分级冷却系统。
 - [x] **v0.4 (Monitor)**: Web 管理面板，可视化管理 Provider、模型映射、API 密钥和日志。
-- [x] **v0.5 (Intelligence)**: 增强型模型映射（规则匹配、自动同步）、模型健康检测、双层熔断机制。
+- [x] **v0.5 (Intelligence)**: 增强型模型映射（规则匹配、自动同步）、模型健康检测、双层熔断机制、Provider 模型元信息独立存储。
 - [ ] **v1.0**: 完整稳定版本，包含负载均衡优化和更多中转站协议支持。
 
 ## ⚠️ 免责声明
