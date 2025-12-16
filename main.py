@@ -460,11 +460,11 @@ async def process_request(
                         yield chunk
                     
                     # 日志记录
+                    # 日志记录
                     duration_ms = (time.time() - start_time) * 1000
                     token_info = f"Tokens: {stream_context.total_tokens or 'N/A'}"
-                    if stream_context.request_tokens or stream_context.response_tokens:
+                    if stream_context.request_tokens is not None or stream_context.response_tokens is not None:
                         token_info = f"Tokens: {stream_context.total_tokens or 'N/A'} ↑{stream_context.request_tokens or 0} ↓{stream_context.response_tokens or 0}"
-                    
                     print(
                         f"[RESPONSE] "
                         f"[{api_key_name}] {original_model} ==> {stream_context.provider_name}:{stream_context.actual_model}, "
@@ -563,7 +563,7 @@ async def process_request(
             duration_ms = (time.time() - start_time) * 1000
             
             token_info = f"Tokens: {result.total_tokens or 'N/A'}"
-            if result.request_tokens or result.response_tokens:
+            if result.request_tokens is not None or result.response_tokens is not None:
                 token_info = f"Tokens: {result.total_tokens or 'N/A'} ↑{result.request_tokens or 0} ↓{result.response_tokens or 0}"
             
             print(
@@ -1285,11 +1285,15 @@ async def update_model_protocol(unified_name: str, request: UpdateModelProtocolR
     
     if not success:
         raise HTTPException(status_code=400, detail=message)
+    # 获取 provider_name 用于日志显示
+    provider_id_name_map = admin_manager.get_provider_id_name_map()
+    provider_name = provider_id_name_map.get(request.provider_id, request.provider_id[:8])
     
     log_manager.log(
         level=LogLevel.INFO, log_type="admin", method="PUT",
         path=f"/api/model-mappings/{unified_name}/model-settings",
-        message=f"更新模型协议配置: {request.provider_id}:{request.model_id} -> {request.protocol or '(清除)'}"
+        message=f"更新模型协议配置: {provider_name}:{request.model_id} -> {request.protocol or '(清除)'}"
+    )
     )
     
     return {"status": "success", "message": message}
@@ -1317,10 +1321,14 @@ async def delete_model_protocol(unified_name: str, provider_id: str, model_id: s
     if not success:
         raise HTTPException(status_code=400, detail=message)
     
+    # 获取 provider_name 用于日志显示
+    provider_id_name_map = admin_manager.get_provider_id_name_map()
+    provider_name = provider_id_name_map.get(provider_id, provider_id[:8])
+    
     log_manager.log(
         level=LogLevel.INFO, log_type="admin", method="DELETE",
         path=f"/api/model-mappings/{unified_name}/model-settings/{provider_id}/{model_id}",
-        message=f"清除模型协议配置: {provider_id}:{model_id}"
+        message=f"清除模型协议配置: {provider_name}:{model_id}"
     )
     
     return {"status": "success", "message": message}

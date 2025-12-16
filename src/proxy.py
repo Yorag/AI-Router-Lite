@@ -241,11 +241,11 @@ class RequestProxy:
                 )
                 continue
         
-        # 所有候选都失败
-        raise ProxyError(
-            f"所有支持模型 '{original_model}' (协议: {req_protocol}) 的 Provider 都已尝试失败",
-            status_code=503
-        ) if last_error else ProxyError("请求失败", status_code=500)
+        # 所有候选都失败，直接抛出最后一个错误
+        if last_error:
+            raise last_error
+        
+        raise ProxyError(f"为模型 '{original_model}' 尝试所有候选后请求失败", status_code=500)
     
     async def forward_stream(
         self,
@@ -336,11 +336,11 @@ class RequestProxy:
                 )
                 continue
         
-        # 所有候选都失败
-        raise ProxyError(
-            f"所有支持模型 '{original_model}' (协议: {req_protocol}) 的 Provider 都已尝试失败",
-            status_code=503
-        ) if last_error else ProxyError("流式请求失败", status_code=500)
+        # 所有候选都失败，直接抛出最后一个错误
+        if last_error:
+            raise last_error
+        
+        raise ProxyError(f"为模型 '{original_model}' 尝试所有候选后流式请求失败", status_code=500)
     
     def _get_timeout(self, provider: ProviderState) -> float:
         return provider.config.timeout if provider.config.timeout is not None else self.config.request_timeout
@@ -390,21 +390,9 @@ class RequestProxy:
             
             return raw_response, protocol_response
             
-        except httpx.TimeoutException as e:
+        except (httpx.TimeoutException, ssl.SSLError, ConnectionResetError, BrokenPipeError, httpx.RequestError) as e:
             raise ProxyError(
-                str(e) if str(e) else "TimeoutException",
-                status_code=408,
-                provider_name=provider.config.name
-            )
-        except (ssl.SSLError, ConnectionResetError, BrokenPipeError) as e:
-            raise ProxyError(
-                str(e),
-                status_code=502,
-                provider_name=provider.config.name
-            )
-        except httpx.RequestError as e:
-            raise ProxyError(
-                str(e),
+                str(e) or type(e).__name__,
                 status_code=502,
                 provider_name=provider.config.name
             )
@@ -471,23 +459,9 @@ class RequestProxy:
                         
                         yield transformed
                         
-        except httpx.TimeoutException as e:
+        except (httpx.TimeoutException, ssl.SSLError, ConnectionResetError, BrokenPipeError, httpx.RequestError) as e:
             raise ProxyError(
-                str(e) if str(e) else "TimeoutException",
-                status_code=408,
-                provider_name=provider.config.name,
-                actual_model=actual_model
-            )
-        except (ssl.SSLError, ConnectionResetError, BrokenPipeError) as e:
-            raise ProxyError(
-                str(e),
-                status_code=502,
-                provider_name=provider.config.name,
-                actual_model=actual_model
-            )
-        except httpx.RequestError as e:
-            raise ProxyError(
-                str(e),
+                str(e) or type(e).__name__,
                 status_code=502,
                 provider_name=provider.config.name,
                 actual_model=actual_model
