@@ -279,6 +279,7 @@ class CreateModelMappingRequest(BaseModel):
 
 class UpdateModelMappingRequest(BaseModel):
     """更新模型映射请求"""
+    new_unified_name: Optional[str] = None  # 新名称（用于重命名）
     description: Optional[str] = None
     rules: Optional[list[dict]] = None
     manual_includes: Optional[list[str]] = None
@@ -954,9 +955,26 @@ async def get_model_mapping(unified_name: str):
 
 @app.put("/api/model-mappings/{unified_name}")
 async def update_model_mapping(unified_name: str, request: UpdateModelMappingRequest):
-    """更新映射"""
+    """更新映射（支持重命名）"""
+    # 如果提供了新名称，先执行重命名
+    current_name = unified_name
+    if request.new_unified_name and request.new_unified_name.strip() != unified_name:
+        success, message = model_mapping_manager.rename_mapping(
+            old_name=unified_name,
+            new_name=request.new_unified_name.strip()
+        )
+        if not success:
+            raise HTTPException(status_code=400, detail=message)
+        current_name = request.new_unified_name.strip()
+        log_manager.log(
+            level=LogLevel.INFO, log_type="admin", method="PUT",
+            path=f"/api/model-mappings/{unified_name}",
+            message=f"重命名模型映射: {unified_name} -> {current_name}"
+        )
+    
+    # 更新其他字段
     success, message = model_mapping_manager.update_mapping(
-        unified_name=unified_name,
+        unified_name=current_name,
         description=request.description,
         rules=request.rules,
         manual_includes=request.manual_includes,
@@ -967,9 +985,9 @@ async def update_model_mapping(unified_name: str, request: UpdateModelMappingReq
         raise HTTPException(status_code=400, detail=message)
     log_manager.log(
         level=LogLevel.INFO, log_type="admin", method="PUT",
-        path=f"/api/model-mappings/{unified_name}", message=f"更新模型映射: {unified_name}"
+        path=f"/api/model-mappings/{current_name}", message=f"更新模型映射: {current_name}"
     )
-    return {"status": "success", "message": message}
+    return {"status": "success", "message": message, "unified_name": current_name}
 
 
 @app.delete("/api/model-mappings/{unified_name}")

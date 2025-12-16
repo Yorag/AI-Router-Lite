@@ -397,6 +397,44 @@ class ModelMappingManager:
         self.save()
         return True, "删除成功"
     
+    def rename_mapping(self, old_name: str, new_name: str) -> tuple[bool, str]:
+        """
+        重命名映射
+        
+        Args:
+            old_name: 旧的统一模型名称
+            new_name: 新的统一模型名称
+            
+        Returns:
+            (成功标志, 消息)
+        """
+        self._ensure_loaded()
+        
+        if old_name not in self._mappings:
+            return False, f"映射 '{old_name}' 不存在"
+        
+        if not new_name or not new_name.strip():
+            return False, "新名称不能为空"
+        
+        new_name = new_name.strip()
+        
+        if new_name == old_name:
+            return True, "名称未变更"
+        
+        if new_name in self._mappings:
+            return False, f"映射 '{new_name}' 已存在"
+        
+        # 获取旧映射并更新名称
+        mapping = self._mappings[old_name]
+        mapping.unified_name = new_name
+        
+        # 删除旧 key，添加新 key
+        del self._mappings[old_name]
+        self._mappings[new_name] = mapping
+        
+        self.save()
+        return True, f"映射已重命名: '{old_name}' -> '{new_name}'"
+    
     def update_model_settings(
         self,
         unified_name: str,

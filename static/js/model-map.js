@@ -699,21 +699,14 @@ const ModelMap = {
             <form onsubmit="ModelMap.${isEdit ? 'update' : 'create'}(event${isEdit ? `, '${unifiedName}'` : ''})">
                 <div class="modal-form-grid">
                     <div class="form-left">
-                        <div class="form-group">
-                            <label>统一模型名称 <span class="required">*</span></label>
-                            <input type="text" id="mapping-unified-name"
-                                value="${unifiedName || ''}"
-                                ${isEdit ? 'disabled' : 'required'}
-                                placeholder="例如：gpt-4">
-                            ${isEdit ? '<div class="hint">名称不可修改</div>' : '<div class="hint">用户调用时使用的模型名称</div>'}
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>描述</label>
-                            <input type="text" id="mapping-description"
-                                value="${mapping?.description || ''}"
-                                placeholder="例如：GPT-4 系列模型">
-                        </div>
+                            <div class="form-group">
+                                <label>统一模型名称 <span class="required">*</span></label>
+                                <input type="text" id="mapping-unified-name"
+                                    value="${unifiedName || ''}"
+                                    required
+                                    placeholder="例如：gpt-4">
+                                <div class="hint">用户调用时使用的模型名称</div>
+                            </div>
                         
                         <div class="form-group">
                             <label>匹配规则 <button type="button" class="btn btn-sm btn-secondary" onclick="ModelMap.addRule()">+ 添加规则</button></label>
@@ -987,7 +980,6 @@ const ModelMap = {
         event.preventDefault();
         
         const unifiedName = document.getElementById('mapping-unified-name').value.trim();
-        const description = document.getElementById('mapping-description').value.trim();
         const rules = this.collectRules();
         const manualIncludes = document.getElementById('mapping-manual-includes').value
             .split('\n').map(m => m.trim()).filter(m => m);
@@ -1008,7 +1000,6 @@ const ModelMap = {
         try {
             await API.createModelMapping({
                 unified_name: unifiedName,
-                description,
                 rules,
                 manual_includes: manualIncludes,
                 manual_excludes: manualExcludes,
@@ -1027,7 +1018,7 @@ const ModelMap = {
     async update(event, unifiedName) {
         event.preventDefault();
         
-        const description = document.getElementById('mapping-description').value.trim();
+        const newUnifiedName = document.getElementById('mapping-unified-name').value.trim();
         const rules = this.collectRules();
         const manualIncludes = document.getElementById('mapping-manual-includes').value
             .split('\n').map(m => m.trim()).filter(m => m);
@@ -1035,14 +1026,19 @@ const ModelMap = {
             .split('\n').map(m => m.trim()).filter(m => m);
         const excludedProviders = this.collectExcludedProviders();
         
+        if (!newUnifiedName) {
+            Toast.warning('请输入统一模型名称');
+            return;
+        }
+        
         if (rules.length === 0 && manualIncludes.length === 0) {
             Toast.warning('请至少添加一个规则或手动包含一个模型');
             return;
         }
         
         try {
-            await API.updateModelMapping(unifiedName, {
-                description,
+            const result = await API.updateModelMapping(unifiedName, {
+                new_unified_name: newUnifiedName !== unifiedName ? newUnifiedName : undefined,
                 rules,
                 manual_includes: manualIncludes,
                 manual_excludes: manualExcludes,
@@ -1051,8 +1047,9 @@ const ModelMap = {
             
             Modal.close();
             
-            // 立即同步
-            await this.syncSingle(unifiedName);
+            // 使用返回的最新名称进行同步
+            const finalName = result.unified_name || newUnifiedName;
+            await this.syncSingle(finalName);
         } catch (error) {
             Toast.error('更新失败: ' + error.message);
         }
