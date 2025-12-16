@@ -527,7 +527,7 @@ const Providers = {
             this.isUpdatingAll = true;
             if (btn) {
                 btn.disabled = true;
-                btn.innerHTML = '⏳ 更新中...';
+                btn.innerHTML = '更新中...';
             }
             
             // 复用现有的 updateAllModels 逻辑

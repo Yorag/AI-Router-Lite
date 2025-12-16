@@ -717,9 +717,51 @@ body {
 
 .model-tag.health-success:hover,
 .model-tag.health-error:hover,
-.model-tag.health-unknown:hover {
+.model-tag.health-unknown:hover,
+.model-tag.health-cooling:hover,
+.model-tag.health-disabled:hover {
     cursor: pointer;
     opacity: 0.85;
+}
+
+/* 熔断/冷却中状态 - 橙色警告 */
+.model-tag.health-cooling {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: var(--warning-color);
+    color: var(--warning-color);
+    animation: pulse-warning 2s ease-in-out infinite;
+}
+
+@keyframes pulse-warning {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 0 4px rgba(245, 158, 11, 0);
+    }
+}
+
+/* 永久禁用状态 - 深灰色 */
+.model-tag.health-disabled {
+    background: rgba(100, 116, 139, 0.15);
+    border-color: #64748b;
+    color: #64748b;
+    text-decoration: line-through;
+    opacity: 0.7;
+}
+
+/* 冷却状态下的协议徽章 */
+.model-tag.health-cooling .protocol-badge {
+    background: rgba(245, 158, 11, 0.2);
+    color: var(--warning-color);
+    border-color: var(--warning-color);
+}
+
+/* 禁用状态下的协议徽章 */
+.model-tag.health-disabled .protocol-badge {
+    background: rgba(100, 116, 139, 0.2);
+    color: #64748b;
+    border-color: #64748b;
 }
 
 .provider-card-actions {

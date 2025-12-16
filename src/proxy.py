@@ -2,7 +2,7 @@
 请求代理模块
 
 负责将请求转发到上游 Provider，支持流式和非流式响应
-支持多种上游协议（OpenAI, Anthropic, Gemini 等）
+仅支持 OpenAI 协议，协议字段用于路由过滤
 
 注意：内部使用 provider_id (UUID) 作为标识，而非 provider name
 """
@@ -15,13 +15,13 @@ from dataclasses import dataclass
 
 import httpx
 
-from .config import AppConfig, ProtocolType
+from .config import AppConfig
 from .models import ChatCompletionRequest
 from .provider import ProviderManager, ProviderState
 from .router import ModelRouter
 from .provider_models import provider_models_manager
 from .model_mapping import model_mapping_manager
-from .protocols import ProtocolFactory, BaseProtocol, GeminiProtocol
+from .protocols import get_protocol, OpenAIProtocol
 
 
 @dataclass
@@ -68,11 +68,8 @@ class RequestProxy:
     """
     请求代理
     
-    支持多种上游协议，通过协议适配器实现格式转换。
-    协议选择遵循双层继承机制：
-    1. 优先使用模型映射中的 model_settings 配置
-    2. 如果未配置，则使用 Provider 的 default_protocol
-    3. 如果 Provider 也未配置（混合类型），则跳过该 Provider
+    仅支持 OpenAI 协议的请求转发。
+    协议字段用于路由过滤，确保请求只被转发到兼容的渠道。
     """
     
     def __init__(
@@ -85,44 +82,7 @@ class RequestProxy:
         self.provider_manager = provider_manager
         self.router = router
         self._client: Optional[httpx.AsyncClient] = None
-    
-    def get_effective_protocol(
-        self,
-        provider: ProviderState,
-        actual_model: str,
-        original_model: str
-    ) -> Optional[str]:
-        """
-        获取生效的协议类型
-        
-        双层继承机制：
-        1. 优先使用模型映射中的 model_settings 配置
-        2. 如果未配置，则使用 Provider 的 default_protocol
-        3. 如果都未配置，返回 None（表示不可用）
-        
-        Args:
-            provider: Provider 状态对象
-            actual_model: 实际使用的模型名
-            original_model: 用户请求的原始模型名（统一模型名）
-            
-        Returns:
-            协议类型字符串，如果无有效协议则返回 None
-        """
-        provider_id = provider.config.id
-        
-        # 1. 尝试从模型映射的 model_settings 获取
-        mapping = model_mapping_manager.get_mapping(original_model)
-        if mapping:
-            model_protocol = mapping.get_model_protocol(provider_id, actual_model)
-            if model_protocol:
-                return model_protocol
-        
-        # 2. 回退到 Provider 的 default_protocol
-        if provider.config.default_protocol:
-            return provider.config.default_protocol.value
-        
-        # 3. 都未配置，返回 None
-        return None
+        self._protocol = OpenAIProtocol()  # 单例协议适配器
     
     async def get_client(self) -> httpx.AsyncClient:
         """获取 HTTP 客户端"""
@@ -141,7 +101,8 @@ class RequestProxy:
     async def forward_request(
         self,
         request: ChatCompletionRequest,
-        original_model: str
+        original_model: str,
+        required_protocol: str = "openai"
     ) -> ProxyResult:
         """
         转发非流式请求（带重试机制）
@@ -149,6 +110,7 @@ class RequestProxy:
         Args:
             request: 聊天补全请求
             original_model: 用户请求的原始模型名
+            required_protocol: 要求的协议类型，默认为 "openai"
             
         Returns:
             ProxyResult 对象，包含响应和元数据
@@ -159,43 +121,40 @@ class RequestProxy:
         tried_providers: set[str] = set()  # 存储已尝试的 provider_id
         last_error: Optional[ProxyError] = None
         
-        for attempt in range(self.config.max_retries):
-            # 选择一个可用的 Provider
-            selection = self.router.select_provider(original_model, exclude=tried_providers)
+        # 获取符合协议的候选渠道数量，作为最大重试次数
+        all_candidates = self.router.find_providers(original_model, required_protocol=required_protocol)
+        max_attempts = len(all_candidates) if all_candidates else 1
+        
+        for attempt in range(max_attempts):
+            # 选择一个可用的 Provider（带协议过滤）
+            selection = self.router.select_provider(
+                original_model,
+                exclude=tried_providers,
+                required_protocol=required_protocol
+            )
             
             if selection is None:
                 if tried_providers:
                     raise ProxyError(
-                        f"所有支持模型 '{original_model}' 的 Provider 都已尝试失败",
+                        f"所有支持模型 '{original_model}' (协议: {required_protocol}) 的 Provider 都已尝试失败",
                         status_code=503
                     )
                 else:
                     raise ProxyError(
-                        f"没有找到支持模型 '{original_model}' 的可用 Provider",
+                        f"没有找到支持模型 '{original_model}' (协议: {required_protocol}) 的可用 Provider",
                         status_code=404
                     )
             
             provider, actual_model = selection
             tried_providers.add(provider.config.id)  # 使用 id 而非 name
             
-            # 获取有效协议
-            protocol_type = self.get_effective_protocol(provider, actual_model, original_model)
-            if protocol_type is None:
-                self._log_warning(
-                    f"Provider [{provider.config.name}] 未配置有效协议，跳过"
-                )
-                continue
-            
-            # 获取协议适配器
-            protocol = ProtocolFactory.get_protocol(protocol_type)
-            
             self._log_info(
-                f"[尝试 {attempt + 1}/{self.config.max_retries}] "
-                f"Provider: {provider.config.name} (ID: {provider.config.id}), 模型: {actual_model}, 协议: {protocol_type}"
+                f"[尝试 {attempt + 1}/{max_attempts}] "
+                f"Provider: {provider.config.name}, 模型: {actual_model}"
             )
             
             try:
-                response = await self._do_request(provider, request, actual_model, original_model, protocol)
+                response = await self._do_request(provider, request, actual_model, original_model)
                 
                 # 提取 token 使用量
                 usage = response.get("usage", {})
@@ -253,7 +212,8 @@ class RequestProxy:
         self,
         request: ChatCompletionRequest,
         original_model: str,
-        stream_context: Optional[StreamContext] = None
+        stream_context: Optional[StreamContext] = None,
+        required_protocol: str = "openai"
     ) -> AsyncIterator[str]:
         """
         转发流式请求（带重试机制）
@@ -262,6 +222,7 @@ class RequestProxy:
             request: 聊天补全请求
             original_model: 用户请求的原始模型名
             stream_context: 可选的流上下文对象，用于收集流式请求的元数据
+            required_protocol: 要求的协议类型，默认为 "openai"
             
         Yields:
             SSE 格式的响应数据块
@@ -272,19 +233,27 @@ class RequestProxy:
         tried_providers: set[str] = set()  # 存储已尝试的 provider_id
         last_error: Optional[ProxyError] = None
         
-        for attempt in range(self.config.max_retries):
-            # 选择一个可用的 Provider
-            selection = self.router.select_provider(original_model, exclude=tried_providers)
+        # 获取符合协议的候选渠道数量，作为最大重试次数
+        all_candidates = self.router.find_providers(original_model, required_protocol=required_protocol)
+        max_attempts = len(all_candidates) if all_candidates else 1
+        
+        for attempt in range(max_attempts):
+            # 选择一个可用的 Provider（带协议过滤）
+            selection = self.router.select_provider(
+                original_model,
+                exclude=tried_providers,
+                required_protocol=required_protocol
+            )
             
             if selection is None:
                 if tried_providers:
                     raise ProxyError(
-                        f"所有支持模型 '{original_model}' 的 Provider 都已尝试失败",
+                        f"所有支持模型 '{original_model}' (协议: {required_protocol}) 的 Provider 都已尝试失败",
                         status_code=503
                     )
                 else:
                     raise ProxyError(
-                        f"没有找到支持模型 '{original_model}' 的可用 Provider",
+                        f"没有找到支持模型 '{original_model}' (协议: {required_protocol}) 的可用 Provider",
                         status_code=404
                     )
             
@@ -297,24 +266,13 @@ class RequestProxy:
                 stream_context.provider_name = provider.config.name
                 stream_context.actual_model = actual_model
             
-            # 获取有效协议
-            protocol_type = self.get_effective_protocol(provider, actual_model, original_model)
-            if protocol_type is None:
-                self._log_warning(
-                    f"Provider [{provider.config.name}] 未配置有效协议，跳过"
-                )
-                continue
-            
-            # 获取协议适配器
-            protocol = ProtocolFactory.get_protocol(protocol_type)
-            
             self._log_info(
-                f"[流式尝试 {attempt + 1}/{self.config.max_retries}] "
-                f"Provider: {provider.config.name} (ID: {provider.config.id}), 模型: {actual_model}, 协议: {protocol_type}"
+                f"[流式尝试 {attempt + 1}/{max_attempts}] "
+                f"Provider: {provider.config.name} (ID: {provider.config.id}), 模型: {actual_model}"
             )
             
             try:
-                async for chunk in self._do_stream_request(provider, request, actual_model, original_model, protocol, stream_context):
+                async for chunk in self._do_stream_request(provider, request, actual_model, original_model, stream_context):
                     yield chunk
                 
                 # 提取流式上下文中的 token 使用量
@@ -367,18 +325,16 @@ class RequestProxy:
         provider: ProviderState,
         request: ChatCompletionRequest,
         actual_model: str,
-        original_model: str,
-        protocol: BaseProtocol
+        original_model: str
     ) -> dict:
         """
-        执行单次非流式请求（使用协议适配器）
+        执行单次非流式请求
         
         Args:
             provider: Provider 状态对象
             request: 聊天补全请求
             actual_model: 实际使用的模型名
             original_model: 用户请求的原始模型名
-            protocol: 协议适配器
             
         Returns:
             OpenAI 格式的响应字典
@@ -387,18 +343,14 @@ class RequestProxy:
         base_url = provider.config.base_url.rstrip('/')
         
         # 使用协议适配器构建请求
-        protocol_request = protocol.build_request(
+        protocol_request = self._protocol.build_request(
             request,
             provider.config.api_key,
             actual_model
         )
         
         # 获取端点 URL
-        url = protocol.get_endpoint(base_url, actual_model)
-        
-        # 处理 Gemini 等需要 URL 参数的协议
-        if protocol_request.url:
-            url += protocol_request.url
+        url = self._protocol.get_endpoint(base_url, actual_model)
         
         # 确保非流式请求
         body = protocol_request.body.copy()
@@ -422,8 +374,8 @@ class RequestProxy:
             
             raw_response = response.json()
             
-            # 使用协议适配器转换响应
-            protocol_response = protocol.transform_response(raw_response, original_model)
+            # 使用协议适配器处理响应（透传，只替换模型名）
+            protocol_response = self._protocol.transform_response(raw_response, original_model)
             
             return protocol_response.response
             
@@ -446,18 +398,16 @@ class RequestProxy:
         request: ChatCompletionRequest,
         actual_model: str,
         original_model: str,
-        protocol: BaseProtocol,
         stream_context: Optional[StreamContext] = None
     ) -> AsyncIterator[str]:
         """
-        执行单次流式请求（使用协议适配器）
+        执行单次流式请求
         
         Args:
             provider: Provider 状态对象
             request: 聊天补全请求
             actual_model: 实际使用的模型名
             original_model: 用户请求的原始模型名
-            protocol: 协议适配器
             stream_context: 流上下文对象
             
         Yields:
@@ -467,21 +417,14 @@ class RequestProxy:
         base_url = provider.config.base_url.rstrip('/')
         
         # 使用协议适配器构建请求
-        protocol_request = protocol.build_request(
+        protocol_request = self._protocol.build_request(
             request,
             provider.config.api_key,
             actual_model
         )
         
-        # 获取端点 URL（流式可能有不同端点）
-        if isinstance(protocol, GeminiProtocol):
-            url = protocol.get_stream_endpoint(base_url, actual_model)
-        else:
-            url = protocol.get_endpoint(base_url, actual_model)
-        
-        # 处理 Gemini 等需要 URL 参数的协议
-        if protocol_request.url:
-            url += protocol_request.url
+        # 获取端点 URL
+        url = self._protocol.get_endpoint(base_url, actual_model)
         
         # 确保流式请求
         body = protocol_request.body.copy()
@@ -508,8 +451,8 @@ class RequestProxy:
                     if not line:
                         continue
                     
-                    # 使用协议适配器转换流式响应块
-                    transformed, usage = protocol.transform_stream_chunk(line, original_model)
+                    # 使用协议适配器处理流式响应块（透传，只替换模型名）
+                    transformed, usage = self._protocol.transform_stream_chunk(line, original_model)
                     
                     if transformed:
                         # 更新 stream_context 中的 usage 信息

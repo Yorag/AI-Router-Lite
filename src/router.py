@@ -47,14 +47,17 @@ class ModelRouter:
     def find_providers(
         self,
         requested_model: str,
-        exclude: Optional[set[str]] = None
+        exclude: Optional[set[str]] = None,
+        required_protocol: Optional[str] = None
     ) -> list[tuple[ProviderState, str]]:
         """
-        查找支持指定模型的可用 Provider 列表（双层熔断检查）
+        查找支持指定模型的可用 Provider 列表（双层熔断检查 + 协议过滤）
         
         Args:
             requested_model: 用户请求的模型名
             exclude: 要排除的 Provider ID 集合
+            required_protocol: 要求的协议类型（如 "openai", "anthropic" 等），
+                              如果指定，则只返回协议匹配的 Provider
             
         Returns:
             列表：[(Provider 状态, 实际模型名), ...]
@@ -65,12 +68,16 @@ class ModelRouter:
             1. Provider 渠道级是否可用
             2. Provider + Model 组合是否可用（模型级熔断）
             3. Provider 是否在统一模型映射的 resolved_models 中（防止路由到不在映射范围内的 Provider）
+            4. 如果指定了 required_protocol，检查模型协议是否匹配
         """
         exclude = exclude or set()
         candidates: list[tuple[ProviderState, str, int]] = []
         
         # 解析模型映射（返回 {provider_id: [model_ids]} 格式）
         resolved_models = self.resolve_model(requested_model)
+        
+        # 获取映射配置（用于协议检查）
+        mapping = model_mapping_manager.get_mapping(requested_model)
         
         if resolved_models:
             # 有映射配置：只匹配 resolved_models 中明确指定的 provider_id 和 model_id 组合
@@ -93,6 +100,13 @@ class ModelRouter:
                     if model_id not in supported_models:
                         continue
                     
+                    # 协议过滤：检查模型协议是否匹配
+                    if required_protocol and mapping:
+                        model_protocol = mapping.get_model_protocol(provider_id, model_id)
+                        if model_protocol != required_protocol:
+                            # 协议不匹配，跳过此模型
+                            continue
+                    
                     # 双层检查：检查该 Provider + Model 组合是否可用（模型级熔断）
                     if self.provider_manager.is_model_available(provider_id, model_id):
                         candidates.append((provider, model_id, provider.config.weight))
@@ -100,6 +114,7 @@ class ModelRouter:
         else:
             # 没有映射配置：使用原始模型名，遍历所有支持该模型的 Provider
             # 这是向后兼容的逻辑，用于未配置映射的模型
+            # 注意：无映射时无法进行协议过滤
             for provider in self.provider_manager.get_available():
                 if provider.config.id in exclude:
                     continue
@@ -119,7 +134,8 @@ class ModelRouter:
         self,
         requested_model: str,
         exclude: Optional[set[str]] = None,
-        strategy: str = "weighted"
+        strategy: str = "weighted",
+        required_protocol: Optional[str] = None
     ) -> Optional[tuple[ProviderState, str]]:
         """
         选择一个合适的 Provider
@@ -128,11 +144,12 @@ class ModelRouter:
             requested_model: 用户请求的模型名
             exclude: 要排除的 Provider ID 集合
             strategy: 选择策略 ("weighted", "random", "first")
+            required_protocol: 要求的协议类型（如 "openai", "anthropic" 等）
             
         Returns:
             (Provider 状态, 实际模型名) 或 None
         """
-        candidates = self.find_providers(requested_model, exclude)
+        candidates = self.find_providers(requested_model, exclude, required_protocol)
         
         if not candidates:
             return None

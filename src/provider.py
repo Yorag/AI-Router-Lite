@@ -592,6 +592,92 @@ class ProviderManager:
         
         return stats
     
+    def get_runtime_states(self) -> dict:
+        """
+        获取轻量级运行时状态（仅内存数据，无日志读取）
+        
+        用于前端展示模型熔断状态，避免读取日志的性能开销。
+        
+        Returns:
+            {
+                "providers": {
+                    provider_id: {
+                        "name": str,
+                        "status": str,  # healthy, cooling, permanently_disabled
+                        "cooldown_until": float | None,
+                        "cooldown_reason": str | None,
+                        "cooldown_remaining": float | None,
+                        "last_error": str | None,
+                        "last_error_time": float | None
+                    }
+                },
+                "models": {
+                    "provider_id:model_name": {
+                        "status": str,  # healthy, cooling, permanently_disabled
+                        "cooldown_until": float | None,
+                        "cooldown_reason": str | None,
+                        "cooldown_remaining": float | None,
+                        "last_error": str | None,
+                        "last_error_time": float | None
+                    }
+                }
+            }
+        """
+        current_time = time.time()
+        result = {
+            "providers": {},
+            "models": {}
+        }
+        
+        # 收集 Provider 级运行时状态
+        for provider_id, provider in self._providers.items():
+            # 检查并更新冷却状态（触发 is_available 的副作用）
+            _ = provider.is_available
+            
+            provider_state = {
+                "name": provider.config.name,
+                "status": provider.status.value,
+                "cooldown_until": None,
+                "cooldown_reason": None,
+                "cooldown_remaining": None,
+                "last_error": provider.last_error,
+                "last_error_time": provider.last_error_time
+            }
+            
+            if provider.status == ProviderStatus.COOLING:
+                provider_state["cooldown_until"] = provider.cooldown_until
+                provider_state["cooldown_reason"] = provider.cooldown_reason.value if provider.cooldown_reason else None
+                provider_state["cooldown_remaining"] = max(0, provider.cooldown_until - current_time)
+            elif provider.status == ProviderStatus.PERMANENTLY_DISABLED:
+                provider_state["cooldown_reason"] = provider.cooldown_reason.value if provider.cooldown_reason else None
+            
+            result["providers"][provider_id] = provider_state
+        
+        # 收集模型级运行时状态
+        for key, model_state in self._model_states.items():
+            # 检查并更新冷却状态（触发 is_available 的副作用）
+            _ = model_state.is_available
+            
+            model_info = {
+                "status": model_state.status.value,
+                "cooldown_until": None,
+                "cooldown_reason": None,
+                "cooldown_remaining": None,
+                "last_error": model_state.last_error,
+                "last_error_time": model_state.last_error_time
+            }
+            
+            if model_state.status == ModelStatus.COOLING:
+                model_info["cooldown_until"] = model_state.cooldown_until
+                model_info["cooldown_reason"] = model_state.cooldown_reason.value if model_state.cooldown_reason else None
+                model_info["cooldown_remaining"] = max(0, model_state.cooldown_until - current_time)
+            elif model_state.status == ModelStatus.PERMANENTLY_DISABLED:
+                model_info["cooldown_reason"] = model_state.cooldown_reason.value if model_state.cooldown_reason else None
+            
+            result["models"][key] = model_info
+        
+        return result
+    
     @staticmethod
     def _log_info(message: str) -> None:
         """输出信息日志"""

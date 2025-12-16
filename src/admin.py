@@ -117,6 +117,20 @@ class AdminManager:
             if p.get("name")
         }
     
+    def get_provider_protocols(self) -> dict[str, Optional[str]]:
+        """
+        获取 provider_id -> default_protocol 的映射
+        
+        Returns:
+            {provider_id: default_protocol} 其中 default_protocol 可能为 None
+        """
+        config = self.get_config()
+        return {
+            p.get("id", ""): p.get("default_protocol")
+            for p in config.get("providers", [])
+            if p.get("id")
+        }
+    
     def add_provider(self, provider_data: dict) -> tuple[bool, str, Optional[str]]:
         """
         添加 Provider

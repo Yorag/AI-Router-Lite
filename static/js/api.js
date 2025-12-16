@@ -154,6 +154,15 @@ const API = {
     },
 
     /**
+     * 获取 Provider 和模型的运行时熔断状态（轻量级）
+     * 用于前端实时展示模型的熔断/冷却状态
+     * @returns {Promise<{providers: Object, models: Object}>}
+     */
+    async getRuntimeStates() {
+        return this.request('GET', '/api/providers/runtime-states');
+    },
+
+    /**
      * 重置 Provider 状态
      * @param {string} providerId - Provider ID (UUID) 或 name（兼容）
      */

@@ -27,13 +27,20 @@ def generate_provider_id() -> str:
 
 class ProtocolType(str, Enum):
     """
-    请求协议类型
+    渠道协议类型（仅用于路由过滤）
     
-    定义了支持的上游 API 格式：
-    - OPENAI: 标准 OpenAI Chat Completions 格式 (/v1/chat/completions)
-    - OPENAI_RESPONSE: OpenAI Responses 格式 (/v1/responses)
-    - ANTHROPIC: Anthropic Claude Messages 格式 (/v1/messages)
-    - GEMINI: Google Gemini 格式 (/models)
+    系统只支持 OpenAI 协议入口和出口。
+    协议字段用于标识渠道的 API 格式，在路由时过滤不兼容的渠道。
+    
+    当请求进入 /v1/chat/completions 端点时：
+    - 只有 protocol=openai 的渠道会被选中
+    - 其他协议类型的渠道会被自动过滤
+    
+    协议类型说明：
+    - OPENAI: 兼容 OpenAI Chat Completions API (/v1/chat/completions)
+    - OPENAI_RESPONSE: OpenAI Responses API 格式（不兼容，会被过滤）
+    - ANTHROPIC: Anthropic Claude Messages API 格式（不兼容，会被过滤）
+    - GEMINI: Google Gemini API 格式（不兼容，会被过滤）
     """
     OPENAI = "openai"
     OPENAI_RESPONSE = "openai-response"
@@ -61,7 +68,7 @@ class ProviderConfig(BaseModel):
     enabled: bool = Field(default=True, description="是否启用该服务站")
     default_protocol: Optional[ProtocolType] = Field(
         default=None,
-        description="默认请求协议类型，为空表示混合类型（需要在模型映射中单独配置）"
+        description="渠道协议类型（用于路由过滤），仅 openai 协议可被 /v1/chat/completions 端点使用"
     )
 
 

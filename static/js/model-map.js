@@ -14,6 +14,7 @@ const ModelMap = {
     currentProviderModels: [], // 当前选中的中转站模型
     previewResult: {},      // 预览结果缓存
     healthResults: {},      // 健康检测结果缓存 {provider_id:model -> result}
+    runtimeStates: {},      // 运行时熔断状态缓存 {provider_id:model -> state}
     availableProtocols: [], // 可用协议类型缓存
     expandedMappings: new Set(), // 记录已展开的映射卡片 (unifiedName)
 
@@ -77,8 +78,11 @@ const ModelMap = {
             this.mappings = data.mappings || {};
             this.syncConfig = data.sync_config || {};
             
-            // 加载健康检测结果
-            await this.loadHealthResults();
+            // 并行加载健康检测结果和运行时熔断状态
+            await Promise.all([
+                this.loadHealthResults(),
+                this.loadRuntimeStates()
+            ]);
             
             this.render();
         } catch (error) {
@@ -105,6 +109,16 @@ const ModelMap = {
         } catch (error) {
             console.error('Load health results error:', error);
             this.healthResults = {};
+        }
+    },
+
+    async loadRuntimeStates() {
+        try {
+            const data = await API.getRuntimeStates();
+            this.runtimeStates = data.models || {};
+        } catch (error) {
+            console.error('Load runtime states error:', error);
+            this.runtimeStates = {};
         }
     },
 
@@ -326,20 +340,42 @@ const ModelMap = {
     renderModelTag(providerId, model, unifiedName = null) {
         // key 使用 provider_id:model 格式
         const key = `${providerId}:${model}`;
+        const runtimeState = this.runtimeStates[key];
         const result = this.healthResults[key];
         
         let healthClass = 'health-unknown';
         let tooltipContent = '点击检测';
-        let latencyText = '';
         let clickAction = `ModelMap.testSingleModelSilent('${providerId}', '${model}')`;
         
-        if (result) {
+        // 优先检查运行时熔断状态（来自实际请求）
+        if (runtimeState && runtimeState.status !== 'HEALTHY') {
+            if (runtimeState.status === 'COOLING') {
+                healthClass = 'health-cooling';
+                const remainingSec = Math.max(0, Math.ceil(runtimeState.cooldown_remaining || 0));
+                const reasonText = runtimeState.cooldown_reason === 'RATE_LIMIT' ? '触发限流' :
+                                   runtimeState.cooldown_reason === 'ERROR' ? '连续错误' : '熔断';
+                tooltipContent = `${reasonText}，冷却中 (${remainingSec}s)`;
+                if (runtimeState.last_error) {
+                    tooltipContent += ` | 错误: ${runtimeState.last_error}`;
+                }
+                // 熔断中的模型仍可点击重新检测
+                clickAction = `ModelMap.testSingleModelSilent('${providerId}', '${model}')`;
+            } else if (runtimeState.status === 'PERMANENTLY_DISABLED') {
+                healthClass = 'health-disabled';
+                tooltipContent = '永久禁用';
+                if (runtimeState.last_error) {
+                    tooltipContent += ` | 原因: ${runtimeState.last_error}`;
+                }
+                // 永久禁用的模型禁用点击
+                clickAction = '';
+            }
+        } else if (result) {
+            // 回退到健康检测结果
             healthClass = result.success ? 'health-success' : 'health-error';
-            latencyText = result.latency_ms ? ` (${Math.round(result.latency_ms)}ms)` : '';
             
             if (result.success) {
-                // 健康的模型：无提示，点击无动作
-                tooltipContent = '';
+                // 健康的模型：延迟显示在tooltip中，点击无动作
+                tooltipContent = result.latency_ms ? `延迟: ${Math.round(result.latency_ms)}ms` : '';
                 clickAction = '';
             } else {
                 // 失败的模型：显示完整响应体JSON（压缩为一行）
@@ -379,7 +415,7 @@ const ModelMap = {
                 data-model="${model}"
                 ${clickAction ? `onclick="${clickAction}"` : ''}
                 ${tooltipContent ? `title="${this.escapeHtml(tooltipContent)}"` : ''}>
-                ${model}${latencyText}${protocolBadge}
+                ${model}${protocolBadge}
             </span>
         `;
     },

@@ -125,8 +125,13 @@ async def auto_sync_model_mappings_task():
             # 获取 provider_id -> name 映射
             provider_id_name_map = admin_manager.get_provider_id_name_map()
             
+            # 获取 provider_id -> default_protocol 映射
+            provider_protocols = admin_manager.get_provider_protocols()
+            
             # 执行同步 (使用 provider_id 作为 key)
-            results = model_mapping_manager.sync_all_mappings(provider_models_flat, provider_id_name_map)
+            results = model_mapping_manager.sync_all_mappings(
+                provider_models_flat, provider_id_name_map, provider_protocols
+            )
             
             total_matched = sum(r.get("matched_count", 0) for r in results)
             print(f"[AUTO-SYNC] 同步完成: {len(results)} 个映射, {total_matched} 个模型")
@@ -408,7 +413,9 @@ async def chat_completions(
             async def stream_with_logging():
                 """包装流式响应，在完成后记录日志"""
                 try:
-                    async for chunk in proxy.forward_stream(request, original_model, stream_context):
+                    async for chunk in proxy.forward_stream(
+                        request, original_model, stream_context, required_protocol="openai"
+                    ):
                         yield chunk
                     
                     # 流式请求完成后记录日志
@@ -470,7 +477,9 @@ async def chat_completions(
             )
         else:
             # 非流式响应
-            result: ProxyResult = await proxy.forward_request(request, original_model)
+            result: ProxyResult = await proxy.forward_request(
+                request, original_model, required_protocol="openai"
+            )
             
             duration_ms = (time.time() - start_time) * 1000
             
@@ -854,6 +863,25 @@ async def sync_all_provider_models():
     }
 
 
+@app.get("/api/providers/runtime-states")
+async def get_runtime_states():
+    """
+    获取 Provider 和模型的运行时熔断状态（轻量级，仅内存数据）
+    
+    用于前端实时展示模型的熔断/冷却状态，避免读取日志的性能开销。
+    
+    返回内容：
+    - providers: 各渠道的运行时状态（健康/冷却/永久禁用）
+    - models: 各模型的运行时状态（健康/冷却/永久禁用）
+    
+    状态说明：
+    - healthy: 健康可用
+    - cooling: 冷却中（临时熔断），包含剩余冷却时间
+    - permanently_disabled: 永久禁用
+    """
+    return provider_manager.get_runtime_states()
+
+
 @app.get("/api/providers/{provider_id}/models")
 async def fetch_provider_models(provider_id: str):
     """从中转站获取可用模型列表（并保存到 provider_models.json）"""
@@ -965,10 +993,13 @@ async def sync_model_mappings(unified_name: Optional[str] = None):
     # 获取 provider_id -> name 映射
     provider_id_name_map = admin_manager.get_provider_id_name_map()
     
+    # 获取 provider_id -> default_protocol 映射
+    provider_protocols = admin_manager.get_provider_protocols()
+    
     if unified_name:
         # 同步单个映射
         success, message, resolved = model_mapping_manager.sync_mapping(
-            unified_name, provider_models_flat, provider_id_name_map
+            unified_name, provider_models_flat, provider_id_name_map, provider_protocols
         )
         if not success:
             raise HTTPException(status_code=400, detail=message)
@@ -987,7 +1018,9 @@ async def sync_model_mappings(unified_name: Optional[str] = None):
         }
     else:
         # 同步全部映射
-        results = model_mapping_manager.sync_all_mappings(provider_models_flat, provider_id_name_map)
+        results = model_mapping_manager.sync_all_mappings(
+            provider_models_flat, provider_id_name_map, provider_protocols
+        )
         return {
             "status": "success",
             "synced_count": len(results),

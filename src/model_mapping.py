@@ -591,7 +591,8 @@ class ModelMappingManager:
         self,
         unified_name: str,
         all_provider_models: dict[str, list[str]],
-        provider_id_name_map: Optional[dict[str, str]] = None
+        provider_id_name_map: Optional[dict[str, str]] = None,
+        provider_protocols: Optional[dict[str, Optional[str]]] = None
     ) -> tuple[bool, str, dict[str, list[str]]]:
         """
         同步单个映射
@@ -600,6 +601,7 @@ class ModelMappingManager:
             unified_name: 统一模型名称
             all_provider_models: 所有Provider的模型列表 {provider_id: [model_ids]}
             provider_id_name_map: provider_id -> provider_name 的映射（用于日志显示）
+            provider_protocols: provider_id -> default_protocol 的映射（用于协议继承）
             
         Returns:
             (成功标志, 消息, 解析后的模型 {provider_id: [model_ids]})
@@ -625,13 +627,18 @@ class ModelMappingManager:
         mapping.resolved_models = resolved
         mapping.last_sync = datetime.now(timezone.utc).isoformat()
         
+        # 自动继承协议到 model_settings
+        if provider_protocols:
+            self._inherit_protocols(mapping, resolved, provider_protocols)
+        
         self.save()
         return True, "同步成功", resolved
     
     def sync_all_mappings(
         self,
         all_provider_models: dict[str, list[str]],
-        provider_id_name_map: Optional[dict[str, str]] = None
+        provider_id_name_map: Optional[dict[str, str]] = None,
+        provider_protocols: Optional[dict[str, Optional[str]]] = None
     ) -> list[dict]:
         """
         同步所有映射
@@ -639,6 +646,7 @@ class ModelMappingManager:
         Args:
             all_provider_models: 所有Provider的模型列表 {provider_id: [model_ids]}
             provider_id_name_map: provider_id -> provider_name 的映射（用于日志显示）
+            provider_protocols: provider_id -> default_protocol 的映射（用于协议继承）
             
         Returns:
             同步结果列表 [{unified_name, success, matched_count, provider_ids, added, removed}]
@@ -661,6 +669,10 @@ class ModelMappingManager:
             mapping.resolved_models = resolved
             mapping.last_sync = datetime.now(timezone.utc).isoformat()
             
+            # 自动继承协议到 model_settings
+            if provider_protocols:
+                self._inherit_protocols(mapping, resolved, provider_protocols)
+            
             total_models = sum(len(models) for models in resolved.values())
             results.append({
                 "unified_name": unified_name,
@@ -676,6 +688,55 @@ class ModelMappingManager:
         
         self.save()
         return results
+    
+    def _inherit_protocols(
+        self,
+        mapping: ModelMapping,
+        resolved_models: dict[str, list[str]],
+        provider_protocols: dict[str, Optional[str]]
+    ) -> None:
+        """
+        自动继承协议到 model_settings
+        
+        对于 resolved_models 中的每个 provider:model 组合：
+        - 如果 model_settings 中已有协议配置，保留（用户手动设置优先）
+        - 如果没有，则从 provider_protocols 中继承
+        - 如果 Provider 也没有 default_protocol，则不设置（表示该模型不可用）
+        
+        同时清理不在 resolved_models 中的旧 model_settings 条目
+        
+        Args:
+            mapping: 映射配置
+            resolved_models: 解析后的模型 {provider_id: [model_ids]}
+            provider_protocols: provider_id -> default_protocol 的映射
+        """
+        # 构建当前有效的 provider:model 集合
+        valid_keys: set[str] = set()
+        for provider_id, model_ids in resolved_models.items():
+            for model_id in model_ids:
+                valid_keys.add(f"{provider_id}:{model_id}")
+        
+        # 清理不在 resolved_models 中的旧条目
+        keys_to_remove = [key for key in mapping.model_settings if key not in valid_keys]
+        for key in keys_to_remove:
+            del mapping.model_settings[key]
+        
+        # 为新模型继承协议
+        for provider_id, model_ids in resolved_models.items():
+            provider_protocol = provider_protocols.get(provider_id)
+            
+            for model_id in model_ids:
+                key = f"{provider_id}:{model_id}"
+                
+                # 如果已有配置且包含 protocol，跳过（用户手动设置优先）
+                if key in mapping.model_settings and "protocol" in mapping.model_settings[key]:
+                    continue
+                
+                # 从 Provider 继承协议
+                if provider_protocol:
+                    if key not in mapping.model_settings:
+                        mapping.model_settings[key] = {}
+                    mapping.model_settings[key]["protocol"] = provider_protocol
     
     def _compute_model_changes(
         self,
