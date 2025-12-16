@@ -193,22 +193,6 @@ class RequestProxy:
                 model_health_manager.record_passive_result(
                     provider.config.id, actual_model, success=False, error=e.message
                 )
-                self._log_warning(
-                    f"Provider [{provider.config.name}] 请求失败: {e.message}"
-                )
-                # 记录到日志系统
-                log_manager.log(
-                    level=LogLevel.WARNING,
-                    log_type="retry",
-                    method="POST",
-                    path="/proxy",
-                    model=original_model,
-                    provider=provider.config.name,
-                    actual_model=actual_model,
-                    status_code=e.status_code,
-                    error=e.message,
-                    message=f"[重试 {attempt + 1}/{max_attempts}] {e.message}"
-                )
                 continue
         
         raise last_error or ProxyError("请求失败", status_code=500)
@@ -308,22 +292,6 @@ class RequestProxy:
                 # 记录被动健康状态（缓冲落盘）
                 model_health_manager.record_passive_result(
                     provider.config.id, actual_model, success=False, error=e.message
-                )
-                self._log_warning(
-                    f"Provider [{provider.config.name}] 流式请求失败: {e.message}"
-                )
-                # 记录到日志系统
-                log_manager.log(
-                    level=LogLevel.WARNING,
-                    log_type="retry",
-                    method="POST",
-                    path="/proxy/stream",
-                    model=original_model,
-                    provider=provider.config.name,
-                    actual_model=actual_model,
-                    status_code=e.status_code,
-                    error=e.message,
-                    message=f"[流式重试 {attempt + 1}/{max_attempts}] {e.message}"
                 )
                 continue
         

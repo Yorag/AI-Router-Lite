@@ -168,14 +168,6 @@
                     </div>
                 </div>
 
-                <!-- 注意：自动健康检测间隔与 src/constants.py 中的 AUTO_HEALTH_CHECK_INTERVAL_HOURS 保持同步 -->
-                <div class="auto-refresh-control">
-                    <label>
-                        <input type="checkbox" id="auto-refresh-providers" onchange="Providers.toggleAutoRefresh()">
-                        自动健康检测（每6小时，跳过近期有活动的模型）
-                    </label>
-                </div>
-
                 <div id="providers-list" class="providers-grid">
                     <!-- 动态生成 -->
                 </div>

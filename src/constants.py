@@ -47,7 +47,7 @@ HEALTH_TEST_FAILURE_COOLDOWN_SECONDS: int = 60
 # ==================== 熔断器冷却时间配置（秒） ====================
 
 # 429 超频冷却时间
-COOLDOWN_RATE_LIMITED: int = 60
+COOLDOWN_RATE_LIMITED: int = 180
 
 # 5xx 服务器错误冷却时间
 COOLDOWN_SERVER_ERROR: int = 300

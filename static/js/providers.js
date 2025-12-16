@@ -2,18 +2,14 @@
  * Provider 管理模块
  */
 
-// 从后端同步的常量配置
-const PROVIDER_CONSTANTS = {
-    // 自动更新模型间隔（毫秒）- 6小时
-    AUTO_UPDATE_MODELS_INTERVAL_MS: 6 * 60 * 60 * 1000
-};
-
 const Providers = {
     providers: [],
-    autoUpdateInterval: null,
     isUpdatingAll: false,  // 防止重复点击"更新全部渠道"按钮
     availableProtocols: [],  // 可用协议类型缓存
-
+    
+    // 排序相关
+    sortMode: 'weight', // 'weight' (权重递减) | 'default' (默认排序)
+    
     async init() {
         await this.loadProtocols();  // 加载协议类型
         await this.load();
@@ -80,8 +76,39 @@ const Providers = {
         }
     },
 
+    /**
+     * 切换排序模式
+     */
+    toggleSortMode(mode) {
+        if (this.sortMode === mode) return;
+        this.sortMode = mode;
+        
+        // 更新按钮状态
+        document.querySelectorAll('.sort-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+        
+        this.render();
+    },
+
+    /**
+     * 获取排序后的列表
+     */
+    getSortedProviders() {
+        const list = [...this.providers];
+        if (this.sortMode === 'weight') {
+            // 权重递减排序
+            return list.sort((a, b) => (b.weight || 0) - (a.weight || 0));
+        }
+        // 默认排序（保持 API 返回的原始顺序，即 config.json 中的顺序）
+        return list;
+    },
+
     render() {
         const container = document.getElementById('providers-list');
+        
+        // 渲染排序控件（如果还没渲染过）
+        this.renderSortControls();
         
         if (this.providers.length === 0) {
             container.innerHTML = `
@@ -94,9 +121,31 @@ const Providers = {
             return;
         }
 
-        container.innerHTML = this.providers.map(provider => this.renderProviderCard(provider)).join('');
+        const sortedProviders = this.getSortedProviders();
+        container.innerHTML = sortedProviders.map(provider => this.renderProviderCard(provider)).join('');
     },
 
+    renderSortControls() {
+        const headerActions = document.querySelector('#page-providers .header-actions');
+        if (!headerActions) return;
+        
+        // 检查是否已存在排序控件
+        if (headerActions.querySelector('.sort-control')) return;
+        
+        const sortControlHtml = `
+            <div class="sort-control toggle-group">
+                <button class="toggle-btn sort-btn active" data-mode="weight" onclick="Providers.toggleSortMode('weight')">
+                    权重排序
+                </button>
+                <button class="toggle-btn sort-btn" data-mode="default" onclick="Providers.toggleSortMode('default')">
+                    默认排序
+                </button>
+            </div>
+        `;
+        
+        // 插入到第一个位置
+        headerActions.insertAdjacentHTML('afterbegin', sortControlHtml);
+    },
     // 模型显示阈值
     MODEL_DISPLAY_LIMIT: 5,
 
@@ -146,7 +195,7 @@ const Providers = {
         const statusText = isEnabled ? `权重: ${provider.weight}` : '已禁用';
         const toggleBtnText = isEnabled ? '禁用' : '启用';
         const protocolText = provider.default_protocol || '混合';
-
+        
         return `
             <div class="provider-card ${!isEnabled ? 'disabled' : ''}" id="provider-${providerDomId}" data-provider-id="${providerUuid}">
                 <div class="provider-card-header">
@@ -481,35 +530,6 @@ const Providers = {
         }
         
         return parts.join('\n');
-    },
-
-    toggleAutoUpdate() {
-        const checkbox = document.getElementById('auto-refresh-providers');
-        
-        if (checkbox.checked) {
-            this.startAutoUpdateModels();
-        } else {
-            this.stopAutoUpdateModels();
-        }
-    },
-
-    startAutoUpdateModels() {
-        if (this.autoUpdateInterval) return;
-        
-        // 立即执行一次自动更新模型
-        this.updateAllModels();
-        
-        this.autoUpdateInterval = setInterval(async () => {
-            await this.updateAllModels();
-        }, PROVIDER_CONSTANTS.AUTO_UPDATE_MODELS_INTERVAL_MS);
-        
-    },
-
-    stopAutoUpdateModels() {
-        if (this.autoUpdateInterval) {
-            clearInterval(this.autoUpdateInterval);
-            this.autoUpdateInterval = null;
-        }
     },
 
     // 手动触发更新全部渠道（带防重复控制）

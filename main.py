@@ -889,6 +889,8 @@ async def add_provider(request: ProviderRequest):
     return {"status": "success", "message": message, "provider_id": provider_id}
 
 
+
+
 @app.post("/api/providers/sync-all-models")
 async def sync_all_provider_models():
     """
@@ -979,12 +981,7 @@ async def update_provider(provider_id: str, request: UpdateProviderRequest):
     success, message = admin_manager.update_provider(provider_id, provider)
     if not success:
         raise HTTPException(status_code=400, detail=message)
-    
-    provider_name = provider.get("name", provider_id)
-    log_manager.log(
-        level=LogLevel.INFO, log_type="admin", method="PUT",
-        path=f"/api/providers/{provider_id}", message=f"更新 Provider: {provider_name}"
-    )
+
     return {"status": "success", "message": message}
 
 

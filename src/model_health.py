@@ -313,17 +313,6 @@ class ModelHealthManager(BaseStorageManager):
                         tested_at=datetime.now(timezone.utc).isoformat()
                     )
                     
-        except httpx.TimeoutException as e:
-            latency_ms = (time.time() - start_time) * 1000
-            result = ModelHealthResult(
-                provider=provider_id,
-                model=model,
-                success=False,
-                latency_ms=latency_ms,
-                response_body={},
-                error=str(e) if str(e) else "TimeoutException",
-                tested_at=datetime.now(timezone.utc).isoformat()
-            )
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
             result = ModelHealthResult(
