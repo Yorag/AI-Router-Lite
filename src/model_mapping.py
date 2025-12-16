@@ -838,15 +838,6 @@ class ModelMappingManager:
             return ref
         
         if not added and not removed:
-            message = f"[{unified_name}] 同步完成，无变化"
-            print(f"[MODEL-MAPPING] {message}")
-            log_manager.log(
-                level=LogLevel.INFO,
-                log_type="sync",
-                method="SYNC",
-                path="/model-mapping",
-                message=message
-            )
             return
         
         # 构建控制台输出（带颜色）

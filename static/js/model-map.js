@@ -157,6 +157,23 @@ const ModelMap = {
                 this.providerIdNameMap[pid] || pid
             );
             
+            // 计算支持的协议并集
+            const supportedProtocols = new Set();
+            if (mapping.resolved_models) {
+                for (const [providerId, models] of Object.entries(mapping.resolved_models)) {
+                    // 跳过被禁用的 Provider
+                    if (this.providerEnabledStatus[providerId] === false) continue;
+                    
+                    for (const model of models) {
+                        const status = this.getModelProtocolStatus(unifiedName, providerId, model);
+                        if (status.isConfigured && status.protocol) {
+                            supportedProtocols.add(status.protocol);
+                        }
+                    }
+                }
+            }
+            const protocolsArray = Array.from(supportedProtocols).sort();
+            
             return `
                 <div class="model-map-item">
                     <div class="model-map-header">
@@ -187,6 +204,14 @@ const ModelMap = {
                         <div class="info-row">
                             <span class="info-label">匹配结果:</span>
                             <span class="info-value">${totalModels} 个模型 来自 ${providerCount} 个渠道</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">支持协议:</span>
+                            <span class="info-value">
+                                ${protocolsArray.length > 0
+                                    ? protocolsArray.map(p => `<span class="status-badge info">${p}</span>`).join(' ')
+                                    : '<span class="status-badge warning">无可用协议</span>'}
+                            </span>
                         </div>
                         ${excludedProviders.length > 0 ? `
                         <div class="info-row">

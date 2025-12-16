@@ -323,16 +323,6 @@ class ProviderModelsManager(BaseStorageManager):
         display_name = provider_name or provider_id[:8]
         
         if not added_models and not removed_models:
-            message = f"[{display_name}] 同步完成，无变化"
-            print(f"[PROVIDER-MODELS] {message}")
-            log_manager.log(
-                level=LogLevel.INFO,
-                log_type="sync",
-                method="SYNC",
-                path="/provider-models",
-                provider=display_name,
-                message=message
-            )
             return
         
         # 构建控制台输出（带颜色）
