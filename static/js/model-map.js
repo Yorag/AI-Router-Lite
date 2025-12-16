@@ -1133,7 +1133,6 @@ const ModelMap = {
                         <option value="">使用 Provider 默认</option>
                         ${protocolOptions}
                     </select>
-                    <div class="hint">选择"使用 Provider 默认"将清除模型级配置，回退到渠道默认协议</div>
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>

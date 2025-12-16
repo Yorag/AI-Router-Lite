@@ -29,13 +29,13 @@ class ModelRouter:
         使用增强型模型映射，保留 provider_id 关联信息，确保请求只被路由到
         明确配置的 Provider + Model 组合。
         
-        如果没有匹配的映射，则返回空字典（表示应使用原始模型名直接匹配）。
+        如果没有匹配的映射，则返回空字典（表示该模型不可用）。
         
         Args:
-            requested_model: 用户请求的模型名（可能是映射名）
+            requested_model: 用户请求的模型名（统一模型名）
             
         Returns:
-            {provider_id: [model_ids]} 格式的映射，空字典表示无映射配置
+            {provider_id: [model_ids]} 格式的映射，空字典表示该模型未配置映射（不可用）
         """
         mapping = model_mapping_manager.get_mapping(requested_model)
         if mapping and mapping.resolved_models:
@@ -111,19 +111,9 @@ class ModelRouter:
                     if self.provider_manager.is_model_available(provider_id, model_id):
                         candidates.append((provider, model_id, provider.config.weight))
                         break  # 每个 Provider 只加入一次
-        else:
-            # 没有映射配置：使用原始模型名，遍历所有支持该模型的 Provider
-            # 这是向后兼容的逻辑，用于未配置映射的模型
-            # 注意：无映射时无法进行协议过滤
-            for provider in self.provider_manager.get_available():
-                if provider.config.id in exclude:
-                    continue
-                
-                supported_models = self._get_supported_models(provider.config.id)
-                
-                if requested_model in supported_models:
-                    if self.provider_manager.is_model_available(provider.config.id, requested_model):
-                        candidates.append((provider, requested_model, provider.config.weight))
+        
+        # 没有映射配置时，candidates 为空，表示该模型不可用
+        # 系统设计原则：可用的模型仅在模型映射列表中体现
         
         # 按权重降序排序
         candidates.sort(key=lambda x: x[2], reverse=True)

@@ -252,7 +252,7 @@ const Providers = {
                     <select id="provider-protocol">
                         ${this.renderProtocolOptions('')}
                     </select>
-                    <div class="hint">该服务站支持的请求协议。选择"混合类型"表示不同模型可能使用不同协议，需在模型映射中单独配置。</div>
+                    <div class="hint">指定该渠道支持的 API 协议类型。如果指定，该渠道仅会被用于处理对应协议的请求（如 /v1/chat/completions 或 /v1/messages）。</div>
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
@@ -327,7 +327,7 @@ const Providers = {
                     <select id="edit-provider-protocol">
                         ${this.renderProtocolOptions(currentProtocol)}
                     </select>
-                    <div class="hint">该服务站支持的请求协议。选择"混合类型"表示不同模型可能使用不同协议，需在模型映射中单独配置。</div>
+                    <div class="hint">指定该渠道支持的 API 协议类型。如果指定，该渠道仅会被用于处理对应协议的请求（如 /v1/chat/completions 或 /v1/messages）。</div>
                 </div>
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>

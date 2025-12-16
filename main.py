@@ -1,3 +1,4 @@
+
 """
 AI-Router-Lite: 轻量级 AI 聚合路由
 
@@ -7,13 +8,14 @@ AI-Router-Lite: 轻量级 AI 聚合路由
 import sys
 import time
 import asyncio
+import json
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, Dict
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -29,7 +31,6 @@ from src.constants import (
 )
 from src.storage import persistence_manager
 from src.models import (
-    ChatCompletionRequest,
     ErrorResponse,
     ErrorDetail,
     ModelListResponse,
@@ -44,6 +45,7 @@ from src.admin import admin_manager
 from src.model_mapping import model_mapping_manager
 from src.model_health import model_health_manager
 from src.provider_models import provider_models_manager
+from src.protocols import get_protocol
 
 
 # 全局组件
@@ -333,14 +335,23 @@ async def root():
 def get_api_key_from_header(raw_request: Request) -> Optional[str]:
     """从请求头提取 API 密钥"""
     auth_header = raw_request.headers.get("Authorization")
-    if not auth_header:
-        return None
-    
-    # 支持 Bearer token 格式
-    if auth_header.startswith("Bearer "):
-        return auth_header[7:]
-    
-    return auth_header
+    if auth_header:
+        # 支持 Bearer token 格式
+        if auth_header.startswith("Bearer "):
+            return auth_header[7:]
+        return auth_header
+        
+    # 尝试从 x-api-key 获取 (Anthropic 风格)
+    api_key = raw_request.headers.get("x-api-key")
+    if api_key:
+        return api_key
+        
+    # 尝试从 URL 参数获取 (Gemini 风格)
+    api_key = raw_request.query_params.get("key")
+    if api_key:
+        return api_key
+        
+    return None
 
 
 async def verify_api_key(raw_request: Request) -> APIKey:
@@ -358,7 +369,7 @@ async def verify_api_key(raw_request: Request) -> APIKey:
     if not api_key:
         raise HTTPException(
             status_code=401,
-            detail="缺少 API 密钥，请在 Authorization 头中提供 Bearer token"
+            detail="缺少 API 密钥，请在 Authorization 头(Bearer)、x-api-key 头或 key 查询参数中提供"
         )
     
     # 验证密钥
@@ -391,24 +402,46 @@ async def list_models():
     )
 
 
-@app.post("/v1/chat/completions")
-async def chat_completions(
-    request: ChatCompletionRequest,
-    raw_request: Request,
-    api_key: APIKey = Depends(verify_api_key)
+# ==================== 通用请求处理逻辑 ====================
+
+async def process_request(
+    request: Request,
+    protocol_type: str,
+    api_key: APIKey,
+    path_params: Optional[Dict[str, str]] = None
 ):
     """
-    聊天补全端点 (OpenAI 兼容)
+    通用请求处理函数
     
-    需要有效的 API 密钥认证。
-    支持流式和非流式响应。
+    Args:
+        request: FastAPI Request 对象
+        protocol_type: 协议类型 (openai, anthropic, gemini)
+        api_key: 已验证的 API Key 对象
+        path_params: 路径参数 (用于 Gemini 等从 URL 获取模型名)
     """
-    original_model = request.model
-    is_stream = request.stream or False
+    protocol_handler = get_protocol(protocol_type)
+    if not protocol_handler:
+        raise HTTPException(status_code=500, detail=f"不支持的协议类型: {protocol_type}")
+        
+    # 读取原始请求体
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="无效的 JSON 请求体")
+        
+    # 注入路径参数到 body 中 (辅助协议解析)
+    if path_params:
+        body.update(path_params)
+        
+    # 解析请求
+    original_model, is_stream = protocol_handler.parse_request(body)
+    if not original_model:
+        raise HTTPException(status_code=400, detail="无法从请求中提取模型名称")
+        
     start_time = time.time()
     
     # 获取客户端IP
-    client_ip = raw_request.client.host if raw_request.client else None
+    client_ip = request.client.host if request.client else None
     
     # 获取 API 密钥信息
     api_key_id = api_key.key_id
@@ -416,32 +449,33 @@ async def chat_completions(
     
     try:
         if is_stream:
-            # 流式响应 - 使用 StreamContext 收集元数据
+            # 流式响应
             stream_context = StreamContext(provider_name="", actual_model="")
             
             async def stream_with_logging():
-                """包装流式响应，在完成后记录日志"""
                 try:
                     async for chunk in proxy.forward_stream(
-                        request, original_model, stream_context, required_protocol="openai"
+                        body, protocol_handler, original_model, stream_context
                     ):
                         yield chunk
                     
-                    # 流式请求完成后记录日志
+                    # 日志记录
                     duration_ms = (time.time() - start_time) * 1000
                     token_info = f"Tokens: {stream_context.total_tokens or 'N/A'}"
                     if stream_context.request_tokens or stream_context.response_tokens:
                         token_info = f"Tokens: {stream_context.total_tokens or 'N/A'} ↑{stream_context.request_tokens or 0} ↓{stream_context.response_tokens or 0}"
+                    
                     print(
                         f"[RESPONSE] "
                         f"[{api_key_name}] {original_model} ==> {stream_context.provider_name}:{stream_context.actual_model}, "
                         f"{{{token_info}, {duration_ms:.0f}ms}}"
                     )
+                    
                     log_manager.log(
                         level=LogLevel.INFO,
                         log_type="response",
-                        method="POST",
-                        path="/v1/chat/completions",
+                        method=request.method,
+                        path=request.url.path,
                         model=original_model,
                         provider=stream_context.provider_name,
                         actual_model=stream_context.actual_model,
@@ -456,13 +490,12 @@ async def chat_completions(
                         message=f"[{api_key_name}] {original_model} ==> {stream_context.provider_name}:{stream_context.actual_model}, {{{token_info}}}"
                     )
                 except ProxyError as e:
-                    # 流式请求中的错误
                     duration_ms = (time.time() - start_time) * 1000
                     log_manager.log(
                         level=LogLevel.ERROR,
                         log_type="error",
-                        method="POST",
-                        path="/v1/chat/completions",
+                        method=request.method,
+                        path=request.url.path,
                         model=original_model,
                         provider=e.provider_name,
                         actual_model=e.actual_model,
@@ -481,33 +514,32 @@ async def chat_completions(
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no"  # 禁用 nginx 缓冲
+                    "X-Accel-Buffering": "no"
                 }
             )
         else:
             # 非流式响应
             result: ProxyResult = await proxy.forward_request(
-                request, original_model, required_protocol="openai"
+                body, protocol_handler, original_model
             )
             
             duration_ms = (time.time() - start_time) * 1000
             
-            # 打印详细日志
             token_info = f"Tokens: {result.total_tokens or 'N/A'}"
             if result.request_tokens or result.response_tokens:
                 token_info = f"Tokens: {result.total_tokens or 'N/A'} ↑{result.request_tokens or 0} ↓{result.response_tokens or 0}"
+            
             print(
                 f"[RESPONSE] "
                 f"[{api_key_name}] {original_model} ==> {result.provider_name}:{result.actual_model}, "
                 f"{{{token_info}, {duration_ms:.0f}ms}}"
             )
             
-            # 记录响应日志
             log_manager.log(
                 level=LogLevel.INFO,
                 log_type="response",
-                method="POST",
-                path="/v1/chat/completions",
+                method=request.method,
+                path=request.url.path,
                 model=original_model,
                 provider=result.provider_name,
                 actual_model=result.actual_model,
@@ -528,12 +560,11 @@ async def chat_completions(
         duration_ms = (time.time() - start_time) * 1000
         print(f"[ERROR] [{api_key_name}] {original_model} 代理错误: {e.message}")
         
-        # 记录错误日志
         log_manager.log(
             level=LogLevel.ERROR,
             log_type="error",
-            method="POST",
-            path="/v1/chat/completions",
+            method=request.method,
+            path=request.url.path,
             model=original_model,
             provider=e.provider_name,
             actual_model=e.actual_model,
@@ -560,12 +591,11 @@ async def chat_completions(
         duration_ms = (time.time() - start_time) * 1000
         print(f"[ERROR] [{api_key_name}] {original_model} 未知错误: {str(e)}")
         
-        # 记录错误日志
         log_manager.log(
             level=LogLevel.ERROR,
             log_type="error",
-            method="POST",
-            path="/v1/chat/completions",
+            method=request.method,
+            path=request.url.path,
             model=original_model,
             status_code=500,
             duration_ms=duration_ms,
@@ -585,6 +615,53 @@ async def chat_completions(
                 )
             ).model_dump()
         )
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(
+    request: Request,
+    api_key: APIKey = Depends(verify_api_key)
+):
+    """OpenAI Chat Completions API"""
+    return await process_request(request, "openai", api_key)
+
+
+@app.post("/v1/responses")
+async def openai_responses(
+    request: Request,
+    api_key: APIKey = Depends(verify_api_key)
+):
+    """OpenAI Responses API (Beta)"""
+    return await process_request(request, "openai-response", api_key)
+
+
+@app.post("/v1/messages")
+async def anthropic_messages(
+    request: Request,
+    api_key: APIKey = Depends(verify_api_key)
+):
+    """Anthropic Messages API"""
+    return await process_request(request, "anthropic", api_key)
+
+
+@app.post("/v1beta/models/{model}:generateContent")
+async def gemini_generate_content(
+    model: str,
+    request: Request,
+    api_key: APIKey = Depends(verify_api_key)
+):
+    """Gemini API (generateContent)"""
+    return await process_request(request, "gemini", api_key, {"model": model, "stream": False})
+
+
+@app.post("/v1beta/models/{model}:streamGenerateContent")
+async def gemini_stream_generate_content(
+    model: str,
+    request: Request,
+    api_key: APIKey = Depends(verify_api_key)
+):
+    """Gemini API (streamGenerateContent)"""
+    return await process_request(request, "gemini", api_key, {"model": model, "stream": True})
 
 
 @app.get("/health")

@@ -32,9 +32,9 @@ class ProtocolType(str, Enum):
     系统只支持 OpenAI 协议入口和出口。
     协议字段用于标识渠道的 API 格式，在路由时过滤不兼容的渠道。
     
-    当请求进入 /v1/chat/completions 端点时：
-    - 只有 protocol=openai 的渠道会被选中
-    - 其他协议类型的渠道会被自动过滤
+    当请求进入特定端点时（如 /v1/chat/completions 或 /v1/messages）：
+    - 系统会根据端点对应的协议类型（openai 或 anthropic）进行过滤
+    - 只有支持该协议的渠道（或未指定协议的混合渠道）会被选中
     
     协议类型说明：
     - OPENAI: 兼容 OpenAI Chat Completions API (/v1/chat/completions)
@@ -68,7 +68,7 @@ class ProviderConfig(BaseModel):
     enabled: bool = Field(default=True, description="是否启用该服务站")
     default_protocol: Optional[ProtocolType] = Field(
         default=None,
-        description="渠道协议类型（用于路由过滤），仅 openai 协议可被 /v1/chat/completions 端点使用"
+        description="渠道协议类型（用于路由过滤）。指定后，该渠道仅会被用于处理对应协议的请求。"
     )
 
 
