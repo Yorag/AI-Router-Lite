@@ -24,7 +24,8 @@ const ModelMap = {
         { value: 'keyword', label: '关键字匹配', hint: '模型名包含该关键字即匹配' },
         { value: 'regex', label: '正则表达式', hint: '使用正则表达式匹配' },
         { value: 'prefix', label: '前缀匹配', hint: '模型名以该前缀开头即匹配' },
-        { value: 'exact', label: '精确匹配', hint: '模型名完全相同才匹配' }
+        { value: 'exact', label: '精确匹配', hint: '模型名完全相同才匹配' },
+        { value: 'keyword_exclude', label: '关键字排除', hint: '模型名包含该关键字时排除' }
     ],
 
     async init() {
@@ -217,12 +218,6 @@ const ModelMap = {
                         <div class="info-row">
                             <span class="info-label">排除渠道:</span>
                             <span class="info-value excluded-providers-list">${excludedProviderNames.map(name => `<span class="excluded-provider-tag">🚫 ${name}</span>`).join(' ')}</span>
-                        </div>
-                        ` : ''}
-                        ${(mapping.manual_excludes || []).length > 0 ? `
-                        <div class="info-row">
-                            <span class="info-label">手动排除:</span>
-                            <span class="info-value">${mapping.manual_excludes.join(', ')}</span>
                         </div>
                         ` : ''}
                         ${(mapping.manual_includes || []).length > 0 ? `
@@ -696,7 +691,6 @@ const ModelMap = {
         const isEdit = !!mapping;
         const rules = mapping?.rules || [];
         const manualIncludes = mapping?.manual_includes || [];
-        const manualExcludes = mapping?.manual_excludes || [];
         const excludedProviders = mapping?.excluded_providers || [];  // 这是 provider_id 数组
 
         // 使用 provider_id 作为 value，显示 provider_name
@@ -745,13 +739,6 @@ const ModelMap = {
                             <div id="excluded-providers-container" class="excluded-providers-checkboxes">
                                 ${excludedProvidersCheckboxes || '<div class="hint">暂无可用渠道</div>'}
                             </div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>手动排除的模型</label>
-                            <textarea id="mapping-manual-excludes" rows="2"
-                                placeholder="每行一个，格式: model_id 或 provider:model_id">${manualExcludes.join('\n')}</textarea>
-                            <div class="hint">即使规则匹配也会被排除（模型级别）</div>
                         </div>
                         
                         <div class="form-group">
@@ -918,16 +905,6 @@ const ModelMap = {
         }
     },
 
-    addToManualExclude(model) {
-        const textarea = document.getElementById('mapping-manual-excludes');
-        const currentModels = textarea.value.split('\n').map(m => m.trim()).filter(m => m);
-        
-        if (!currentModels.includes(model)) {
-            currentModels.push(model);
-            textarea.value = currentModels.join('\n');
-        }
-    },
-
     // ==================== 预览功能 ====================
 
     collectExcludedProviders() {
@@ -938,8 +915,6 @@ const ModelMap = {
     async refreshPreview() {
         const rules = this.collectRules();
         const manualIncludes = document.getElementById('mapping-manual-includes').value
-            .split('\n').map(m => m.trim()).filter(m => m);
-        const manualExcludes = document.getElementById('mapping-manual-excludes').value
             .split('\n').map(m => m.trim()).filter(m => m);
         const excludedProviders = this.collectExcludedProviders();
         
@@ -955,7 +930,6 @@ const ModelMap = {
             const result = await API.previewModelMapping({
                 rules,
                 manual_includes: manualIncludes,
-                manual_excludes: manualExcludes,
                 excluded_providers: excludedProviders
             });
             
@@ -985,9 +959,7 @@ const ModelMap = {
                     <div class="provider-header">${providerName} (${models.length})</div>
                     <div class="provider-models">
                         ${models.map(m => `
-                            <span class="model-tag"
-                                onclick="ModelMap.addToManualExclude('${m}')"
-                                title="点击排除此模型">
+                            <span class="model-tag">
                                 ${m}
                             </span>
                         `).join('')}
@@ -1008,8 +980,6 @@ const ModelMap = {
         const rules = this.collectRules();
         const manualIncludes = document.getElementById('mapping-manual-includes').value
             .split('\n').map(m => m.trim()).filter(m => m);
-        const manualExcludes = document.getElementById('mapping-manual-excludes').value
-            .split('\n').map(m => m.trim()).filter(m => m);
         const excludedProviders = this.collectExcludedProviders();
         
         if (!unifiedName) {
@@ -1027,7 +997,6 @@ const ModelMap = {
                 unified_name: unifiedName,
                 rules,
                 manual_includes: manualIncludes,
-                manual_excludes: manualExcludes,
                 excluded_providers: excludedProviders
             });
             
@@ -1047,8 +1016,6 @@ const ModelMap = {
         const rules = this.collectRules();
         const manualIncludes = document.getElementById('mapping-manual-includes').value
             .split('\n').map(m => m.trim()).filter(m => m);
-        const manualExcludes = document.getElementById('mapping-manual-excludes').value
-            .split('\n').map(m => m.trim()).filter(m => m);
         const excludedProviders = this.collectExcludedProviders();
         
         if (!newUnifiedName) {
@@ -1066,7 +1033,6 @@ const ModelMap = {
                 new_unified_name: newUnifiedName !== unifiedName ? newUnifiedName : undefined,
                 rules,
                 manual_includes: manualIncludes,
-                manual_excludes: manualExcludes,
                 excluded_providers: excludedProviders
             });
             

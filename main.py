@@ -275,7 +275,6 @@ class CreateModelMappingRequest(BaseModel):
     description: str = ""
     rules: list[dict] = []
     manual_includes: list[str] = []
-    manual_excludes: list[str] = []
     excluded_providers: list[str] = []
 
 
@@ -285,7 +284,6 @@ class UpdateModelMappingRequest(BaseModel):
     description: Optional[str] = None
     rules: Optional[list[dict]] = None
     manual_includes: Optional[list[str]] = None
-    manual_excludes: Optional[list[str]] = None
     excluded_providers: Optional[list[str]] = None
 
 
@@ -293,7 +291,6 @@ class PreviewResolveRequest(BaseModel):
     """预览匹配结果请求"""
     rules: list[dict]
     manual_includes: list[str] = []
-    manual_excludes: list[str] = []
     excluded_providers: list[str] = []
 
 
@@ -1044,7 +1041,6 @@ async def create_model_mapping(request: CreateModelMappingRequest):
         description=request.description,
         rules=request.rules,
         manual_includes=request.manual_includes,
-        manual_excludes=request.manual_excludes,
         excluded_providers=request.excluded_providers
     )
     if not success:
@@ -1090,7 +1086,6 @@ async def update_model_mapping(unified_name: str, request: UpdateModelMappingReq
         description=request.description,
         rules=request.rules,
         manual_includes=request.manual_includes,
-        manual_excludes=request.manual_excludes,
         excluded_providers=request.excluded_providers
     )
     if not success:
@@ -1184,7 +1179,6 @@ async def preview_model_mapping(request: PreviewResolveRequest):
     resolved = model_mapping_manager.preview_resolve(
         rules=request.rules,
         manual_includes=request.manual_includes,
-        manual_excludes=request.manual_excludes,
         all_provider_models=provider_models_flat,
         excluded_providers=request.excluded_providers
     )

@@ -23,10 +23,11 @@ from .constants import MODEL_MAPPINGS_STORAGE_PATH
 
 class RuleType(str, Enum):
     """匹配规则类型"""
-    KEYWORD = "keyword"      # 关键字包含匹配
-    REGEX = "regex"          # 正则表达式匹配
-    PREFIX = "prefix"        # 前缀匹配
-    EXACT = "exact"          # 精确匹配
+    KEYWORD = "keyword"              # 关键字包含匹配
+    REGEX = "regex"                  # 正则表达式匹配
+    PREFIX = "prefix"                # 前缀匹配
+    EXACT = "exact"                  # 精确匹配
+    KEYWORD_EXCLUDE = "keyword_exclude"  # 关键字排除匹配
 
 
 @dataclass
@@ -69,7 +70,6 @@ class ModelMapping:
     description: str = ""
     rules: list[MatchRule] = field(default_factory=list)
     manual_includes: list[str] = field(default_factory=list)  # 格式: "model_id" 或 "provider_id:model_id"
-    manual_excludes: list[str] = field(default_factory=list)  # 格式: "model_id" 或 "provider_id:model_id"
     excluded_providers: list[str] = field(default_factory=list)  # 排除的 provider_id 列表
     resolved_models: dict[str, list[str]] = field(default_factory=dict)  # {provider_id: [models]}
     model_settings: dict[str, dict] = field(default_factory=dict)  # {provider_id:model_id: {protocol: str, ...}}
@@ -80,7 +80,6 @@ class ModelMapping:
             "description": self.description,
             "rules": [r.to_dict() for r in self.rules],
             "manual_includes": self.manual_includes,
-            "manual_excludes": self.manual_excludes,
             "excluded_providers": self.excluded_providers,
             "resolved_models": self.resolved_models,
             "model_settings": self.model_settings,
@@ -94,7 +93,6 @@ class ModelMapping:
             description=data.get("description", ""),
             rules=[MatchRule.from_dict(r) for r in data.get("rules", [])],
             manual_includes=data.get("manual_includes", []),
-            manual_excludes=data.get("manual_excludes", []),
             excluded_providers=data.get("excluded_providers", []),
             resolved_models=data.get("resolved_models", {}),
             model_settings=data.get("model_settings", {}),
@@ -203,21 +201,51 @@ class RuleMatcher:
                 # 正则表达式无效
                 return False
         
+        elif rule.type == RuleType.KEYWORD_EXCLUDE:
+            # 关键字排除：包含关键字时返回 True（表示应该被排除）
+            return pattern in target
+        
         return False
     
     @staticmethod
     def match_any(rules: list[MatchRule], model_id: str) -> bool:
         """
-        检查模型ID是否匹配任意规则（取并集）
+        检查模型ID是否匹配任意包含规则（取并集）
+        
+        注意：此方法只处理包含类规则（keyword/regex/prefix/exact），
+        不处理排除类规则（keyword_exclude）
         
         Args:
             rules: 规则列表
             model_id: 模型ID
             
         Returns:
-            是否匹配任意规则
+            是否匹配任意包含规则
         """
         for rule in rules:
+            # 跳过排除类规则
+            if rule.type == RuleType.KEYWORD_EXCLUDE:
+                continue
+            if RuleMatcher.match(rule, model_id):
+                return True
+        return False
+    
+    @staticmethod
+    def should_exclude(rules: list[MatchRule], model_id: str) -> bool:
+        """
+        检查模型ID是否应该被排除（匹配任意排除规则）
+        
+        Args:
+            rules: 规则列表
+            model_id: 模型ID
+            
+        Returns:
+            是否应该被排除
+        """
+        for rule in rules:
+            # 只处理排除类规则
+            if rule.type != RuleType.KEYWORD_EXCLUDE:
+                continue
             if RuleMatcher.match(rule, model_id):
                 return True
         return False
@@ -297,14 +325,12 @@ class ModelMappingManager:
         """获取指定映射"""
         self._ensure_loaded()
         return self._mappings.get(unified_name)
-    
     def create_mapping(
         self,
         unified_name: str,
         description: str = "",
         rules: Optional[list[dict]] = None,
         manual_includes: Optional[list[str]] = None,
-        manual_excludes: Optional[list[str]] = None,
         excluded_providers: Optional[list[str]] = None
     ) -> tuple[bool, str]:
         """
@@ -313,9 +339,8 @@ class ModelMappingManager:
         Args:
             unified_name: 统一模型名称
             description: 描述
-            rules: 规则列表
+            rules: 规则列表（包含包含规则和排除规则）
             manual_includes: 手动包含的模型
-            manual_excludes: 手动排除的模型
             excluded_providers: 排除的渠道列表
             
         Returns:
@@ -334,7 +359,6 @@ class ModelMappingManager:
             description=description,
             rules=[MatchRule.from_dict(r) for r in (rules or [])],
             manual_includes=manual_includes or [],
-            manual_excludes=manual_excludes or [],
             excluded_providers=excluded_providers or []
         )
         
@@ -348,7 +372,6 @@ class ModelMappingManager:
         description: Optional[str] = None,
         rules: Optional[list[dict]] = None,
         manual_includes: Optional[list[str]] = None,
-        manual_excludes: Optional[list[str]] = None,
         excluded_providers: Optional[list[str]] = None
     ) -> tuple[bool, str]:
         """
@@ -357,9 +380,8 @@ class ModelMappingManager:
         Args:
             unified_name: 统一模型名称
             description: 描述（可选）
-            rules: 规则列表（可选）
+            rules: 规则列表（可选，包含包含规则和排除规则）
             manual_includes: 手动包含的模型（可选）
-            manual_excludes: 手动排除的模型（可选）
             excluded_providers: 排除的渠道列表（可选）
             
         Returns:
@@ -378,8 +400,6 @@ class ModelMappingManager:
             mapping.rules = [MatchRule.from_dict(r) for r in rules]
         if manual_includes is not None:
             mapping.manual_includes = manual_includes
-        if manual_excludes is not None:
-            mapping.manual_excludes = manual_excludes
         if excluded_providers is not None:
             mapping.excluded_providers = excluded_providers
         
@@ -540,14 +560,13 @@ class ModelMappingManager:
                 parts = ref.split(":", 1)
                 return parts[0], parts[1]
             return None, ref
-        
         # 获取排除的渠道列表（使用 provider_id）
         excluded_providers = set(mapping.excluded_providers or [])
         
         # 收集所有匹配的模型 (provider_id, model_id)
         matched: set[tuple[str, str]] = set()
         
-        # 1. 应用所有规则（取并集），跳过被排除的渠道
+        # 1. 应用所有包含规则（取并集），跳过被排除的渠道
         for provider_id, models in all_provider_models.items():
             if provider_id in excluded_providers:
                 continue
@@ -570,17 +589,13 @@ class ModelMappingManager:
                     if model_id in models:
                         matched.add((prov_id, model_id))
         
-        # 3. 移除手动排除（最高优先级）
-        for ref in mapping.manual_excludes:
-            provider_id, model_id = parse_model_ref(ref)
-            if provider_id:
-                # 指定了 provider_id
-                matched.discard((provider_id, model_id))
-            else:
-                # 未指定 provider_id，从所有 Provider 中排除
-                to_remove = [(p, m) for p, m in matched if m == model_id]
-                for item in to_remove:
-                    matched.discard(item)
+        # 3. 应用排除规则（keyword_exclude），从匹配结果中移除
+        to_remove = []
+        for provider_id, model_id in matched:
+            if RuleMatcher.should_exclude(mapping.rules, model_id):
+                to_remove.append((provider_id, model_id))
+        for item in to_remove:
+            matched.discard(item)
         
         # 按 provider_id 分组
         result: dict[str, list[str]] = {}
@@ -599,7 +614,6 @@ class ModelMappingManager:
         self,
         rules: list[dict],
         manual_includes: list[str],
-        manual_excludes: list[str],
         all_provider_models: dict[str, list[str]],
         excluded_providers: Optional[list[str]] = None
     ) -> dict[str, list[str]]:
@@ -607,9 +621,8 @@ class ModelMappingManager:
         预览解析结果（不保存）
         
         Args:
-            rules: 规则列表
+            rules: 规则列表（包含包含规则和排除规则）
             manual_includes: 手动包含
-            manual_excludes: 手动排除
             all_provider_models: 所有Provider的模型列表
             excluded_providers: 排除的渠道列表
             
@@ -620,7 +633,6 @@ class ModelMappingManager:
             unified_name="_preview",
             rules=[MatchRule.from_dict(r) for r in rules],
             manual_includes=manual_includes,
-            manual_excludes=manual_excludes,
             excluded_providers=excluded_providers or []
         )
         return self.resolve_models(temp_mapping, all_provider_models)

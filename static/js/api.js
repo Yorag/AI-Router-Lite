@@ -183,10 +183,9 @@ const API = {
     async getModelMappings() {
         return this.request('GET', '/api/model-mappings');
     },
-
     /**
      * 创建新映射
-     * @param {Object} data - {unified_name, description, rules, manual_includes, manual_excludes}
+     * @param {Object} data - {unified_name, description, rules, manual_includes, excluded_providers}
      */
     async createModelMapping(data) {
         return this.request('POST', '/api/model-mappings', data);
@@ -203,7 +202,7 @@ const API = {
     /**
      * 更新映射
      * @param {string} unifiedName
-     * @param {Object} data - {description?, rules?, manual_includes?, manual_excludes?}
+     * @param {Object} data - {description?, rules?, manual_includes?, excluded_providers?}
      */
     async updateModelMapping(unifiedName, data) {
         return this.request('PUT', `/api/model-mappings/${encodeURIComponent(unifiedName)}`, data);
@@ -228,7 +227,7 @@ const API = {
 
     /**
      * 预览匹配结果
-     * @param {Object} data - {rules, manual_includes, manual_excludes}
+     * @param {Object} data - {rules, manual_includes, excluded_providers}
      */
     async previewModelMapping(data) {
         return this.request('POST', '/api/model-mappings/preview', data);
