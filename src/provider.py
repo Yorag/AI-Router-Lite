@@ -664,7 +664,10 @@ class ProviderManager:
                 "cooldown_reason": None,
                 "cooldown_remaining": None,
                 "last_error": model_state.last_error,
-                "last_error_time": model_state.last_error_time
+                "last_error_time": model_state.last_error_time,
+                "last_activity_time": model_state.last_activity_time,
+                "successful_requests": model_state.successful_requests,
+                "failed_requests": model_state.failed_requests
             }
             
             if model_state.status == ModelStatus.COOLING:

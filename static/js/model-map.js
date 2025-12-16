@@ -341,26 +341,27 @@ const ModelMap = {
         // key 使用 provider_id:model 格式
         const key = `${providerId}:${model}`;
         const runtimeState = this.runtimeStates[key];
-        const result = this.healthResults[key];
+        const healthResult = this.healthResults[key];
         
         let healthClass = 'health-unknown';
         let tooltipContent = '点击检测';
         let clickAction = `ModelMap.testSingleModelSilent('${providerId}', '${model}')`;
         
-        // 优先检查运行时熔断状态（来自实际请求）
-        if (runtimeState && runtimeState.status !== 'HEALTHY') {
-            if (runtimeState.status === 'COOLING') {
+        // 优先检查运行时熔断状态（COOLING 和 PERMANENTLY_DISABLED）
+        if (runtimeState) {
+            if (runtimeState.status === 'cooling') {
                 healthClass = 'health-cooling';
                 const remainingSec = Math.max(0, Math.ceil(runtimeState.cooldown_remaining || 0));
-                const reasonText = runtimeState.cooldown_reason === 'RATE_LIMIT' ? '触发限流' :
-                                   runtimeState.cooldown_reason === 'ERROR' ? '连续错误' : '熔断';
+                const reasonText = runtimeState.cooldown_reason === 'rate_limited' ? '触发限流' :
+                                   runtimeState.cooldown_reason === 'server_error' ? '服务器错误' :
+                                   runtimeState.cooldown_reason === 'health_check_failed' ? '健康检测失败' : '熔断';
                 tooltipContent = `${reasonText}，冷却中 (${remainingSec}s)`;
                 if (runtimeState.last_error) {
                     tooltipContent += ` | 错误: ${runtimeState.last_error}`;
                 }
                 // 熔断中的模型仍可点击重新检测
                 clickAction = `ModelMap.testSingleModelSilent('${providerId}', '${model}')`;
-            } else if (runtimeState.status === 'PERMANENTLY_DISABLED') {
+            } else if (runtimeState.status === 'permanently_disabled') {
                 healthClass = 'health-disabled';
                 tooltipContent = '永久禁用';
                 if (runtimeState.last_error) {
@@ -369,27 +370,38 @@ const ModelMap = {
                 // 永久禁用的模型禁用点击
                 clickAction = '';
             }
-        } else if (result) {
-            // 回退到健康检测结果
-            healthClass = result.success ? 'health-success' : 'health-error';
+        }
+        
+        // 如果不是熔断/禁用状态，检查健康状态
+        if (healthClass === 'health-unknown') {
+            // 判断是否健康：运行时状态 healthy 且有活动记录，或者健康检测成功
+            const isRuntimeHealthy = runtimeState && runtimeState.status === 'healthy' && runtimeState.last_activity_time;
+            const isHealthCheckSuccess = healthResult && healthResult.success;
             
-            if (result.success) {
-                // 健康的模型：延迟显示在tooltip中，点击无动作
-                tooltipContent = result.latency_ms ? `延迟: ${Math.round(result.latency_ms)}ms` : '';
-                clickAction = '';
-            } else {
-                // 失败的模型：显示完整响应体JSON（压缩为一行）
+            if (isRuntimeHealthy || isHealthCheckSuccess) {
+                healthClass = 'health-success';
+                clickAction = '';  // 已健康的模型无需点击检测
+                
+                // Tooltip 显示延迟（如有，来自健康检测），没有延迟则不显示
+                if (healthResult && healthResult.success && healthResult.latency_ms) {
+                    tooltipContent = `延迟: ${Math.round(healthResult.latency_ms)}ms`;
+                } else {
+                    tooltipContent = '';
+                }
+            } else if (healthResult && !healthResult.success) {
+                // 健康检测失败
+                healthClass = 'health-error';
                 try {
-                    let jsonStr = JSON.stringify(result.response_body);
-                    if (result.error) {
-                        tooltipContent = `错误: ${result.error} | 响应: ${jsonStr}`;
+                    let jsonStr = JSON.stringify(healthResult.response_body);
+                    if (healthResult.error) {
+                        tooltipContent = `错误: ${healthResult.error} | 响应: ${jsonStr}`;
                     } else {
                         tooltipContent = jsonStr;
                     }
                 } catch (e) {
-                    tooltipContent = result.error || '检测失败';
+                    tooltipContent = healthResult.error || '检测失败';
                 }
-                // 失败的模型点击也可以重新检测
+                // 失败的模型点击可以重新检测
                 clickAction = `ModelMap.testSingleModelSilent('${providerId}', '${model}')`;
             }
         }

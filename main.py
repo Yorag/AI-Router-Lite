@@ -774,58 +774,6 @@ async def add_provider(request: ProviderRequest):
     return {"status": "success", "message": message, "provider_id": provider_id}
 
 
-@app.get("/api/providers/{provider_id}")
-async def get_provider(provider_id: str):
-    """获取指定 Provider（通过 ID）"""
-    provider = admin_manager.get_provider_by_id(provider_id)
-    if not provider:
-        raise HTTPException(status_code=404, detail="Provider 不存在")
-    return provider
-
-
-@app.put("/api/providers/{provider_id}")
-async def update_provider(provider_id: str, request: UpdateProviderRequest):
-    """更新 Provider（通过 ID）"""
-    provider = admin_manager.get_provider_by_id(provider_id)
-    if not provider:
-        raise HTTPException(status_code=404, detail="Provider 不存在")
-    
-    # 合并更新
-    # 使用 exclude_unset=True 只包含用户显式传入的字段
-    # 而不是 exclude_none=True，这样可以正确处理 null 值（如清除 default_protocol）
-    update_data = request.model_dump(exclude_unset=True)
-    provider.update(update_data)
-    
-    success, message = admin_manager.update_provider(provider_id, provider)
-    if not success:
-        raise HTTPException(status_code=400, detail=message)
-    
-    provider_name = provider.get("name", provider_id)
-    log_manager.log(
-        level=LogLevel.INFO, log_type="admin", method="PUT",
-        path=f"/api/providers/{provider_id}", message=f"更新 Provider: {provider_name}"
-    )
-    return {"status": "success", "message": message}
-
-
-@app.delete("/api/providers/{provider_id}")
-async def delete_provider(provider_id: str):
-    """删除 Provider（通过 ID）"""
-    # 先获取 provider 信息用于日志
-    provider = admin_manager.get_provider_by_id(provider_id)
-    
-    success, message = admin_manager.delete_provider(provider_id)
-    if not success:
-        raise HTTPException(status_code=404, detail=message)
-    
-    provider_name = provider.get("name", provider_id) if provider else provider_id
-    log_manager.log(
-        level=LogLevel.WARNING, log_type="admin", method="DELETE",
-        path=f"/api/providers/{provider_id}", message=f"删除 Provider: {provider_name}"
-    )
-    return {"status": "success", "message": message}
-
-
 @app.post("/api/providers/sync-all-models")
 async def sync_all_provider_models():
     """
@@ -888,6 +836,59 @@ async def get_runtime_states():
     - permanently_disabled: 永久禁用
     """
     return provider_manager.get_runtime_states()
+
+
+# 注意：带路径参数的路由必须放在固定路径路由之后，避免路径参数匹配到固定路径
+@app.get("/api/providers/{provider_id}")
+async def get_provider(provider_id: str):
+    """获取指定 Provider（通过 ID）"""
+    provider = admin_manager.get_provider_by_id(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider 不存在")
+    return provider
+
+
+@app.put("/api/providers/{provider_id}")
+async def update_provider(provider_id: str, request: UpdateProviderRequest):
+    """更新 Provider（通过 ID）"""
+    provider = admin_manager.get_provider_by_id(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider 不存在")
+    
+    # 合并更新
+    # 使用 exclude_unset=True 只包含用户显式传入的字段
+    # 而不是 exclude_none=True，这样可以正确处理 null 值（如清除 default_protocol）
+    update_data = request.model_dump(exclude_unset=True)
+    provider.update(update_data)
+    
+    success, message = admin_manager.update_provider(provider_id, provider)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    provider_name = provider.get("name", provider_id)
+    log_manager.log(
+        level=LogLevel.INFO, log_type="admin", method="PUT",
+        path=f"/api/providers/{provider_id}", message=f"更新 Provider: {provider_name}"
+    )
+    return {"status": "success", "message": message}
+
+
+@app.delete("/api/providers/{provider_id}")
+async def delete_provider(provider_id: str):
+    """删除 Provider（通过 ID）"""
+    # 先获取 provider 信息用于日志
+    provider = admin_manager.get_provider_by_id(provider_id)
+    
+    success, message = admin_manager.delete_provider(provider_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=message)
+    
+    provider_name = provider.get("name", provider_id) if provider else provider_id
+    log_manager.log(
+        level=LogLevel.WARNING, log_type="admin", method="DELETE",
+        path=f"/api/providers/{provider_id}", message=f"删除 Provider: {provider_name}"
+    )
+    return {"status": "success", "message": message}
 
 
 @app.get("/api/providers/{provider_id}/models")
