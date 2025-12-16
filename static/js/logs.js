@@ -76,12 +76,20 @@ const Logs = {
         } else if (log.type === 'error') {
             // 错误日志: [密钥] 请求模型 错误信息
             mainMessage = `${keyLabel} ${log.model || ''} ${log.error || log.message || ''}`;
+        } else if (log.type === 'circuit_breaker') {
+            // 熔断日志: 消息 + 原始错误信息
+            mainMessage = log.message || '';
+            if (log.error) {
+                // 将错误信息压缩到一行
+                const errorOneLine = log.error.replace(/[\r\n]+/g, ' ').trim();
+                mainMessage += ` <span style="color: var(--danger-color);">${errorOneLine}</span>`;
+            }
         } else {
             // 其他日志
             mainMessage = log.message || '';
         }
         
-        if (log.error && log.type !== 'error') {
+        if (log.error && log.type !== 'error' && log.type !== 'circuit_breaker') {
             mainMessage += ` <span style="color: var(--danger-color);">[错误: ${log.error}]</span>`;
         }
         

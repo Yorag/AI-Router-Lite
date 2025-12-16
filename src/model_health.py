@@ -122,6 +122,45 @@ class ModelHealthManager(BaseStorageManager):
         """
         self._admin_manager = admin_manager
     
+    # ==================== 被动请求结果记录 ====================
+    
+    def record_passive_result(
+        self,
+        provider_id: str,
+        model: str,
+        success: bool,
+        latency_ms: float = 0.0,
+        error: Optional[str] = None
+    ) -> None:
+        """
+        记录被动请求的健康状态（最后一次请求结果）
+        
+        仅标记脏数据，由定时任务批量保存，不立即写盘。
+        
+        Args:
+            provider_id: Provider 的唯一 ID (UUID)
+            model: 模型名称
+            success: 请求是否成功
+            latency_ms: 响应延迟（毫秒）
+            error: 错误信息（如果失败）
+        """
+        self._ensure_loaded()
+        
+        result = ModelHealthResult(
+            provider=provider_id,
+            model=model,
+            success=success,
+            latency_ms=latency_ms,
+            response_body={},  # 被动请求不保存响应体
+            error=error,
+            tested_at=datetime.now(timezone.utc).isoformat()
+        )
+        
+        with self._lock:
+            key = ModelHealthResult.make_key(provider_id, model)
+            self._results[key] = result
+            self.mark_dirty()  # 仅标记脏数据，由定时任务保存
+    
     # ==================== 结果查询 ====================
     
     def get_result(self, provider_id: str, model: str) -> Optional[ModelHealthResult]:
@@ -262,17 +301,19 @@ class ModelHealthManager(BaseStorageManager):
                         tested_at=datetime.now(timezone.utc).isoformat()
                     )
                 else:
+                    # 将响应体转为单行字符串作为错误详情
+                    error_detail = json.dumps(response_body, ensure_ascii=False).replace('\n', ' ').replace('\r', ' ')
                     result = ModelHealthResult(
                         provider=provider_id,
                         model=model,
                         success=False,
                         latency_ms=latency_ms,
                         response_body=response_body,
-                        error=f"HTTP {response.status_code}",
+                        error=f"HTTP {response.status_code}: {error_detail}",
                         tested_at=datetime.now(timezone.utc).isoformat()
                     )
                     
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as e:
             latency_ms = (time.time() - start_time) * 1000
             result = ModelHealthResult(
                 provider=provider_id,
@@ -280,7 +321,7 @@ class ModelHealthManager(BaseStorageManager):
                 success=False,
                 latency_ms=latency_ms,
                 response_body={},
-                error="请求超时",
+                error=str(e) if str(e) else "TimeoutException",
                 tested_at=datetime.now(timezone.utc).isoformat()
             )
         except Exception as e:

@@ -7,6 +7,7 @@
 
 from typing import AsyncIterator, Optional, Dict, Any
 from dataclasses import dataclass
+import ssl
 
 import httpx
 
@@ -16,6 +17,7 @@ from .router import ModelRouter
 from .provider_models import provider_models_manager
 from .protocols import BaseProtocol
 from .logger import log_manager, LogLevel
+from .model_health import model_health_manager
 
 
 @dataclass
@@ -158,6 +160,11 @@ class RequestProxy:
                     tokens=protocol_resp.total_tokens or 0
                 )
                 
+                # 记录被动健康状态（缓冲落盘）
+                model_health_manager.record_passive_result(
+                    provider.config.id, actual_model, success=True
+                )
+                
                 provider_models_manager.update_activity(
                     provider.config.id, actual_model, "call"
                 )
@@ -180,6 +187,11 @@ class RequestProxy:
                     model_name=actual_model,
                     status_code=e.status_code,
                     error_message=e.message
+                )
+                
+                # 记录被动健康状态（缓冲落盘）
+                model_health_manager.record_passive_result(
+                    provider.config.id, actual_model, success=False, error=e.message
                 )
                 self._log_warning(
                     f"Provider [{provider.config.name}] 请求失败: {e.message}"
@@ -272,6 +284,11 @@ class RequestProxy:
                     tokens=total_tokens
                 )
                 
+                # 记录被动健康状态（缓冲落盘）
+                model_health_manager.record_passive_result(
+                    provider.config.id, actual_model, success=True
+                )
+                
                 provider_models_manager.update_activity(
                     provider.config.id, actual_model, "call"
                 )
@@ -286,6 +303,11 @@ class RequestProxy:
                     model_name=actual_model,
                     status_code=e.status_code,
                     error_message=e.message
+                )
+                
+                # 记录被动健康状态（缓冲落盘）
+                model_health_manager.record_passive_result(
+                    provider.config.id, actual_model, success=False, error=e.message
                 )
                 self._log_warning(
                     f"Provider [{provider.config.name}] 流式请求失败: {e.message}"
@@ -340,8 +362,10 @@ class RequestProxy:
             
             if response.status_code != 200:
                 error_body = response.text
+                # 保留原始响应体，压缩换行符到一行
+                error_body_oneline = error_body.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
                 raise ProxyError(
-                    f"HTTP {response.status_code}: {error_body[:200]}",
+                    f"HTTP {response.status_code}: {error_body_oneline}",
                     status_code=response.status_code,
                     provider_name=provider.config.name
                 )
@@ -353,15 +377,21 @@ class RequestProxy:
             
             return raw_response, protocol_response
             
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as e:
             raise ProxyError(
-                "请求超时",
+                str(e) if str(e) else "TimeoutException",
                 status_code=408,
+                provider_name=provider.config.name
+            )
+        except (ssl.SSLError, ConnectionResetError, BrokenPipeError) as e:
+            raise ProxyError(
+                str(e),
+                status_code=502,
                 provider_name=provider.config.name
             )
         except httpx.RequestError as e:
             raise ProxyError(
-                f"网络错误: {str(e)}",
+                str(e),
                 status_code=502,
                 provider_name=provider.config.name
             )
@@ -396,8 +426,11 @@ class RequestProxy:
             ) as response:
                 if response.status_code != 200:
                     error_body = await response.aread()
+                    # 保留原始响应体，压缩换行符到一行
+                    error_body_text = error_body.decode()
+                    error_body_oneline = error_body_text.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
                     raise ProxyError(
-                        f"HTTP {response.status_code}: {error_body.decode()[:200]}",
+                        f"HTTP {response.status_code}: {error_body_oneline}",
                         status_code=response.status_code,
                         provider_name=provider.config.name,
                         actual_model=actual_model
@@ -425,16 +458,23 @@ class RequestProxy:
                         
                         yield transformed
                         
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as e:
             raise ProxyError(
-                "流式请求超时",
+                str(e) if str(e) else "TimeoutException",
                 status_code=408,
+                provider_name=provider.config.name,
+                actual_model=actual_model
+            )
+        except (ssl.SSLError, ConnectionResetError, BrokenPipeError) as e:
+            raise ProxyError(
+                str(e),
+                status_code=502,
                 provider_name=provider.config.name,
                 actual_model=actual_model
             )
         except httpx.RequestError as e:
             raise ProxyError(
-                f"流式网络错误: {str(e)}",
+                str(e),
                 status_code=502,
                 provider_name=provider.config.name,
                 actual_model=actual_model

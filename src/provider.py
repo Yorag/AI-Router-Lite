@@ -402,16 +402,15 @@ class ProviderManager:
         from .logger import LogLevel  # 避免循环导入
         
         cooldown_seconds = COOLDOWN_TIMES[reason]
+        # 使用原始错误信息，如果没有则使用熔断原因
+        error_detail = provider.last_error or reason.value
         
         if cooldown_seconds < 0:
             # 永久禁用
             provider.status = ProviderStatus.PERMANENTLY_DISABLED
             provider.cooldown_reason = reason
-            message = (
-                f"Provider [{provider.config.name}] 已被永久禁用，"
-                f"原因: {reason.value}"
-            )
-            self._log_error(message)
+            message = f"Provider [{provider.config.name}] 已被永久禁用"
+            self._log_error(f"{message}，原因: {error_detail}")
             # 记录到日志系统
             log_manager = self._get_log_manager()
             log_manager.log(
@@ -420,18 +419,15 @@ class ProviderManager:
                 method="BREAKER",
                 path="/provider",
                 provider=provider.config.name,
-                error=reason.value,
+                error=error_detail,
                 message=message
             )
         else:
             provider.status = ProviderStatus.COOLING
             provider.cooldown_until = time.time() + cooldown_seconds
             provider.cooldown_reason = reason
-            message = (
-                f"Provider [{provider.config.name}] 进入冷却状态（渠道级），"
-                f"原因: {reason.value}，冷却 {cooldown_seconds} 秒"
-            )
-            self._log_warning(message)
+            message = f"Provider [{provider.config.name}] 进入冷却状态（渠道级），冷却 {cooldown_seconds} 秒"
+            self._log_warning(f"{message}，原因: {error_detail}")
             # 记录到日志系统
             log_manager = self._get_log_manager()
             log_manager.log(
@@ -440,7 +436,7 @@ class ProviderManager:
                 method="BREAKER",
                 path="/provider",
                 provider=provider.config.name,
-                error=reason.value,
+                error=error_detail,
                 message=message
             )
     
@@ -453,16 +449,15 @@ class ProviderManager:
         # 获取 Provider 名称
         provider = self._providers.get(model_state.provider_id)
         provider_name = provider.config.name if provider else model_state.provider_id
+        # 使用原始错误信息，如果没有则使用熔断原因
+        error_detail = model_state.last_error or reason.value
         
         if cooldown_seconds < 0:
             # 永久禁用该模型
             model_state.status = ModelStatus.PERMANENTLY_DISABLED
             model_state.cooldown_reason = reason
-            message = (
-                f"模型 [{model_state.provider_id}:{model_state.model_name}] 已被永久禁用，"
-                f"原因: {reason.value}"
-            )
-            self._log_error(message)
+            message = f"模型 [{provider_name}:{model_state.model_name}] 已被永久禁用"
+            self._log_error(f"{message}，原因: {error_detail}")
             # 记录到日志系统
             log_manager = self._get_log_manager()
             log_manager.log(
@@ -472,18 +467,15 @@ class ProviderManager:
                 path="/model",
                 provider=provider_name,
                 actual_model=model_state.model_name,
-                error=reason.value,
+                error=error_detail,
                 message=message
             )
         else:
             model_state.status = ModelStatus.COOLING
             model_state.cooldown_until = time.time() + cooldown_seconds
             model_state.cooldown_reason = reason
-            message = (
-                f"模型 [{model_state.provider_id}:{model_state.model_name}] 进入冷却状态（模型级），"
-                f"原因: {reason.value}，冷却 {cooldown_seconds} 秒"
-            )
-            self._log_warning(message)
+            message = f"模型 [{provider_name}:{model_state.model_name}] 进入冷却状态（模型级），冷却 {cooldown_seconds} 秒"
+            self._log_warning(f"{message}，原因: {error_detail}")
             # 记录到日志系统
             log_manager = self._get_log_manager()
             log_manager.log(
@@ -493,7 +485,7 @@ class ProviderManager:
                 path="/model",
                 provider=provider_name,
                 actual_model=model_state.model_name,
-                error=reason.value,
+                error=error_detail,
                 message=message
             )
     
