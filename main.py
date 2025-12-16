@@ -25,7 +25,9 @@ from src.constants import (
     DEFAULT_SERVER_HOST,
     DEFAULT_SERVER_PORT,
     CONFIG_FILE_PATH,
+    STORAGE_BUFFER_INTERVAL_SECONDS,
 )
+from src.storage import persistence_manager
 from src.models import (
     ChatCompletionRequest,
     ErrorResponse,
@@ -170,12 +172,15 @@ async def lifespan(app: FastAPI):
     # 初始化模型健康检测管理器
     model_health_manager.set_admin_manager(admin_manager)
     
-    # 加载 provider_models 数据
+    # 加载 provider_models 数据（已自动注册到 persistence_manager）
     provider_models_manager.load()
     
     # 初始化路由器和代理
     router = ModelRouter(config, provider_manager)
     proxy = RequestProxy(config, provider_manager, router)
+    
+    # 启动持久化管理器（定时保存缓冲数据）
+    persistence_manager.start(interval=STORAGE_BUFFER_INTERVAL_SECONDS)
     
     # 启动模型映射自动同步任务
     _auto_sync_task = asyncio.create_task(auto_sync_model_mappings_task())
@@ -206,7 +211,10 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
     
-    # 保存统计数据到磁盘
+    # 关闭持久化管理器（停止定时任务并刷盘所有数据）
+    persistence_manager.shutdown()
+    
+    # 保存日志统计数据到磁盘
     log_manager.flush_stats()
     
     await proxy.close()

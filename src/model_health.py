@@ -7,6 +7,9 @@
 - 批量检测（同渠道串行，跨渠道异步）
 - 结果持久化存储
 
+存储策略：
+- 健康检测结果：缓冲落盘（批量检测完成后统一保存或定时保存）
+
 注意：使用 provider_id (UUID) 作为内部标识，而非 provider name
 存储格式为 "provider_id:model_name"
 """
@@ -18,7 +21,6 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Any
 from dataclasses import dataclass, asdict
-import filelock
 import httpx
 
 from .constants import (
@@ -26,7 +28,9 @@ from .constants import (
     ADMIN_HTTP_TIMEOUT,
     HEALTH_TEST_MAX_TOKENS,
     HEALTH_TEST_MESSAGE,
+    STORAGE_BUFFER_INTERVAL_SECONDS,
 )
+from .storage import BaseStorageManager, persistence_manager
 from .provider import provider_manager
 from .provider_models import provider_models_manager
 
@@ -63,17 +67,51 @@ class ModelHealthResult:
         return f"{provider_id}:{model}"
 
 
-class ModelHealthManager:
-    """模型健康检测管理器"""
+class ModelHealthManager(BaseStorageManager):
+    """
+    模型健康检测管理器
+    
+    继承 BaseStorageManager，实现缓冲保存策略：
+    - 单次检测后标记脏数据，由定时任务保存
+    - 批量检测完成后可调用 save(immediate=True) 立即保存
+    """
     
     VERSION = "1.0"
     
     def __init__(self, data_path: str = MODEL_HEALTH_STORAGE_PATH):
-        self.data_path = Path(data_path)
-        self.lock_path = self.data_path.with_suffix(".json.lock")
+        super().__init__(
+            data_path=data_path,
+            save_interval=STORAGE_BUFFER_INTERVAL_SECONDS,
+            use_file_lock=True
+        )
         self._results: dict[str, ModelHealthResult] = {}
-        self._loaded = False
         self._admin_manager = None  # 延迟注入
+        
+        # 注册到全局持久化管理器
+        persistence_manager.register(self)
+    
+    def _get_default_data(self) -> dict:
+        """返回默认数据结构"""
+        return {
+            "version": self.VERSION,
+            "results": {}
+        }
+    
+    def _do_load(self) -> None:
+        """加载所有健康检测结果"""
+        data = self._read_from_file()
+        
+        self._results.clear()
+        for key, result_data in data.get("results", {}).items():
+            self._results[key] = ModelHealthResult.from_dict(result_data)
+    
+    def _do_save(self) -> None:
+        """保存所有健康检测结果"""
+        data = {
+            "version": self.VERSION,
+            "results": {key: r.to_dict() for key, r in self._results.items()}
+        }
+        self._write_to_file(data)
     
     def set_admin_manager(self, admin_manager: Any) -> None:
         """
@@ -84,67 +122,20 @@ class ModelHealthManager:
         """
         self._admin_manager = admin_manager
     
-    def _ensure_file_exists(self) -> None:
-        """确保数据文件存在"""
-        if not self.data_path.exists():
-            self.data_path.parent.mkdir(parents=True, exist_ok=True)
-            self._save_data({
-                "version": self.VERSION,
-                "results": {}
-            })
-    
-    def _load_data(self) -> dict:
-        """加载数据文件"""
-        self._ensure_file_exists()
-        try:
-            with open(self.data_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            return {"version": self.VERSION, "results": {}}
-    
-    def _save_data(self, data: dict) -> None:
-        """保存数据文件（带文件锁）"""
-        self.data_path.parent.mkdir(parents=True, exist_ok=True)
-        lock = filelock.FileLock(self.lock_path, timeout=10)
-        with lock:
-            with open(self.data_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-    
-    def load(self) -> None:
-        """加载所有健康检测结果"""
-        data = self._load_data()
-        
-        self._results = {}
-        for key, result_data in data.get("results", {}).items():
-            self._results[key] = ModelHealthResult.from_dict(result_data)
-        
-        self._loaded = True
-    
-    def save(self) -> None:
-        """保存所有健康检测结果"""
-        data = {
-            "version": self.VERSION,
-            "results": {key: r.to_dict() for key, r in self._results.items()}
-        }
-        self._save_data(data)
-    
-    def _ensure_loaded(self) -> None:
-        """确保数据已加载"""
-        if not self._loaded:
-            self.load()
-    
     # ==================== 结果查询 ====================
     
     def get_result(self, provider_id: str, model: str) -> Optional[ModelHealthResult]:
         """获取单个模型的检测结果"""
         self._ensure_loaded()
-        key = ModelHealthResult.make_key(provider_id, model)
-        return self._results.get(key)
+        with self._lock:
+            key = ModelHealthResult.make_key(provider_id, model)
+            return self._results.get(key)
     
     def get_all_results(self) -> dict[str, ModelHealthResult]:
         """获取所有检测结果"""
         self._ensure_loaded()
-        return self._results.copy()
+        with self._lock:
+            return self._results.copy()
     
     def get_results_for_models(
         self,
@@ -160,22 +151,24 @@ class ModelHealthManager:
             {provider_id:model: ModelHealthResult}
         """
         self._ensure_loaded()
-        results = {}
-        
-        for provider_id, models in resolved_models.items():
-            for model in models:
-                key = ModelHealthResult.make_key(provider_id, model)
-                if key in self._results:
-                    results[key] = self._results[key]
-        
-        return results
+        with self._lock:
+            results = {}
+            
+            for provider_id, models in resolved_models.items():
+                for model in models:
+                    key = ModelHealthResult.make_key(provider_id, model)
+                    if key in self._results:
+                        results[key] = self._results[key]
+            
+            return results
     
     # ==================== 健康检测 ====================
     
     async def test_single_model(
         self,
         provider_id: str,
-        model: str
+        model: str,
+        save_immediately: bool = False
     ) -> ModelHealthResult:
         """
         检测单个模型，返回完整响应体
@@ -183,9 +176,13 @@ class ModelHealthManager:
         Args:
             provider_id: Provider 的唯一 ID (UUID)
             model: 模型名称
+            save_immediately: 是否立即保存（默认 False，由定时任务保存）
             
         Returns:
             ModelHealthResult 包含完整响应体
+            
+        Note:
+            默认使用缓冲保存策略，仅标记脏数据
         """
         if not self._admin_manager:
             return ModelHealthResult(
@@ -283,10 +280,17 @@ class ModelHealthManager:
                 tested_at=datetime.now(timezone.utc).isoformat()
             )
         
-        # 保存结果（使用 provider_id 作为 key）
-        key = ModelHealthResult.make_key(provider_id, model)
-        self._results[key] = result
-        self.save()
+        # 保存结果到内存（使用 provider_id 作为 key）
+        with self._lock:
+            key = ModelHealthResult.make_key(provider_id, model)
+            self._results[key] = result
+            
+            if save_immediately:
+                # 立即保存
+                self.save(immediate=True)
+            else:
+                # 标记脏数据，由定时任务保存
+                self.mark_dirty()
         
         # 与熔断系统集成：根据健康检测结果更新模型状态
         provider_manager.update_model_health_from_test(
@@ -305,7 +309,8 @@ class ModelHealthManager:
     
     async def test_mapping_models(
         self,
-        resolved_models: dict[str, list[str]]
+        resolved_models: dict[str, list[str]],
+        save_after_completion: bool = True
     ) -> list[ModelHealthResult]:
         """
         批量检测映射下的所有模型
@@ -314,6 +319,7 @@ class ModelHealthManager:
         
         Args:
             resolved_models: {provider_id: [model_ids]}
+            save_after_completion: 检测完成后是否立即保存（默认 True）
             
         Returns:
             所有检测结果列表
@@ -324,7 +330,8 @@ class ModelHealthManager:
             """串行检测单个渠道内的所有模型"""
             results = []
             for model in models:
-                result = await self.test_single_model(provider_id, model)
+                # 单个检测不立即保存，批量完成后统一保存
+                result = await self.test_single_model(provider_id, model, save_immediately=False)
                 results.append(result)
             return results
         
@@ -346,12 +353,17 @@ class ModelHealthManager:
                 continue
             all_results.extend(result)
         
+        # 批量检测完成后统一保存
+        if save_after_completion and all_results:
+            self.save(immediate=True)
+        
         return all_results
     
     def clear_results(self) -> None:
         """清除所有检测结果"""
-        self._results.clear()
-        self.save()
+        with self._lock:
+            self._results.clear()
+            self.save(immediate=True)
 
 
 # 全局实例

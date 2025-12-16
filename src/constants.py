@@ -156,3 +156,12 @@ TOAST_DURATION_ERROR: int = 5000
 
 # 自动健康检测间隔（毫秒）
 AUTO_HEALTH_CHECK_INTERVAL_MS: int = int(AUTO_HEALTH_CHECK_INTERVAL_HOURS * 60 * 60 * 1000)
+
+
+# ==================== 持久化存储配置 ====================
+
+# 缓冲保存间隔（秒）- 高频统计数据的定时保存间隔
+STORAGE_BUFFER_INTERVAL_SECONDS: float = 60.0
+
+# 是否在关闭时强制刷盘
+STORAGE_FLUSH_ON_SHUTDOWN: bool = True
