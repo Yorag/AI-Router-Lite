@@ -8,6 +8,7 @@
 from typing import AsyncIterator, Optional, Dict, Any
 from dataclasses import dataclass
 import ssl
+import random
 
 import httpx
 
@@ -92,6 +93,61 @@ class RequestProxy:
         if self._client and not self._client.is_closed:
             await self._client.aclose()
     
+    def _weighted_random_select_index(
+        self,
+        candidates: list[tuple["ProviderState", str]]
+    ) -> int:
+        """
+        加权随机选择候选索引
+        
+        Args:
+            candidates: 候选列表 [(Provider, model_id), ...]
+            
+        Returns:
+            选中的索引
+        """
+        if len(candidates) == 1:
+            return 0
+        
+        weights = [p.config.weight for p, _ in candidates]
+        total_weight = sum(weights)
+        
+        r = random.uniform(0, total_weight)
+        cumulative = 0
+        
+        for i, weight in enumerate(weights):
+            cumulative += weight
+            if r <= cumulative:
+                return i
+        
+        return len(candidates) - 1
+    
+    def _reorder_candidates_with_weighted_first(
+        self,
+        candidates: list[tuple["ProviderState", str]]
+    ) -> list[tuple["ProviderState", str]]:
+        """
+        重排候选列表：首个元素通过加权随机选择，其余按原顺序
+        
+        Args:
+            candidates: 按权重排序的候选列表
+            
+        Returns:
+            重排后的列表
+        """
+        if len(candidates) <= 1:
+            return candidates
+        
+        # 加权随机选择首个
+        first_idx = self._weighted_random_select_index(candidates)
+        
+        # 构建新列表：选中的在前，其余按原顺序
+        result = [candidates[first_idx]]
+        result.extend(candidates[:first_idx])
+        result.extend(candidates[first_idx + 1:])
+        
+        return result
+    
     async def forward_request(
         self,
         request_body: Dict[str, Any],
@@ -100,7 +156,9 @@ class RequestProxy:
         required_protocol: Optional[str] = None
     ) -> ProxyResult:
         """
-        转发非流式请求（带重试机制）
+        转发非流式请求（带模型级重试机制）
+        
+        首次请求通过加权随机选择，失败后按权重顺序依次重试。
         
         Args:
             request_body: 原始请求体 (dict)
@@ -111,40 +169,28 @@ class RequestProxy:
         Returns:
             ProxyResult 对象
         """
-        tried_providers: set[str] = set()
         last_error: Optional[ProxyError] = None
         
         # 如果未指定 required_protocol，使用 handler 的类型
         req_protocol = required_protocol or protocol_handler.protocol_type
         
-        # 获取候选 Provider
-        all_candidates = self.router.find_providers(original_model, required_protocol=req_protocol)
-        max_attempts = len(all_candidates) if all_candidates else 1
+        # 一次性获取所有候选 (Provider, Model) 组合（已按权重排序）
+        all_candidates = self.router.find_candidate_models(original_model, required_protocol=req_protocol)
         
-        for attempt in range(max_attempts):
-            selection = self.router.select_provider(
-                original_model,
-                exclude=tried_providers,
-                required_protocol=req_protocol
+        if not all_candidates:
+            raise ProxyError(
+                f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider",
+                status_code=404
             )
-            
-            if selection is None:
-                if tried_providers:
-                    raise ProxyError(
-                        f"所有支持模型 '{original_model}' (协议: {req_protocol}) 的 Provider 都已尝试失败",
-                        status_code=503
-                    )
-                else:
-                    raise ProxyError(
-                        f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider",
-                        status_code=404
-                    )
-            
-            provider, actual_model = selection
-            tried_providers.add(provider.config.id)
-            
+        
+        # 重排列表：首个加权随机，其余按原顺序
+        ordered_candidates = self._reorder_candidates_with_weighted_first(all_candidates)
+        max_attempts = len(ordered_candidates)
+        
+        # 遍历所有候选组合进行模型级重试
+        for attempt, (provider, actual_model) in enumerate(ordered_candidates, 1):
             self._log_info(
-                f"[尝试 {attempt + 1}/{max_attempts}] "
+                f"[尝试 {attempt}/{max_attempts}] "
                 f"Provider: {provider.config.name}, 模型: {actual_model}, 协议: {req_protocol}"
             )
             
@@ -195,7 +241,11 @@ class RequestProxy:
                 )
                 continue
         
-        raise last_error or ProxyError("请求失败", status_code=500)
+        # 所有候选都失败
+        raise ProxyError(
+            f"所有支持模型 '{original_model}' (协议: {req_protocol}) 的 Provider 都已尝试失败",
+            status_code=503
+        ) if last_error else ProxyError("请求失败", status_code=500)
     
     async def forward_stream(
         self,
@@ -206,45 +256,36 @@ class RequestProxy:
         required_protocol: Optional[str] = None
     ) -> AsyncIterator[str]:
         """
-        转发流式请求（带重试机制）
+        转发流式请求（带模型级重试机制）
+        
+        首次请求通过加权随机选择，失败后按权重顺序依次重试。
         """
-        tried_providers: set[str] = set()
         last_error: Optional[ProxyError] = None
         
         req_protocol = required_protocol or protocol_handler.protocol_type
         
-        all_candidates = self.router.find_providers(original_model, required_protocol=req_protocol)
-        max_attempts = len(all_candidates) if all_candidates else 1
+        # 一次性获取所有候选 (Provider, Model) 组合（已按权重排序）
+        all_candidates = self.router.find_candidate_models(original_model, required_protocol=req_protocol)
         
-        for attempt in range(max_attempts):
-            selection = self.router.select_provider(
-                original_model,
-                exclude=tried_providers,
-                required_protocol=req_protocol
+        if not all_candidates:
+            raise ProxyError(
+                f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider",
+                status_code=404
             )
-            
-            if selection is None:
-                if tried_providers:
-                    raise ProxyError(
-                        f"所有支持模型 '{original_model}' (协议: {req_protocol}) 的 Provider 都已尝试失败",
-                        status_code=503
-                    )
-                else:
-                    raise ProxyError(
-                        f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider",
-                        status_code=404
-                    )
-            
-            provider, actual_model = selection
-            tried_providers.add(provider.config.id)
-            
+        
+        # 重排列表：首个加权随机，其余按原顺序
+        ordered_candidates = self._reorder_candidates_with_weighted_first(all_candidates)
+        max_attempts = len(ordered_candidates)
+        
+        # 遍历所有候选组合进行模型级重试
+        for attempt, (provider, actual_model) in enumerate(ordered_candidates, 1):
             if stream_context is not None:
                 stream_context.provider_id = provider.config.id
                 stream_context.provider_name = provider.config.name
                 stream_context.actual_model = actual_model
             
             self._log_info(
-                f"[流式尝试 {attempt + 1}/{max_attempts}] "
+                f"[流式尝试 {attempt}/{max_attempts}] "
                 f"Provider: {provider.config.name} (ID: {provider.config.id}), 模型: {actual_model}, 协议: {req_protocol}"
             )
             
@@ -295,7 +336,11 @@ class RequestProxy:
                 )
                 continue
         
-        raise last_error or ProxyError("流式请求失败", status_code=500)
+        # 所有候选都失败
+        raise ProxyError(
+            f"所有支持模型 '{original_model}' (协议: {req_protocol}) 的 Provider 都已尝试失败",
+            status_code=503
+        ) if last_error else ProxyError("流式请求失败", status_code=500)
     
     def _get_timeout(self, provider: ProviderState) -> float:
         return provider.config.timeout if provider.config.timeout is not None else self.config.request_timeout
