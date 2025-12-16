@@ -506,7 +506,44 @@ async def process_request(
                         api_key_id=api_key_id,
                         api_key_name=api_key_name
                     )
-                    raise
+                    # 返回 SSE 格式的错误消息，而不是抛出异常
+                    error_response = {
+                        "error": {
+                            "message": e.message,
+                            "type": "proxy_error",
+                            "code": str(e.status_code or 500),
+                            "provider": e.provider_name,
+                            "model": e.actual_model
+                        }
+                    }
+                    yield f"data: {json.dumps(error_response)}\n\n"
+                    yield "data: [DONE]\n\n"
+                except Exception as e:
+                    # 捕获其他未预期的异常
+                    duration_ms = (time.time() - start_time) * 1000
+                    log_manager.log(
+                        level=LogLevel.ERROR,
+                        log_type="error",
+                        method=request.method,
+                        path=request.url.path,
+                        model=original_model,
+                        status_code=500,
+                        duration_ms=duration_ms,
+                        error=str(e),
+                        client_ip=client_ip,
+                        api_key_id=api_key_id,
+                        api_key_name=api_key_name
+                    )
+                    # 返回 SSE 格式的错误消息
+                    error_response = {
+                        "error": {
+                            "message": f"内部错误: {str(e)}",
+                            "type": "internal_error",
+                            "code": "500"
+                        }
+                    }
+                    yield f"data: {json.dumps(error_response)}\n\n"
+                    yield "data: [DONE]\n\n"
             
             return StreamingResponse(
                 stream_with_logging(),
