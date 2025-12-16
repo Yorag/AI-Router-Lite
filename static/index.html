@@ -271,8 +271,23 @@
                 </div>
 
                 <div class="card logs-card">
-                    <div id="logs-container" class="logs-container">
-                        <!-- 动态生成 -->
+                    <div class="table-responsive">
+                        <table class="data-table logs-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 180px;">时间</th>
+                                    <th style="width: 80px;">级别</th>
+                                    <th style="width: 100px;">来源</th>
+                                    <th>模型 / 内容</th>
+                                    <th style="width: 100px;">Tokens</th>
+                                    <th style="width: 80px;">耗时</th>
+                                    <th style="width: 80px;">状态</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logs-container">
+                                <!-- 动态生成 -->
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>

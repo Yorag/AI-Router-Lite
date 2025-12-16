@@ -858,7 +858,7 @@ class ModelMappingManager:
             log_parts.append(f"移除 {len(removed)} 个模型（{removed_models}{suffix}）")
         
         console_message = f"[{unified_name}] 同步完成：{', '.join(console_parts)}"
-        log_message = f"[{unified_name}] 同步完成：{', '.join(log_parts)}"
+        log_message = f"同步完成：{', '.join(log_parts)}"
         
         print(f"[MODEL-MAPPING] {console_message}")
         log_manager.log(

@@ -345,7 +345,7 @@ class ProviderModelsManager(BaseStorageManager):
             log_parts.append(f"移除 {len(removed_models)} 个模型（{models_preview}{suffix}）")
         
         console_message = f"[{display_name}] 同步完成：{', '.join(console_parts)}"
-        log_message = f"[{display_name}] 同步完成：{', '.join(log_parts)}"
+        log_message = f"同步完成：{', '.join(log_parts)}"
         
         print(f"[PROVIDER-MODELS] {console_message}")
         log_manager.log(

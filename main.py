@@ -487,7 +487,7 @@ async def process_request(
                         request_tokens=stream_context.request_tokens,
                         response_tokens=stream_context.response_tokens,
                         total_tokens=stream_context.total_tokens,
-                        message=f"[{api_key_name}] {original_model} ==> {stream_context.provider_name}:{stream_context.actual_model}, {{{token_info}}}"
+                        message=""
                     )
                 except ProxyError as e:
                     duration_ms = (time.time() - start_time) * 1000
@@ -588,7 +588,7 @@ async def process_request(
                 request_tokens=result.request_tokens,
                 response_tokens=result.response_tokens,
                 total_tokens=result.total_tokens,
-                message=f"[{api_key_name}] {original_model} ==> {result.provider_name}:{result.actual_model}, {{{token_info}}}"
+                message=""
             )
             
             return JSONResponse(content=result.response)

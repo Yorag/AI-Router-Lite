@@ -207,7 +207,7 @@ class RequestProxy:
                     actual_model=actual_model,
                     status_code=e.status_code,
                     error=e.message,
-                    message=f"[重试 {attempt + 1}/{max_attempts}] Provider [{provider.config.name}] 请求失败: {e.message}"
+                    message=f"[重试 {attempt + 1}/{max_attempts}] {e.message}"
                 )
                 continue
         
@@ -323,7 +323,7 @@ class RequestProxy:
                     actual_model=actual_model,
                     status_code=e.status_code,
                     error=e.message,
-                    message=f"[流式重试 {attempt + 1}/{max_attempts}] Provider [{provider.config.name}] 请求失败: {e.message}"
+                    message=f"[流式重试 {attempt + 1}/{max_attempts}] {e.message}"
                 )
                 continue
         

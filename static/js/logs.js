@@ -42,10 +42,14 @@ const Logs = {
         
         if (this.logs.length === 0) {
             container.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-state-icon">📜</div>
-                    <div class="empty-state-text">暂无日志</div>
-                </div>
+                <tr>
+                    <td colspan="7" class="empty-state-cell">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📜</div>
+                            <div class="empty-state-text">暂无日志</div>
+                        </div>
+                    </td>
+                </tr>
             `;
             return;
         }
@@ -56,76 +60,85 @@ const Logs = {
     renderLogEntry(log) {
         const levelClass = log.level || 'info';
         
-        // 构建主消息
-        let mainMessage = '';
-        const keyLabel = log.api_key_name ? `[${log.api_key_name}]` : '';
+        // Time
+        const time = log.timestamp_str || '';
+        
+        // Level
+        const levelHtml = `<span class="log-level-badge ${levelClass}">${(log.level || 'INFO').toUpperCase()}</span>`;
+        
+        // Source/Type
+        const typeHtml = `<span class="log-type-text">${log.type}</span>`;
+        
+        // Content
+        let contentHtml = '';
+        const keyLabel = log.api_key_name ? `<span class="log-key-tag" title="密钥: ${log.api_key_name}">${log.api_key_name}</span>` : '';
         
         if (log.type === 'response' && log.model && log.provider && log.actual_model) {
-            // 响应日志: [密钥] 请求模型 ==> Provider:实际模型, {token信息}
-            let tokenInfo = '';
-            if (log.total_tokens) {
-                if (log.request_tokens || log.response_tokens) {
-                    tokenInfo = `Tokens: ${log.total_tokens} ↑${log.request_tokens || 0} ↓${log.response_tokens || 0}`;
-                } else {
-                    tokenInfo = `Tokens: ${log.total_tokens}`;
-                }
-            }
-            const durationInfo = log.duration_ms ? `${Math.round(log.duration_ms)}ms` : '';
-            const infoItems = [tokenInfo, durationInfo].filter(Boolean).join(', ');
-            mainMessage = `${keyLabel} ${log.model} ==> ${log.provider}:${log.actual_model}${infoItems ? `, {${infoItems}}` : ''}`;
+             contentHtml = `
+                <div class="log-content-row">
+                    ${keyLabel}
+                    <span class="log-model" title="请求模型">${log.model}</span>
+                    <span class="log-arrow">⟹</span>
+                    <span class="log-provider" title="服务站">${log.provider}</span>
+                    <span class="log-divider">:</span>
+                    <span class="log-actual-model" title="实际模型">${log.actual_model}</span>
+                </div>
+             `;
         } else if (log.type === 'error') {
-            // 错误日志: [密钥] 请求模型 错误信息
-            mainMessage = `${keyLabel} ${log.model || ''} ${log.error || log.message || ''}`;
+             contentHtml = `
+                <div class="log-content-row">
+                    ${keyLabel}
+                    <span class="log-model">${log.model || ''}</span>
+                    <span class="log-error-msg">${log.error || log.message || ''}</span>
+                </div>
+             `;
         } else if (log.type === 'circuit_breaker') {
-            // 熔断日志: 消息 + 原始错误信息
-            mainMessage = log.message || '';
-            if (log.error) {
-                // 将错误信息压缩到一行
-                const errorOneLine = log.error.replace(/[\r\n]+/g, ' ').trim();
-                mainMessage += ` <span style="color: var(--danger-color);">${errorOneLine}</span>`;
-            }
+            contentHtml = `
+                <div class="log-content-row">
+                    <span class="log-msg">${log.message || ''}</span>
+                    ${log.error ? `<span class="log-error-detail">${log.error}</span>` : ''}
+                </div>
+            `;
         } else {
-            // 其他日志
-            mainMessage = log.message || '';
+             contentHtml = `<div class="log-message-text">${log.message || ''}</div>`;
+             if (log.error) {
+                 contentHtml += `<div class="log-error-detail">${log.error}</div>`;
+             }
         }
-        
-        if (log.error && log.type !== 'error' && log.type !== 'circuit_breaker') {
-            mainMessage += ` <span style="color: var(--danger-color);">[错误: ${log.error}]</span>`;
+
+        // Tokens
+        let tokensHtml = '<span class="text-muted">-</span>';
+        if (log.total_tokens) {
+            tokensHtml = `<div class="token-stats">
+                <span class="token-total">${log.total_tokens}</span>
+                <div class="token-details">
+                    ${log.request_tokens ? `<span class="token-up" title="Input">↑${log.request_tokens}</span>` : ''}
+                    ${log.response_tokens ? `<span class="token-down" title="Output">↓${log.response_tokens}</span>` : ''}
+                </div>
+            </div>`;
         }
-        
-        // 构建元信息（仅显示未在主消息中展示的信息）
-        const meta = [];
-        
-        // 对于非 response 类型，显示额外信息
-        if (log.type !== 'response' && log.type !== 'error') {
-            if (log.api_key_name) meta.push(`密钥: ${log.api_key_name}`);
-            if (log.model) meta.push(`模型: ${log.model}`);
-            if (log.provider) meta.push(`服务站: ${log.provider}`);
-            if (log.total_tokens) {
-                let tokenInfo = `Tokens: ${log.total_tokens}`;
-                if (log.request_tokens || log.response_tokens) {
-                    tokenInfo = `Tokens: ${log.total_tokens} ↑${log.request_tokens || 0} ↓${log.response_tokens || 0}`;
-                }
-                meta.push(tokenInfo);
-            }
-            if (log.duration_ms) meta.push(`耗时: ${Math.round(log.duration_ms)}ms`);
+
+        // Latency
+        const latencyHtml = log.duration_ms ? `<span class="latency-tag">${Math.round(log.duration_ms)}ms</span>` : '<span class="text-muted">-</span>';
+
+        // Status
+        let statusClass = 'status-default';
+        if (log.status_code) {
+            if (log.status_code >= 200 && log.status_code < 300) statusClass = 'status-success';
+            else if (log.status_code >= 400) statusClass = 'status-error';
         }
-        
-        // 状态码始终显示（如果有）
-        if (log.status_code && log.status_code !== 200) meta.push(`状态: ${log.status_code}`);
-        
+        const statusHtml = log.status_code ? `<span class="log-status ${statusClass}">${log.status_code}</span>` : '<span class="text-muted">-</span>';
+
         return `
-            <div class="log-entry level-${levelClass}">
-                <span class="log-time">${log.timestamp_str || ''}</span>
-                <span class="log-level ${levelClass}">${log.level}</span>
-                <span class="log-type">${log.type}</span>
-                <span class="log-message">${mainMessage}</span>
-                ${meta.length > 0 ? `
-                    <div class="log-meta">
-                        ${meta.map(m => `<span>${m}</span>`).join('')}
-                    </div>
-                ` : ''}
-            </div>
+            <tr class="log-row level-${levelClass}">
+                <td class="col-time">${time}</td>
+                <td class="col-level">${levelHtml}</td>
+                <td class="col-type">${typeHtml}</td>
+                <td class="col-content">${contentHtml}</td>
+                <td class="col-tokens">${tokensHtml}</td>
+                <td class="col-latency">${latencyHtml}</td>
+                <td class="col-status">${statusHtml}</td>
+            </tr>
         `;
     },
 
@@ -223,7 +236,7 @@ const Logs = {
         container.insertAdjacentHTML('afterbegin', logHtml);
         
         // 移除多余的日志条目
-        const entries = container.querySelectorAll('.log-entry');
+        const entries = container.querySelectorAll('.log-row');
         if (entries.length > limit) {
             for (let i = limit; i < entries.length; i++) {
                 entries[i].remove();
@@ -231,7 +244,7 @@ const Logs = {
         }
         
         // 高亮新日志
-        const newEntry = container.querySelector('.log-entry');
+        const newEntry = container.querySelector('.log-row');
         if (newEntry) {
             newEntry.style.animation = 'highlight 1s ease';
         }

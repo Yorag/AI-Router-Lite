@@ -533,6 +533,11 @@ const Providers = {
             // 复用现有的 updateAllModels 逻辑
             await this.updateAllModels();
             
+            // 渠道更新完成后，自动同步模型映射
+            if (typeof ModelMap !== 'undefined' && ModelMap.syncAll) {
+                await ModelMap.syncAll();
+            }
+            
         } finally {
             this.isUpdatingAll = false;
             if (btn) {
