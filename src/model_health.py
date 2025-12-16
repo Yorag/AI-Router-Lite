@@ -168,7 +168,8 @@ class ModelHealthManager(BaseStorageManager):
         self,
         provider_id: str,
         model: str,
-        save_immediately: bool = False
+        save_immediately: bool = False,
+        skip_disabled_check: bool = False
     ) -> ModelHealthResult:
         """
         检测单个模型，返回完整响应体
@@ -177,12 +178,14 @@ class ModelHealthManager(BaseStorageManager):
             provider_id: Provider 的唯一 ID (UUID)
             model: 模型名称
             save_immediately: 是否立即保存（默认 False，由定时任务保存）
+            skip_disabled_check: 是否跳过禁用检查（默认 False，用于内部强制检测场景）
             
         Returns:
             ModelHealthResult 包含完整响应体
             
         Note:
-            默认使用缓冲保存策略，仅标记脏数据
+            - 默认使用缓冲保存策略，仅标记脏数据
+            - 如果渠道被手动禁用（enabled=False），会跳过检测并返回错误
         """
         if not self._admin_manager:
             return ModelHealthResult(
@@ -205,6 +208,18 @@ class ModelHealthManager(BaseStorageManager):
                 latency_ms=0.0,
                 response_body={},
                 error=f"Provider ID '{provider_id}' 不存在",
+                tested_at=datetime.now(timezone.utc).isoformat()
+            )
+        
+        # 检查渠道是否被手动禁用
+        if not skip_disabled_check and not provider.get("enabled", True):
+            provider_name = provider.get("name", provider_id)
+            return ModelHealthResult(
+                provider=provider_id,
+                model=model,
+                success=False,
+                latency_ms=0.0,
+                response_body={},
                 tested_at=datetime.now(timezone.utc).isoformat()
             )
         
@@ -310,7 +325,8 @@ class ModelHealthManager(BaseStorageManager):
     async def test_mapping_models(
         self,
         resolved_models: dict[str, list[str]],
-        save_after_completion: bool = True
+        save_after_completion: bool = True,
+        skip_disabled_providers: bool = True
     ) -> list[ModelHealthResult]:
         """
         批量检测映射下的所有模型
@@ -320,11 +336,26 @@ class ModelHealthManager(BaseStorageManager):
         Args:
             resolved_models: {provider_id: [model_ids]}
             save_after_completion: 检测完成后是否立即保存（默认 True）
+            skip_disabled_providers: 是否跳过禁用的渠道（默认 True）
             
         Returns:
-            所有检测结果列表
+            所有检测结果列表（不包含被跳过的禁用渠道模型）
         """
         self._ensure_loaded()
+        
+        # 过滤掉禁用的渠道
+        filtered_resolved_models = resolved_models
+        skipped_count = 0
+        if skip_disabled_providers and self._admin_manager:
+            filtered_resolved_models = {}
+            for provider_id, models in resolved_models.items():
+                provider = self._admin_manager.get_provider(provider_id)
+                if provider and provider.get("enabled", True):
+                    filtered_resolved_models[provider_id] = models
+                else:
+                    skipped_count += len(models)
+                    provider_name = provider.get("name", provider_id) if provider else provider_id
+                    print(f"[ModelHealth] 跳过禁用渠道 '{provider_name}' 的 {len(models)} 个模型")
         
         async def test_provider_models(provider_id: str, models: list[str]) -> list[ModelHealthResult]:
             """串行检测单个渠道内的所有模型"""
@@ -335,10 +366,10 @@ class ModelHealthManager(BaseStorageManager):
                 results.append(result)
             return results
         
-        # 为每个渠道创建异步任务
+        # 为每个渠道创建异步任务（已过滤禁用渠道）
         tasks = [
             test_provider_models(provider_id, models)
-            for provider_id, models in resolved_models.items()
+            for provider_id, models in filtered_resolved_models.items()
         ]
         
         # 并发执行所有渠道的检测

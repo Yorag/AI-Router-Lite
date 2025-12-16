@@ -10,6 +10,7 @@ const ModelMap = {
     providerModels: {},     // 缓存各中转站的模型列表 (key: provider_id)
     providerIdNameMap: {},  // provider_id -> provider_name 映射
     providerDefaultProtocols: {},  // provider_id -> default_protocol 映射
+    providerEnabledStatus: {},     // provider_id -> enabled 状态映射
     currentProviderId: '',  // 当前选中的 provider_id
     currentProviderModels: [], // 当前选中的中转站模型
     previewResult: {},      // 预览结果缓存
@@ -51,21 +52,25 @@ const ModelMap = {
     },
 
     /**
-     * 加载 Provider 默认协议配置
+     * 加载 Provider 默认协议配置和启用状态
      */
     async loadProviderProtocols() {
         try {
             const result = await API.listProviders();
             const providers = result.providers || [];
             this.providerDefaultProtocols = {};
+            this.providerEnabledStatus = {};
             for (const p of providers) {
                 if (p.id) {
                     this.providerDefaultProtocols[p.id] = p.default_protocol || null;
+                    // 默认为 true，只有明确为 false 时才是禁用
+                    this.providerEnabledStatus[p.id] = p.enabled !== false;
                 }
             }
         } catch (err) {
             console.warn('加载 Provider 协议配置失败:', err);
             this.providerDefaultProtocols = {};
+            this.providerEnabledStatus = {};
         }
     },
 
@@ -297,8 +302,11 @@ const ModelMap = {
                         const providerName = this.providerIdNameMap[providerId] || providerId;
                         const providerProtocol = this.providerDefaultProtocols[providerId];
                         const protocolLabel = providerProtocol ? `[${providerProtocol}]` : '[混合]';
+                        // 检查渠道是否被禁用
+                        const isProviderDisabled = this.providerEnabledStatus[providerId] === false;
+                        const providerDisabledClass = isProviderDisabled ? 'provider-disabled' : '';
                         return `
-                            <div class="provider-models">
+                            <div class="provider-models ${providerDisabledClass}">
                                 <span class="provider-name">${providerName} ${protocolLabel}:</span>
                                 <div class="model-tags" oncontextmenu="return ModelMap.showModelContextMenu(event, '${escapedUnifiedName}', '${providerId}')">
                                     ${models.map(model => this.renderModelTag(providerId, model, unifiedName)).join('')}
@@ -343,12 +351,22 @@ const ModelMap = {
         const runtimeState = this.runtimeStates[key];
         const healthResult = this.healthResults[key];
         
+        // 检查渠道是否被禁用
+        const isProviderDisabled = this.providerEnabledStatus[providerId] === false;
+        
         let healthClass = 'health-unknown';
         let tooltipContent = '点击检测';
         let clickAction = `ModelMap.testSingleModelSilent('${providerId}', '${model}')`;
         
-        // 优先检查运行时熔断状态（COOLING 和 PERMANENTLY_DISABLED）
-        if (runtimeState) {
+        // 如果渠道被禁用，添加禁用样式
+        if (isProviderDisabled) {
+            healthClass = 'provider-disabled-model';
+            tooltipContent = '';
+            clickAction = '';  // 禁用点击
+        }
+        
+        // 优先检查运行时熔断状态（COOLING 和 PERMANENTLY_DISABLED）- 仅当渠道未禁用时
+        if (!isProviderDisabled && runtimeState) {
             if (runtimeState.status === 'cooling') {
                 healthClass = 'health-cooling';
                 const remainingSec = Math.max(0, Math.ceil(runtimeState.cooldown_remaining || 0));
@@ -372,8 +390,8 @@ const ModelMap = {
             }
         }
         
-        // 如果不是熔断/禁用状态，检查健康状态
-        if (healthClass === 'health-unknown') {
+        // 如果不是熔断/禁用状态，检查健康状态 - 仅当渠道未禁用时
+        if (!isProviderDisabled && healthClass === 'health-unknown') {
             // 判断是否健康：运行时状态 healthy 且有活动记录，或者健康检测成功
             const isRuntimeHealthy = runtimeState && runtimeState.status === 'healthy' && runtimeState.last_activity_time;
             const isHealthCheckSuccess = healthResult && healthResult.success;

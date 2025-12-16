@@ -1979,3 +1979,14 @@ body {
 .batch-status .status-badge {
     font-size: 0.8125rem;
 }
+
+/* ==================== 禁用渠道样式 ==================== */
+
+/* 禁用渠道的整体容器 */
+.provider-models.provider-disabled {
+    opacity: 0.6;
+    background: rgba(100, 116, 139, 0.05);
+    padding: 8px;
+    border-radius: var(--border-radius-sm);
+    border: 1px dashed var(--border-color);
+}
