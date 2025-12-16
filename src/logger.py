@@ -53,6 +53,7 @@ class RequestLog:
     client_ip: Optional[str] = None
     api_key_id: Optional[str] = None
     api_key_name: Optional[str] = None  # API 密钥标签名
+    protocol: Optional[str] = None  # 使用的协议类型
     request_tokens: Optional[int] = None
     response_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
@@ -159,6 +160,7 @@ class LogManager:
                                 client_ip=data.get("client_ip"),
                                 api_key_id=data.get("api_key_id"),
                                 api_key_name=data.get("api_key_name"),
+                                protocol=data.get("protocol"),
                                 request_tokens=data.get("request_tokens"),
                                 response_tokens=data.get("response_tokens"),
                                 total_tokens=data.get("total_tokens")
@@ -213,6 +215,7 @@ class LogManager:
             client_ip: Optional[str] = None,
             api_key_id: Optional[str] = None,
             api_key_name: Optional[str] = None,
+            protocol: Optional[str] = None,
             request_tokens: Optional[int] = None,
             response_tokens: Optional[int] = None,
             total_tokens: Optional[int] = None) -> RequestLog:
@@ -234,6 +237,7 @@ class LogManager:
             client_ip=client_ip,
             api_key_id=api_key_id,
             api_key_name=api_key_name,
+            protocol=protocol,
             request_tokens=request_tokens,
             response_tokens=response_tokens,
             total_tokens=total_tokens

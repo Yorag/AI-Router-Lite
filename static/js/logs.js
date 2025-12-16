@@ -69,6 +69,9 @@ const Logs = {
         // Source/Type
         const typeHtml = `<span class="log-type-text">${log.type}</span>`;
         
+        // Protocol
+        const protocolHtml = log.protocol ? `<span class="log-protocol-tag" title="协议类型">${log.protocol}</span>` : '';
+        
         // Content
         let contentHtml = '';
         const keyLabel = log.api_key_name ? `<span class="log-key-tag" title="密钥: ${log.api_key_name}">${log.api_key_name}</span>` : '';
@@ -77,6 +80,7 @@ const Logs = {
              contentHtml = `
                 <div class="log-content-row">
                     ${keyLabel}
+                    ${protocolHtml}
                     <span class="log-model" title="请求模型">${log.model}</span>
                     <span class="log-arrow">⟹</span>
                     <span class="log-provider" title="服务站">${log.provider}</span>

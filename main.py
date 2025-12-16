@@ -460,7 +460,6 @@ async def process_request(
                         yield chunk
                     
                     # 日志记录
-                    # 日志记录
                     duration_ms = (time.time() - start_time) * 1000
                     token_info = f"Tokens: {stream_context.total_tokens or 'N/A'}"
                     if stream_context.request_tokens is not None or stream_context.response_tokens is not None:
@@ -484,6 +483,7 @@ async def process_request(
                         client_ip=client_ip,
                         api_key_id=api_key_id,
                         api_key_name=api_key_name,
+                        protocol=protocol_type,
                         request_tokens=stream_context.request_tokens,
                         response_tokens=stream_context.response_tokens,
                         total_tokens=stream_context.total_tokens,
@@ -585,6 +585,7 @@ async def process_request(
                 client_ip=client_ip,
                 api_key_id=api_key_id,
                 api_key_name=api_key_name,
+                protocol=protocol_type,
                 request_tokens=result.request_tokens,
                 response_tokens=result.response_tokens,
                 total_tokens=result.total_tokens,
@@ -1293,7 +1294,6 @@ async def update_model_protocol(unified_name: str, request: UpdateModelProtocolR
         level=LogLevel.INFO, log_type="admin", method="PUT",
         path=f"/api/model-mappings/{unified_name}/model-settings",
         message=f"更新模型协议配置: {provider_name}:{request.model_id} -> {request.protocol or '(清除)'}"
-    )
     )
     
     return {"status": "success", "message": message}

@@ -1371,6 +1371,16 @@ body {
     border: 1px solid var(--border-color);
 }
 
+.log-protocol-tag {
+    font-size: 0.625rem;
+    font-weight: 500;
+    color: var(--info-color);
+    background: rgba(59, 130, 246, 0.1);
+    padding: 1px 4px;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
 .log-model {
     font-weight: 500;
     color: var(--text-color);
