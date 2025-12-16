@@ -15,6 +15,7 @@ from .provider import ProviderManager, ProviderState
 from .router import ModelRouter
 from .provider_models import provider_models_manager
 from .protocols import BaseProtocol
+from .logger import log_manager, LogLevel
 
 
 @dataclass
@@ -183,6 +184,19 @@ class RequestProxy:
                 self._log_warning(
                     f"Provider [{provider.config.name}] 请求失败: {e.message}"
                 )
+                # 记录到日志系统
+                log_manager.log(
+                    level=LogLevel.WARNING,
+                    log_type="retry",
+                    method="POST",
+                    path="/proxy",
+                    model=original_model,
+                    provider=provider.config.name,
+                    actual_model=actual_model,
+                    status_code=e.status_code,
+                    error=e.message,
+                    message=f"[重试 {attempt + 1}/{max_attempts}] Provider [{provider.config.name}] 请求失败: {e.message}"
+                )
                 continue
         
         raise last_error or ProxyError("请求失败", status_code=500)
@@ -275,6 +289,19 @@ class RequestProxy:
                 )
                 self._log_warning(
                     f"Provider [{provider.config.name}] 流式请求失败: {e.message}"
+                )
+                # 记录到日志系统
+                log_manager.log(
+                    level=LogLevel.WARNING,
+                    log_type="retry",
+                    method="POST",
+                    path="/proxy/stream",
+                    model=original_model,
+                    provider=provider.config.name,
+                    actual_model=actual_model,
+                    status_code=e.status_code,
+                    error=e.message,
+                    message=f"[流式重试 {attempt + 1}/{max_attempts}] Provider [{provider.config.name}] 请求失败: {e.message}"
                 )
                 continue
         
@@ -386,12 +413,15 @@ class RequestProxy:
                     if transformed:
                         if stream_context and usage:
                             # 累加或更新 usage
-                            if "total_tokens" in usage:
-                                stream_context.total_tokens = usage["total_tokens"]
                             if "prompt_tokens" in usage:
                                 stream_context.request_tokens = usage["prompt_tokens"]
                             if "completion_tokens" in usage:
                                 stream_context.response_tokens = usage["completion_tokens"]
+                            
+                            if "total_tokens" in usage:
+                                stream_context.total_tokens = usage["total_tokens"]
+                            elif stream_context.request_tokens is not None or stream_context.response_tokens is not None:
+                                stream_context.total_tokens = (stream_context.request_tokens or 0) + (stream_context.response_tokens or 0)
                         
                         yield transformed
                         

@@ -399,44 +399,102 @@ class ProviderManager:
     
     def _apply_provider_cooldown(self, provider: ProviderState, reason: CooldownReason) -> None:
         """应用渠道级冷却"""
+        from .logger import LogLevel  # 避免循环导入
+        
         cooldown_seconds = COOLDOWN_TIMES[reason]
         
         if cooldown_seconds < 0:
             # 永久禁用
             provider.status = ProviderStatus.PERMANENTLY_DISABLED
             provider.cooldown_reason = reason
-            self._log_error(
+            message = (
                 f"Provider [{provider.config.name}] 已被永久禁用，"
                 f"原因: {reason.value}"
+            )
+            self._log_error(message)
+            # 记录到日志系统
+            log_manager = self._get_log_manager()
+            log_manager.log(
+                level=LogLevel.ERROR,
+                log_type="circuit_breaker",
+                method="BREAKER",
+                path="/provider",
+                provider=provider.config.name,
+                error=reason.value,
+                message=message
             )
         else:
             provider.status = ProviderStatus.COOLING
             provider.cooldown_until = time.time() + cooldown_seconds
             provider.cooldown_reason = reason
-            self._log_warning(
+            message = (
                 f"Provider [{provider.config.name}] 进入冷却状态（渠道级），"
                 f"原因: {reason.value}，冷却 {cooldown_seconds} 秒"
+            )
+            self._log_warning(message)
+            # 记录到日志系统
+            log_manager = self._get_log_manager()
+            log_manager.log(
+                level=LogLevel.WARNING,
+                log_type="circuit_breaker",
+                method="BREAKER",
+                path="/provider",
+                provider=provider.config.name,
+                error=reason.value,
+                message=message
             )
     
     def _apply_model_cooldown(self, model_state: ModelState, reason: CooldownReason) -> None:
         """应用模型级冷却"""
+        from .logger import LogLevel  # 避免循环导入
+        
         cooldown_seconds = COOLDOWN_TIMES[reason]
+        
+        # 获取 Provider 名称
+        provider = self._providers.get(model_state.provider_id)
+        provider_name = provider.config.name if provider else model_state.provider_id
         
         if cooldown_seconds < 0:
             # 永久禁用该模型
             model_state.status = ModelStatus.PERMANENTLY_DISABLED
             model_state.cooldown_reason = reason
-            self._log_error(
+            message = (
                 f"模型 [{model_state.provider_id}:{model_state.model_name}] 已被永久禁用，"
                 f"原因: {reason.value}"
+            )
+            self._log_error(message)
+            # 记录到日志系统
+            log_manager = self._get_log_manager()
+            log_manager.log(
+                level=LogLevel.ERROR,
+                log_type="circuit_breaker",
+                method="BREAKER",
+                path="/model",
+                provider=provider_name,
+                actual_model=model_state.model_name,
+                error=reason.value,
+                message=message
             )
         else:
             model_state.status = ModelStatus.COOLING
             model_state.cooldown_until = time.time() + cooldown_seconds
             model_state.cooldown_reason = reason
-            self._log_warning(
+            message = (
                 f"模型 [{model_state.provider_id}:{model_state.model_name}] 进入冷却状态（模型级），"
                 f"原因: {reason.value}，冷却 {cooldown_seconds} 秒"
+            )
+            self._log_warning(message)
+            # 记录到日志系统
+            log_manager = self._get_log_manager()
+            log_manager.log(
+                level=LogLevel.WARNING,
+                log_type="circuit_breaker",
+                method="BREAKER",
+                path="/model",
+                provider=provider_name,
+                actual_model=model_state.model_name,
+                error=reason.value,
+                message=message
             )
     
     def reset(self, provider_id: str) -> bool:

@@ -123,9 +123,11 @@ ai-router-lite/
 │   ├── config.py           # 配置管理模块
 │   ├── constants.py        # 统一常量定义模块
 │   ├── models.py           # OpenAI 兼容数据模型
+│   ├── protocols.py        # 多协议适配器（OpenAI/Anthropic/Gemini）
 │   ├── provider.py         # Provider 管理和双层熔断逻辑
 │   ├── router.py           # 路由策略模块（支持模型级熔断检查）
 │   ├── proxy.py            # 请求代理（流式/非流式）
+│   ├── storage.py          # 持久化存储管理模块
 │   ├── api_keys.py         # API 密钥管理模块
 │   ├── logger.py           # 日志记录模块
 │   ├── admin.py            # 管理功能模块
@@ -223,7 +225,7 @@ python main.py
 ```
 ╔══════════════════════════════════════════════════════════╗
 ║                                                          ║
-║    AI-Router-Lite v0.5.0                              ║
+║    AI-Router-Lite v0.7.0                              ║
 ║   轻量级 AI 聚合路由 + 管理面板                          ║
 ║                                                          ║
 ╚══════════════════════════════════════════════════════════╝
@@ -253,11 +255,15 @@ python main.py
 
 ## 🔌 API 端点
 
-### OpenAI 兼容接口
+### 多协议 AI 接口
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/v1/chat/completions` | POST | 聊天补全（OpenAI 兼容） |
+| `/v1/chat/completions` | POST | OpenAI Chat Completions API |
+| `/v1/responses` | POST | OpenAI Responses API (Beta) |
+| `/v1/messages` | POST | Anthropic Messages API |
+| `/v1beta/models/{model}:generateContent` | POST | Gemini API (非流式) |
+| `/v1beta/models/{model}:streamGenerateContent` | POST | Gemini API (流式) |
 | `/v1/models` | GET | 获取可用模型列表 |
 
 ### 系统接口
@@ -302,6 +308,13 @@ python main.py
 | `/api/model-mappings/sync` | POST | 手动触发同步（可指定映射名） |
 | `/api/model-mappings/preview` | POST | 预览规则匹配结果（不保存） |
 | `/api/model-mappings/sync-config` | GET/PUT | 自动同步配置 |
+| `/api/model-mappings/{name}/model-settings` | GET/PUT | 模型协议配置 |
+
+### 协议配置
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/protocols` | GET | 获取所有可用的协议类型 |
 
 ### 模型健康检测
 
@@ -384,7 +397,7 @@ python main.py
 - [x] **v0.4 (Monitor)**: Web 管理面板，可视化管理 Provider、模型映射、API 密钥和日志。
 - [x] **v0.5 (Intelligence)**: 增强型模型映射（规则匹配、自动同步）、模型健康检测、双层熔断机制、Provider 模型元信息独立存储。
 - [x] **v0.6 (Refactor)**: Provider ID 体系重构，支持修改显示名称；并发同步所有渠道模型；优化熔断级别分类。
-- [x] **v0.7 (Protocol)**: 多协议适配支持（OpenAI, Anthropic, Gemini），双层协议配置机制。
+- [x] **v0.7 (Protocol)**: 多协议适配支持（OpenAI, OpenAI-Response, Anthropic, Gemini），双层协议配置机制，统一持久化存储管理。
 - [ ] **v1.0**: 完整稳定版本，包含负载均衡优化。
 
 ## ⚠️ 免责声明

@@ -291,7 +291,7 @@ const ModelMap = {
                 <div class="resolved-content" style="display: ${contentDisplay};">
                     ${unifiedName ? `
                     <div class="protocol-config-hint">
-                        <span>💡 点击模型可检测健康状态，右键可配置协议</span>
+                        <span>💡 灰色模型点击可检测健康状态，匹配模型右键可配置协议</span>
                         <button class="btn btn-sm btn-secondary" onclick="ModelMap.showBatchProtocolModal('${escapedUnifiedName}')">
                             批量配置协议
                         </button>
