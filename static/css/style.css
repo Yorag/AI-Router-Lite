@@ -2157,3 +2157,78 @@ body {
     min-width: 80px;
     justify-content: center;
 }
+
+/* ==================== Provider 健康状态圆点 ==================== */
+
+/* Provider 名称行容器 */
+.provider-name-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* 健康状态圆点 */
+.provider-health-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    cursor: default;
+    position: relative;
+}
+
+/* 健康状态 - 绿色 */
+.provider-health-dot.healthy {
+    background-color: var(--success-color);
+    box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+}
+
+/* 冷却状态 - 黄色 */
+.provider-health-dot.cooling {
+    background-color: var(--warning-color);
+    box-shadow: 0 0 4px rgba(245, 158, 11, 0.4);
+    animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* 熔断状态 - 红色 */
+.provider-health-dot.permanently_disabled {
+    background-color: var(--danger-color);
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
+}
+
+/* 手动禁用状态 - 灰色 */
+.provider-health-dot.disabled {
+    background-color: var(--text-muted);
+    box-shadow: none;
+}
+
+/* 圆点脉冲动画（用于冷却状态） */
+@keyframes pulse-dot {
+    0%, 100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scale(1.2);
+        opacity: 0.7;
+    }
+}
+
+/* 圆点工具提示 - 仅使用 ::after，与项目其他 tooltip 保持一致 */
+.provider-health-dot[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 10px;
+    background: rgba(30, 41, 59, 0.95);
+    backdrop-filter: blur(4px);
+    color: #e2e8f0;
+    border-radius: var(--border-radius-sm);
+    font-size: 0.75rem;
+    white-space: pre-line;
+    z-index: 100;
+    box-shadow: var(--shadow-md);
+    pointer-events: none;
+}

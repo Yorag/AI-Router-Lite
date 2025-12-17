@@ -829,8 +829,17 @@ async def get_daily_stats(days: int = Query(7, ge=1, le=30)):
 
 @app.get("/api/providers")
 async def list_providers():
-    """列出所有 Provider"""
-    return {"providers": admin_manager.list_providers()}
+    """列出所有 Provider（包含运行时状态）"""
+    providers = admin_manager.list_providers()
+    runtime_states = provider_manager.get_runtime_states()
+    
+    # 注入运行时状态到每个 provider
+    for p in providers:
+        provider_id = p.get("id")
+        if provider_id and provider_id in runtime_states.get("providers", {}):
+            p["runtime_status"] = runtime_states["providers"][provider_id]
+    
+    return {"providers": providers}
 
 
 @app.get("/api/providers/all-models")

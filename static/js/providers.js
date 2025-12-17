@@ -196,11 +196,17 @@ const Providers = {
         const toggleBtnText = isEnabled ? '禁用' : '启用';
         const protocolText = provider.default_protocol || '混合';
         
+        // 生成健康状态圆点
+        const healthDotHtml = this.renderHealthDot(provider);
+        
         return `
             <div class="provider-card ${!isEnabled ? 'disabled' : ''}" id="provider-${providerDomId}" data-provider-id="${providerUuid}">
                 <div class="provider-card-header">
                     <div>
-                        <h3>${providerName}</h3>
+                        <div class="provider-name-row">
+                            ${healthDotHtml}
+                            <h3>${providerName}</h3>
+                        </div>
                         <div class="url">${provider.base_url}</div>
                     </div>
                     <div class="provider-badges">
@@ -240,6 +246,57 @@ const Providers = {
     // 将服务站名称转换为安全的ID
     escapeId(name) {
         return name.replace(/[^a-zA-Z0-9]/g, '_');
+    },
+
+    /**
+     * 渲染健康状态圆点
+     * @param {Object} provider - Provider 对象
+     * @returns {string} HTML 字符串
+     */
+    renderHealthDot(provider) {
+        const isEnabled = provider.enabled !== false;
+        const runtimeStatus = provider.runtime_status;
+        
+        // 手动禁用优先级最高
+        if (!isEnabled) {
+            return `<span class="provider-health-dot disabled" data-tooltip="手动禁用"></span>`;
+        }
+        
+        // 检查运行时状态
+        if (runtimeStatus) {
+            const status = runtimeStatus.status;
+            
+            if (status === 'permanently_disabled') {
+                const reason = this.formatCooldownReason(runtimeStatus.cooldown_reason);
+                const error = runtimeStatus.last_error ? `&#10;错误: ${runtimeStatus.last_error}` : '';
+                return `<span class="provider-health-dot permanently_disabled" data-tooltip="已熔断: ${reason}${error}"></span>`;
+            }
+            
+            if (status === 'cooling') {
+                const reason = this.formatCooldownReason(runtimeStatus.cooldown_reason);
+                const remaining = Math.ceil(runtimeStatus.cooldown_remaining || 0);
+                return `<span class="provider-health-dot cooling" data-tooltip="冷却中: ${reason} (${remaining}s)"></span>`;
+            }
+        }
+        
+        // 健康状态 - 不显示 tooltip
+        return `<span class="provider-health-dot healthy"></span>`;
+    },
+
+    /**
+     * 格式化冷却原因
+     */
+    formatCooldownReason(reason) {
+        const reasonMap = {
+            'rate_limited': '触发限流',
+            'server_error': '服务器错误',
+            'timeout': '请求超时',
+            'auth_failed': '认证失败',
+            'network_error': '网络错误',
+            'model_not_found': '模型不存在',
+            'health_check_failed': '健康检测失败'
+        };
+        return reasonMap[reason] || reason || '未知原因';
     },
 
     // 切换模型列表展开/收起
