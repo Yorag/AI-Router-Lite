@@ -114,7 +114,7 @@ const APIKeys = {
                             ${key.enabled ? '启用' : '禁用'}
                         </span>
                     </td>
-                    <td>${key.total_requests}</td>
+                    <td>${key.total_requests.toLocaleString()}</td>
                     <td>${key.last_used_str || '从未使用'}</td>
                     <td>${key.created_at_str}</td>
                     <td class="actions">

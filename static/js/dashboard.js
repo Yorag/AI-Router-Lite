@@ -96,10 +96,10 @@ const Dashboard = {
             }
             
             // 更新请求统计卡片
-            document.getElementById('stat-requests').textContent = requestStats.total_requests;
+            document.getElementById('stat-requests').textContent = requestStats.total_requests.toLocaleString();
             
             // 更新 Tokens 统计卡片
-            document.getElementById('stat-tokens').textContent = requestStats.total_tokens;
+            document.getElementById('stat-tokens').textContent = requestStats.total_tokens.toLocaleString();
             
             // 计算成功率
             const total = requestStats.total_requests || 0;
@@ -153,7 +153,7 @@ const Dashboard = {
                     <div class="provider-status-info">
                         <h4>${info.name || id}</h4>
                         <div class="stats">
-                            成功: ${info.successful_requests} / 总计: ${info.total_requests}
+                            成功: ${info.successful_requests.toLocaleString()} / 总计: ${info.total_requests.toLocaleString()}
                             ${info.cooldown_remaining ? ` | 冷却中: ${info.cooldown_remaining}` : ''}
                         </div>
                     </div>
@@ -227,7 +227,7 @@ const Dashboard = {
 
         // 格式化每一行
         return statsList.map(m =>
-            `${m.name} 请求: ${m.total} 成功率: ${m.successRate} Token: ${m.tokens || 0}`
+            `${m.name} 请求: ${m.total} 成功率: ${m.successRate} Tokens: ${(m.tokens || 0).toLocaleString()}`
         ).join('&#10;');
     },
 

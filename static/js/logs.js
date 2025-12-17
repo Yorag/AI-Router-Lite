@@ -114,10 +114,10 @@ const Logs = {
         let tokensHtml = '<span class="text-muted">-</span>';
         if (log.total_tokens) {
             tokensHtml = `<div class="token-stats">
-                <span class="token-total">${log.total_tokens}</span>
+                <span class="token-total">${log.total_tokens.toLocaleString()}</span>
                 <div class="token-details">
-                    ${log.request_tokens ? `<span class="token-up" title="Input">↑${log.request_tokens}</span>` : ''}
-                    ${log.response_tokens ? `<span class="token-down" title="Output">↓${log.response_tokens}</span>` : ''}
+                    ${log.request_tokens ? `<span class="token-up" title="Input">↑${log.request_tokens.toLocaleString()}</span>` : ''}
+                    ${log.response_tokens ? `<span class="token-down" title="Output">↓${log.response_tokens.toLocaleString()}</span>` : ''}
                 </div>
             </div>`;
         }
