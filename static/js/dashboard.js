@@ -310,6 +310,12 @@ const Dashboard = {
                                 color: '#94a3b8',
                                 padding: 16
                             }
+                        },
+                        // 预留 tooltip 对象，便于后续在 updateModelChart 中覆盖回调
+                        tooltip: {
+                            callbacks: {
+                                label: () => ''
+                            }
                         }
                     }
                 }
@@ -424,27 +430,26 @@ const Dashboard = {
         }
         
         // 更新 Tooltip 回调所需的数据
+        this.modelUsageChart.options.plugins.tooltip.displayColors = false;
+        this.modelUsageChart.options.plugins.tooltip.callbacks.title = (context) => {
+            const first = context && context.length ? context[0] : null;
+            const modelName = first ? first.label : '';
+            const total = first ? first.raw : 0;
+            return modelName ? [`${modelName} (Total: ${total})`] : [];
+        };
         this.modelUsageChart.options.plugins.tooltip.callbacks.label = (context) => {
             const modelName = context.label;
             const total = context.raw;
             const providers = modelProviderStats[modelName] || {};
             
-            // 基础信息
-            let tooltipText = [`${modelName} (Total: ${total})`];
-            
-            // 详细服务站信息
             const providerList = Object.entries(providers)
                 .sort((a, b) => b[1].total - a[1].total); // 按调用量降序
             
-            if (providerList.length > 0) {
-                providerList.forEach(([providerName, stats]) => {
-                    const percentage = total > 0 ? ((stats.total / total) * 100).toFixed(1) : '0.0';
-                    const successRate = stats.total > 0 ? ((stats.successful / stats.total) * 100).toFixed(1) : '0.0';
-                    tooltipText.push(`- ${providerName}: ${stats.total} (${percentage}%, Success: ${successRate}%)`);
-                });
-            }
-            
-            return tooltipText;
+            return providerList.map(([providerName, stats]) => {
+                const percentage = total > 0 ? ((stats.total / total) * 100).toFixed(1) : '0.0';
+                const successRate = stats.total > 0 ? ((stats.successful / stats.total) * 100).toFixed(1) : '0.0';
+                return `- ${providerName}: ${stats.total} (${percentage}%, Success: ${successRate}%)`;
+            });
         };
         
         this.modelUsageChart.update();
