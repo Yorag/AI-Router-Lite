@@ -76,7 +76,8 @@ def _create_network_error(
     error_msg = str(e) or type(e).__name__
     # SSL EOF 错误：系统级错误（503），不重试、不冷却
     # 其他网络错误：上游服务器问题（502），可重试
-    is_ssl_eof = isinstance(e, ssl.SSLError) and "EOF" in error_msg
+    lower_msg = error_msg.lower()
+    is_ssl_eof = "ssl" in lower_msg and "eof" in lower_msg
     
     return ProxyError(
         error_msg,
