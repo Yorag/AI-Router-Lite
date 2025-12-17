@@ -231,12 +231,12 @@ class OpenAIResponseProtocol(BaseProtocol):
             if "model" in raw_response:
                 raw_response["model"] = original_model
             
-            # 提取 usage (结构可能与 Chat API 类似)
+            # 提取 usage (Responses API 使用 input_tokens/output_tokens 而非 prompt_tokens/completion_tokens)
             usage = raw_response.get("usage", {})
             return ProtocolResponse(
                 response=raw_response,
-                request_tokens=usage.get("prompt_tokens"),
-                response_tokens=usage.get("completion_tokens"),
+                request_tokens=usage.get("input_tokens"),
+                response_tokens=usage.get("output_tokens"),
                 total_tokens=usage.get("total_tokens")
             )
         return ProtocolResponse(response=raw_response)
@@ -257,7 +257,13 @@ class OpenAIResponseProtocol(BaseProtocol):
                 
             usage = None
             if "usage" in chunk and chunk["usage"]:
-                usage = chunk["usage"]
+                # Responses API 使用 input_tokens/output_tokens，转换为统一格式
+                raw_usage = chunk["usage"]
+                usage = {
+                    "prompt_tokens": raw_usage.get("input_tokens", 0),
+                    "completion_tokens": raw_usage.get("output_tokens", 0),
+                    "total_tokens": raw_usage.get("total_tokens", 0)
+                }
                 
             return f"data: {json.dumps(chunk)}\n\n", usage
         except json.JSONDecodeError:
