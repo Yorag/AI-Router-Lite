@@ -55,7 +55,8 @@ class ProxyError(Exception):
         status_code: Optional[int] = None,
         provider_name: Optional[str] = None,
         actual_model: Optional[str] = None,
-        response_body: Optional[Dict[str, Any]] = None
+        response_body: Optional[Dict[str, Any]] = None,
+        skip_retry: bool = False
     ):
         super().__init__(message)
         self.message = message
@@ -63,6 +64,27 @@ class ProxyError(Exception):
         self.provider_name = provider_name
         self.actual_model = actual_model
         self.response_body = response_body
+        self.skip_retry = skip_retry
+
+
+def _create_network_error(
+    e: Exception,
+    provider_name: str,
+    actual_model: Optional[str] = None
+) -> ProxyError:
+    """根据网络异常类型创建对应的 ProxyError"""
+    error_msg = str(e) or type(e).__name__
+    # SSL EOF 错误：系统级错误（503），不重试、不冷却
+    # 其他网络错误：上游服务器问题（502），可重试
+    is_ssl_eof = isinstance(e, ssl.SSLError) and "EOF" in error_msg
+    
+    return ProxyError(
+        error_msg,
+        status_code=503 if is_ssl_eof else 502,
+        provider_name=provider_name,
+        actual_model=actual_model,
+        skip_retry=is_ssl_eof
+    )
 
 
 class RequestProxy:
@@ -232,6 +254,11 @@ class RequestProxy:
             except ProxyError as e:
                 last_error = e
                 last_error.actual_model = actual_model
+                
+                # SSL EOF 等系统错误：不重试、不冷却，直接抛出
+                if e.skip_retry:
+                    raise e
+                
                 self.provider_manager.mark_failure(
                     provider.config.id,
                     model_name=actual_model,
@@ -328,6 +355,11 @@ class RequestProxy:
             except ProxyError as e:
                 last_error = e
                 last_error.actual_model = actual_model
+                
+                # SSL EOF 等系统错误：不重试、不冷却，直接抛出
+                if e.skip_retry:
+                    raise e
+                
                 self.provider_manager.mark_failure(
                     provider.config.id,
                     model_name=actual_model,
@@ -406,11 +438,7 @@ class RequestProxy:
             return raw_response, protocol_response
             
         except (httpx.TimeoutException, ssl.SSLError, ConnectionResetError, BrokenPipeError, httpx.RequestError) as e:
-            raise ProxyError(
-                str(e) or type(e).__name__,
-                status_code=502,
-                provider_name=provider.config.name
-            )
+            raise _create_network_error(e, provider.config.name)
     
     async def _do_stream_request(
         self,
@@ -484,12 +512,7 @@ class RequestProxy:
                         yield transformed
                         
         except (httpx.TimeoutException, ssl.SSLError, ConnectionResetError, BrokenPipeError, httpx.RequestError) as e:
-            raise ProxyError(
-                str(e) or type(e).__name__,
-                status_code=502,
-                provider_name=provider.config.name,
-                actual_model=actual_model
-            )
+            raise _create_network_error(e, provider.config.name, actual_model)
     
     @staticmethod
     def _log_info(message: str) -> None:
