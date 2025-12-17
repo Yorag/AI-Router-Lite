@@ -918,13 +918,6 @@ async def sync_all_provider_models():
             "success": True
         })
     
-    # 记录日志
-    log_manager.log(
-        level=LogLevel.INFO, log_type="admin", method="POST",
-        path="/api/providers/sync-all-models",
-        message=f"并发同步完成: {success_count} 个渠道, 共 {total_models} 个模型"
-    )
-    
     return {
         "status": "success",
         "message": f"并发同步完成: {success_count} 个渠道, 共 {total_models} 个模型",

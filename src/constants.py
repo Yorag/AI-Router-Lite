@@ -134,16 +134,16 @@ API_KEY_SECRET_BYTES: int = 24
 ADMIN_HTTP_TIMEOUT: float = 30.0
 
 # 健康测试请求的 max_tokens
-HEALTH_TEST_MAX_TOKENS: int = 15
+HEALTH_TEST_MAX_TOKENS: int = 10
 
 # 健康测试请求的消息内容
-HEALTH_TEST_MESSAGE: str = "Say 'ok'"
+HEALTH_TEST_MESSAGE: str = "hi"
 
 
 # ==================== 前端 Toast 通知时长配置（毫秒） ====================
 
 # 信息/成功通知显示时长
-TOAST_DURATION_DEFAULT: int = 3000
+TOAST_DURATION_DEFAULT: int = 2000
 
 # 警告通知显示时长
 TOAST_DURATION_WARNING: int = 4000
@@ -161,7 +161,7 @@ AUTO_HEALTH_CHECK_INTERVAL_MS: int = int(AUTO_HEALTH_CHECK_INTERVAL_HOURS * 60 *
 # ==================== 持久化存储配置 ====================
 
 # 缓冲保存间隔（秒）- 高频统计数据的定时保存间隔
-STORAGE_BUFFER_INTERVAL_SECONDS: float = 60.0
+STORAGE_BUFFER_INTERVAL_SECONDS: float = 300.0
 
 # 是否在关闭时强制刷盘
 STORAGE_FLUSH_ON_SHUTDOWN: bool = True
