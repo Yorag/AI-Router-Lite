@@ -20,6 +20,7 @@ from .provider_models import provider_models_manager
 from .protocols import BaseProtocol
 from .logger import log_manager, LogLevel
 from .model_health import model_health_manager
+from .constants import PROXY_ERROR_MESSAGE_MAX_LENGTH
 
 
 @dataclass
@@ -382,6 +383,9 @@ class RequestProxy:
                 error_body = response.text
                 # 保留原始响应体，压缩换行符到一行
                 error_body_oneline = error_body.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
+                # 截断过长的错误消息
+                if len(error_body_oneline) > PROXY_ERROR_MESSAGE_MAX_LENGTH:
+                    error_body_oneline = error_body_oneline[:PROXY_ERROR_MESSAGE_MAX_LENGTH] + "..."
                 # 尝试解析 JSON 响应体用于健康检测记录
                 try:
                     error_response_body = response.json()
@@ -441,6 +445,9 @@ class RequestProxy:
                     # 保留原始响应体，压缩换行符到一行
                     error_body_text = error_body.decode()
                     error_body_oneline = error_body_text.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
+                    # 截断过长的错误消息
+                    if len(error_body_oneline) > PROXY_ERROR_MESSAGE_MAX_LENGTH:
+                        error_body_oneline = error_body_oneline[:PROXY_ERROR_MESSAGE_MAX_LENGTH] + "..."
                     # 尝试解析 JSON 响应体用于健康检测记录
                     try:
                         error_response_body = json.loads(error_body_text)

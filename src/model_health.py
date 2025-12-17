@@ -27,7 +27,6 @@ from .constants import (
     MODEL_HEALTH_STORAGE_PATH,
     ADMIN_HTTP_TIMEOUT,
     STORAGE_BUFFER_INTERVAL_SECONDS,
-    HEALTH_CHECK_ERROR_LENGTH_LIMIT,
 )
 from .storage import BaseStorageManager, persistence_manager
 from .provider import provider_manager
@@ -165,10 +164,6 @@ class ModelHealthManager(BaseStorageManager):
         """
         self._ensure_loaded()
         
-        # 截断错误信息
-        if error and len(error) > HEALTH_CHECK_ERROR_LENGTH_LIMIT:
-            error = error[:HEALTH_CHECK_ERROR_LENGTH_LIMIT-3] + "..."
-            
         result = ModelHealthResult(
             provider=provider_id,
             model=model,
@@ -350,10 +345,6 @@ class ModelHealthManager(BaseStorageManager):
                     error_detail = json.dumps(response_body, ensure_ascii=False).replace('\n', ' ').replace('\r', ' ')
                     full_error = f"HTTP {response.status_code}: {error_detail}"
                     
-                    # 截断错误信息
-                    if len(full_error) > HEALTH_CHECK_ERROR_LENGTH_LIMIT:
-                        full_error = full_error[:HEALTH_CHECK_ERROR_LENGTH_LIMIT-3] + "..."
-                        
                     result = ModelHealthResult(
                         provider=provider_id,
                         model=model,

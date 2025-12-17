@@ -92,14 +92,17 @@ LOG_DATE_LIMIT_DEFAULT: int = 1000
 LOG_HOURLY_STATS_DEFAULT_DAYS: int = 7
 
 
+# ==================== 代理错误配置 ====================
+
+# 代理错误消息最大长度（字符），超过将被截断
+PROXY_ERROR_MESSAGE_MAX_LENGTH: int = 100
+
+
 # ==================== 模型健康检测配置 ====================
 
 # 模型健康检测结果存储路径
 MODEL_HEALTH_STORAGE_PATH: str = "data/model_health.json"
 MODEL_HEALTH_FILE: str = MODEL_HEALTH_STORAGE_PATH  # 别名
-
-# 健康检测错误日志最大长度
-HEALTH_CHECK_ERROR_LENGTH_LIMIT: int = 100
 
 
 # ==================== Provider 模型元信息配置 ====================
