@@ -139,7 +139,9 @@ const Dashboard = {
                 rangeStats = logStats.provider_model_stats || {};
             }
             
-            container.innerHTML = Object.entries(baseData.providers).map(([id, info]) => {
+            container.innerHTML = Object.entries(baseData.providers)
+                .sort((a, b) => b[1].total_requests - a[1].total_requests)
+                .map(([id, info]) => {
                 // 使用当前时间范围的统计数据生成 Tooltip
                 // 注意：rangeStats 是按 providerName 索引的，而 info.name 是 providerName
                 const providerName = info.name || id;
