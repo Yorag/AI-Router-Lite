@@ -130,7 +130,8 @@ class ModelHealthManager(BaseStorageManager):
         model: str,
         success: bool,
         latency_ms: float = 0.0,
-        error: Optional[str] = None
+        error: Optional[str] = None,
+        response_body: Optional[dict] = None
     ) -> None:
         """
         记录被动请求的健康状态（最后一次请求结果）
@@ -143,6 +144,7 @@ class ModelHealthManager(BaseStorageManager):
             success: 请求是否成功
             latency_ms: 响应延迟（毫秒）
             error: 错误信息（如果失败）
+            response_body: 响应体（仅失败时保存，成功时忽略）
         """
         self._ensure_loaded()
         
@@ -151,7 +153,7 @@ class ModelHealthManager(BaseStorageManager):
             model=model,
             success=success,
             latency_ms=latency_ms,
-            response_body={},  # 被动请求不保存响应体
+            response_body=response_body if not success and response_body else {},  # 仅失败时保存响应体
             error=error,
             tested_at=datetime.now(timezone.utc).isoformat()
         )
@@ -296,7 +298,7 @@ class ModelHealthManager(BaseStorageManager):
                         model=model,
                         success=True,
                         latency_ms=latency_ms,
-                        response_body=response_body,
+                        response_body={},  # 成功时不保存响应体，仅记录延迟
                         error=None,
                         tested_at=datetime.now(timezone.utc).isoformat()
                     )

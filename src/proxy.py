@@ -9,6 +9,7 @@ from typing import AsyncIterator, Optional, Dict, Any
 from dataclasses import dataclass
 import ssl
 import random
+import json
 
 import httpx
 
@@ -52,13 +53,15 @@ class ProxyError(Exception):
         message: str,
         status_code: Optional[int] = None,
         provider_name: Optional[str] = None,
-        actual_model: Optional[str] = None
+        actual_model: Optional[str] = None,
+        response_body: Optional[Dict[str, Any]] = None
     ):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
         self.provider_name = provider_name
         self.actual_model = actual_model
+        self.response_body = response_body
 
 
 class RequestProxy:
@@ -237,7 +240,8 @@ class RequestProxy:
                 
                 # 记录被动健康状态（缓冲落盘）
                 model_health_manager.record_passive_result(
-                    provider.config.id, actual_model, success=False, error=e.message
+                    provider.config.id, actual_model, success=False, error=e.message,
+                    response_body=e.response_body
                 )
                 continue
         
@@ -332,7 +336,8 @@ class RequestProxy:
                 
                 # 记录被动健康状态（缓冲落盘）
                 model_health_manager.record_passive_result(
-                    provider.config.id, actual_model, success=False, error=e.message
+                    provider.config.id, actual_model, success=False, error=e.message,
+                    response_body=e.response_body
                 )
                 continue
         
@@ -377,10 +382,16 @@ class RequestProxy:
                 error_body = response.text
                 # 保留原始响应体，压缩换行符到一行
                 error_body_oneline = error_body.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
+                # 尝试解析 JSON 响应体用于健康检测记录
+                try:
+                    error_response_body = response.json()
+                except Exception:
+                    error_response_body = {"raw_text": error_body[:500]}
                 raise ProxyError(
                     f"HTTP {response.status_code}: {error_body_oneline}",
                     status_code=response.status_code,
-                    provider_name=provider.config.name
+                    provider_name=provider.config.name,
+                    response_body=error_response_body
                 )
             
             raw_response = response.json()
@@ -430,11 +441,17 @@ class RequestProxy:
                     # 保留原始响应体，压缩换行符到一行
                     error_body_text = error_body.decode()
                     error_body_oneline = error_body_text.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
+                    # 尝试解析 JSON 响应体用于健康检测记录
+                    try:
+                        error_response_body = json.loads(error_body_text)
+                    except Exception:
+                        error_response_body = {"raw_text": error_body_text[:500]}
                     raise ProxyError(
                         f"HTTP {response.status_code}: {error_body_oneline}",
                         status_code=response.status_code,
                         provider_name=provider.config.name,
-                        actual_model=actual_model
+                        actual_model=actual_model,
+                        response_body=error_response_body
                     )
                 
                 async for line in response.aiter_lines():
