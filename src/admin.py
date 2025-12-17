@@ -168,6 +168,13 @@ class AdminManager:
         # 设置默认值
         if "weight" not in provider_data:
             provider_data["weight"] = 1
+        if "allow_health_check" not in provider_data:
+            provider_data["allow_health_check"] = True
+        if "allow_model_update" not in provider_data:
+            provider_data["allow_model_update"] = True
+        
+        # 处理手动模型列表（仅当不允许自动更新模型时）
+        manual_models = provider_data.pop("manual_models", None)
         
         # 移除 supported_models 字段（如果前端意外传入）
         provider_data.pop("supported_models", None)
@@ -176,6 +183,14 @@ class AdminManager:
         config["providers"] = providers
         
         if self.save_config(config):
+            # 如果提供了手动模型列表，更新模型数据
+            if not provider_data.get("allow_model_update") and manual_models is not None:
+                provider_models_manager.update_models_from_manual_input(
+                    provider_data["id"],
+                    manual_models,
+                    provider_data.get("name")
+                )
+            
             return True, "添加成功", provider_data["id"]
         return False, "保存配置失败", None
     
@@ -202,6 +217,9 @@ class AdminManager:
                     if any(p.get("name") == new_name and p.get("id") != provider_id for p in providers):
                         return False, f"Provider 名称 '{new_name}' 已被其他 Provider 使用"
                 
+                # 处理手动模型列表（仅当不允许自动更新模型时）
+                manual_models = provider_data.pop("manual_models", None)
+                
                 # 移除 supported_models 字段（如果前端意外传入）
                 provider_data.pop("supported_models", None)
                 
@@ -209,6 +227,14 @@ class AdminManager:
                 config["providers"] = providers
                 
                 if self.save_config(config):
+                    # 如果提供了手动模型列表，更新模型数据
+                    if not provider_data.get("allow_model_update") and manual_models is not None:
+                        provider_models_manager.update_models_from_manual_input(
+                            provider_id,
+                            manual_models,
+                            provider_data.get("name")
+                        )
+                    
                     return True, "更新成功"
                 return False, "保存配置失败"
         

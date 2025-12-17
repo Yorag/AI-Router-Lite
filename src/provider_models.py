@@ -301,6 +301,79 @@ class ProviderModelsManager(BaseStorageManager):
             
             return added_count, updated_count, removed_count, added_models, removed_models
     
+    def update_models_from_manual_input(
+        self,
+        provider_id: str,
+        model_ids: list[str],
+        provider_name: Optional[str] = None
+    ) -> tuple[int, int, int, list[str], list[str]]:
+        """
+        从手动输入的模型列表更新本地存储（全量覆盖）
+        
+        Args:
+            provider_id: Provider 的唯一 ID (UUID)
+            model_ids: 手动输入的模型 ID 列表
+            provider_name: Provider 显示名称（用于日志）
+            
+        Returns:
+            (新增数量, 更新数量, 删除数量, 新增模型列表, 删除模型列表)
+        """
+        self._ensure_loaded()
+        
+        with self._lock:
+            now = datetime.now(timezone.utc).isoformat()
+            
+            # 确保 Provider 存在
+            if provider_id not in self._providers:
+                self._providers[provider_id] = ProviderModels(provider_id=provider_id)
+            
+            provider = self._providers[provider_id]
+            
+            # 统计
+            added_count = 0
+            updated_count = 0
+            removed_count = 0
+            added_models: list[str] = []
+            removed_models: list[str] = []
+            
+            # 去重并过滤空值
+            new_model_ids = {mid.strip() for mid in model_ids if mid and mid.strip()}
+            local_model_ids = set(provider.models.keys())
+            
+            # 处理新增和更新（保留现有模型的统计信息）
+            for model_id in new_model_ids:
+                if model_id in provider.models:
+                    # 模型已存在，无需更新元数据（手动输入不包含 owned_by 等信息）
+                    # 但算作"更新"以保持一致性（或者不算？这里暂不算更新，因为没有元数据变化）
+                    pass
+                else:
+                    # 新增模型
+                    provider.models[model_id] = ModelInfo(
+                        model_id=model_id,
+                        owned_by="manual",  # 标记为手动添加
+                        supported_endpoint_types=[],
+                        last_activity=None,
+                        last_activity_type=None,
+                        created_at=now
+                    )
+                    added_count += 1
+                    added_models.append(model_id)
+            
+            # 处理删除（输入列表中不存在但本地存在的模型）
+            to_remove = local_model_ids - new_model_ids
+            for model_id in to_remove:
+                del provider.models[model_id]
+                removed_count += 1
+                removed_models.append(model_id)
+            
+            # 输出日志
+            self._log_sync_changes(provider_id, provider_name, added_models, removed_models)
+            
+            # 配置变更，立即保存
+            self.save(immediate=True)
+            
+            return added_count, updated_count, removed_count, added_models, removed_models
+    
     def _log_sync_changes(
         self,
         provider_id: str,

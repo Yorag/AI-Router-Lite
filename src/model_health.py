@@ -269,16 +269,28 @@ class ModelHealthManager(BaseStorageManager):
             )
         
         # 检查渠道是否被手动禁用
-        if not skip_disabled_check and not provider.get("enabled", True):
-            return ModelHealthResult(
-                provider=provider_id,
-                model=model,
-                success=False,
-                latency_ms=0.0,
-                response_body={},
-                error=None,
-                tested_at=datetime.now(timezone.utc).isoformat()
-            )
+        if not skip_disabled_check:
+            if not provider.get("enabled", True):
+                return ModelHealthResult(
+                    provider=provider_id,
+                    model=model,
+                    success=False,
+                    latency_ms=0.0,
+                    response_body={},
+                    error=None,
+                    tested_at=datetime.now(timezone.utc).isoformat()
+                )
+            # 检查是否允许健康检测
+            if not provider.get("allow_health_check", True):
+                return ModelHealthResult(
+                    provider=provider_id,
+                    model=model,
+                    success=False,
+                    latency_ms=0.0,
+                    response_body={},
+                    error="该服务站已禁用健康检测",
+                    tested_at=datetime.now(timezone.utc).isoformat()
+                )
         
         # 查找模型协议配置
         protocol_type = self._get_model_protocol(provider_id, model)
@@ -415,26 +427,36 @@ class ModelHealthManager(BaseStorageManager):
         """
         self._ensure_loaded()
         
-        # 过滤掉禁用的渠道
+        # 过滤掉禁用或不允许健康检测的渠道
         filtered_resolved_models = resolved_models
         skipped_count = 0
         if skip_disabled_providers and self._admin_manager:
             filtered_resolved_models = {}
             for provider_id, models in resolved_models.items():
                 provider = self._admin_manager.get_provider(provider_id)
-                if provider and provider.get("enabled", True):
+                if not provider:
+                    continue
+                
+                # 检查 enabled 和 allow_health_check
+                if provider.get("enabled", True) and provider.get("allow_health_check", True):
                     filtered_resolved_models[provider_id] = models
                 else:
                     skipped_count += len(models)
-                    provider_name = provider.get("name", provider_id) if provider else provider_id
-                    print(f"[ModelHealth] 跳过禁用渠道 '{provider_name}' 的 {len(models)} 个模型")
+                    provider_name = provider.get("name", provider_id)
+                    reason = "禁用" if not provider.get("enabled", True) else "不允许检测"
+                    print(f"[ModelHealth] 跳过{reason}渠道 '{provider_name}' 的 {len(models)} 个模型")
         
         async def test_provider_models(provider_id: str, models: list[str]) -> list[ModelHealthResult]:
             """串行检测单个渠道内的所有模型"""
             results = []
             for model in models:
                 # 单个检测不立即保存，批量完成后统一保存
-                result = await self.test_single_model(provider_id, model, save_immediately=False)
+                # 跳过禁用检查，因为外层已经过滤过了
+                result = await self.test_single_model(
+                    provider_id, model,
+                    save_immediately=False,
+                    skip_disabled_check=True
+                )
                 results.append(result)
             return results
         

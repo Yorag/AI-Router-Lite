@@ -113,6 +113,13 @@ const App = {
         } catch (error) {
             Toast.error('复制失败');
         }
+    },
+
+    // 工具函数：HTML 转义
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 };
 

@@ -66,6 +66,8 @@ class ProviderConfig(BaseModel):
     weight: int = Field(default=1, ge=1, description="权重，数值越高优先级越高")
     timeout: Optional[float] = Field(default=None, ge=1.0, description="请求超时时间（秒），未配置时使用全局 request_timeout")
     enabled: bool = Field(default=True, description="是否启用该服务站")
+    allow_health_check: bool = Field(default=True, description="是否允许健康检测（包括手动和自动）")
+    allow_model_update: bool = Field(default=True, description="是否允许通过 API 更新模型列表")
     default_protocol: Optional[ProtocolType] = Field(
         default=None,
         description="渠道协议类型（用于路由过滤）。指定后，该渠道仅会被用于处理对应协议的请求。"

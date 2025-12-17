@@ -152,11 +152,23 @@ const ModelMap = {
             const providerCount = Object.keys(mapping.resolved_models || {}).length;
             const lastSync = mapping.last_sync ? new Date(mapping.last_sync).toLocaleString() : '未同步';
             const excludedProviders = mapping.excluded_providers || [];
+            const manualIncludes = mapping.manual_includes || [];
             
             // 将 excluded_providers (provider_id) 转换为显示名称
             const excludedProviderNames = excludedProviders.map(pid =>
                 this.providerIdNameMap[pid] || pid
             );
+            const manualIncludesDisplay = manualIncludes.map(ref => {
+                const trimmed = (ref || '').trim();
+                if (!trimmed) return '';
+                const sepIndex = trimmed.indexOf(':');
+                if (sepIndex === -1) return trimmed;
+                const providerId = trimmed.slice(0, sepIndex).trim();
+                const modelId = trimmed.slice(sepIndex + 1).trim();
+                if (!providerId || !modelId) return trimmed;
+                const providerName = this.providerIdNameMap[providerId] || providerId;
+                return `${providerName}:${modelId}`;
+            }).filter(Boolean);
             
             // 计算支持的协议并集
             const supportedProtocols = new Set();
@@ -220,10 +232,10 @@ const ModelMap = {
                             <span class="info-value excluded-providers-list">${excludedProviderNames.map(name => `<span class="excluded-provider-tag">🚫 ${name}</span>`).join(' ')}</span>
                         </div>
                         ` : ''}
-                        ${(mapping.manual_includes || []).length > 0 ? `
+                        ${manualIncludesDisplay.length > 0 ? `
                         <div class="info-row">
                             <span class="info-label">手动包含:</span>
-                            <span class="info-value">${mapping.manual_includes.join(', ')}</span>
+                            <span class="info-value">${manualIncludesDisplay.join(', ')}</span>
                         </div>
                         ` : ''}
                         <div class="info-row">

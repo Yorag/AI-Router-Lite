@@ -154,6 +154,7 @@ const Providers = {
         const providerName = provider.name;
         const providerUuid = provider.id;  // UUID 用于 API 调用
         const providerDomId = this.escapeId(providerUuid);  // DOM ID 使用转义后的 UUID
+        const allowModelUpdate = provider.allow_model_update !== false;
         
         // 创建模型标签（带能力提示）
         const createModelTag = (model) => {
@@ -191,10 +192,15 @@ const Providers = {
         }
 
         const isEnabled = provider.enabled !== false;
-        const statusBadgeClass = isEnabled ? 'info' : 'warning';
-        const statusText = isEnabled ? `权重: ${provider.weight}` : '已禁用';
+        const statusText = `权重: ${provider.weight}`;
         const toggleBtnText = isEnabled ? '禁用' : '启用';
         const protocolText = provider.default_protocol || '混合';
+        
+        // 如果禁止更新模型，则不显示更新模型按钮（或者显示为禁用）
+        // 这里选择不渲染该按钮，因为通过编辑窗口手动管理
+        const updateModelBtn = allowModelUpdate
+            ? `<button class="btn btn-sm btn-secondary btn-fetch-models" onclick="Providers.fetchModels('${providerUuid}')">更新模型</button>`
+            : '';
         
         // 生成健康状态圆点
         const healthDotHtml = this.renderHealthDot(provider);
@@ -210,7 +216,7 @@ const Providers = {
                         <div class="url">${provider.base_url}</div>
                     </div>
                     <div class="provider-badges">
-                        <span class="status-badge ${statusBadgeClass}">${statusText}</span>
+                        <span class="status-badge info">${statusText}</span>
                         <span class="status-badge info" title="默认协议">${protocolText}</span>
                     </div>
                 </div>
@@ -226,9 +232,7 @@ const Providers = {
                     <button class="btn btn-sm btn-secondary" onclick="Providers.toggleEnabled('${providerUuid}', ${!isEnabled})">
                         ${toggleBtnText}
                     </button>
-                    <button class="btn btn-sm btn-secondary btn-fetch-models" onclick="Providers.fetchModels('${providerUuid}')">
-                        更新模型
-                    </button>
+                    ${updateModelBtn}
                     <button class="btn btn-sm btn-secondary" onclick="Providers.showEditModal('${providerUuid}')">
                         编辑
                     </button>
@@ -259,7 +263,7 @@ const Providers = {
         
         // 手动禁用优先级最高
         if (!isEnabled) {
-            return `<span class="provider-health-dot disabled" data-tooltip="手动禁用"></span>`;
+            return `<span class="provider-health-dot disabled"></span>`;
         }
         
         // 检查运行时状态
@@ -360,6 +364,47 @@ const Providers = {
                     </select>
                     <div class="hint">指定该渠道支持的 API 协议类型。如果指定，该渠道仅会被用于处理对应协议的请求（如 /v1/chat/completions 或 /v1/messages）。</div>
                 </div>
+                
+                <div class="collapsible-section" id="advanced-settings-create">
+                    <div class="collapsible-header" onclick="Providers.toggleAdvancedSettings('create')">
+                        <h4><span class="collapsible-icon">▶</span> 高级设置</h4>
+                    </div>
+                    <div class="collapsible-content">
+                        <div class="collapsible-body">
+                            <div class="form-group">
+                                <label>超时时间 (秒)</label>
+                                <input type="number" id="provider-timeout" placeholder="默认使用全局配置">
+                                <div class="hint">请求超时时间，留空则使用全局设置</div>
+                            </div>
+                            <div class="checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="provider-health-check" checked>
+                                    允许模型健康检测
+                                    <span class="hint-inline">（取消勾选将禁用自动和手动健康检测）</span>
+                                </label>
+                            </div>
+                            <div class="checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="provider-model-update" checked onchange="Providers.toggleModelUpdateMode(this.checked, 'create')">
+                                    允许更新模型
+                                    <span class="hint-inline">（取消勾选将启用手动输入模型列表）</span>
+                                </label>
+                            </div>
+                            
+                            <div id="manual-models-container-create" style="display: none; margin-top: 16px;">
+                                <label>手动输入模型列表</label>
+                                <div class="tag-input-container" id="tag-input-create">
+                                    <div class="tag-input-tags" id="tag-input-tags-create"></div>
+                                    <input type="text" class="tag-input-field" id="tag-input-field-create"
+                                           placeholder="输入模型 ID 后按 Enter 添加"
+                                           onkeydown="Providers.handleTagInput(event, 'create')">
+                                </div>
+                                <div class="tag-input-hint">按 Enter 添加模型，点击标签上的 × 删除</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
                     <button type="submit" class="btn btn-primary">添加服务站</button>
@@ -367,6 +412,98 @@ const Providers = {
             </form>
         `;
         Modal.show('添加服务站', content);
+    },
+
+    // 存储手动输入的模型标签
+    manualModelTags: {
+        create: [],
+        edit: []
+    },
+
+    toggleModelUpdateMode(allowed, mode) {
+        const containerId = mode === 'create' ? 'manual-models-container-create' : 'manual-models-container-edit';
+        const container = document.getElementById(containerId);
+        if (container) {
+            container.style.display = allowed ? 'none' : 'block';
+        }
+    },
+
+    toggleAdvancedSettings(mode) {
+        const sectionId = mode === 'create' ? 'advanced-settings-create' : 'advanced-settings-edit';
+        const section = document.getElementById(sectionId);
+        if (section) {
+            section.classList.toggle('expanded');
+        }
+    },
+
+    /**
+     * 处理标签输入框的按键事件
+     */
+    handleTagInput(event, mode) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            const input = event.target;
+            const value = input.value.trim();
+            
+            if (value) {
+                this.addModelTag(value, mode);
+                input.value = '';
+            }
+        }
+    },
+
+    /**
+     * 添加模型标签
+     */
+    addModelTag(modelId, mode) {
+        // 去重检查
+        if (this.manualModelTags[mode].includes(modelId)) {
+            return;
+        }
+        
+        this.manualModelTags[mode].push(modelId);
+        this.renderModelTags(mode);
+    },
+
+    /**
+     * 删除模型标签
+     */
+    removeModelTag(modelId, mode) {
+        const index = this.manualModelTags[mode].indexOf(modelId);
+        if (index > -1) {
+            this.manualModelTags[mode].splice(index, 1);
+            this.renderModelTags(mode);
+        }
+    },
+
+    /**
+     * 渲染模型标签
+     */
+    renderModelTags(mode) {
+        const container = document.getElementById(`tag-input-tags-${mode}`);
+        if (!container) return;
+        
+        const tags = this.manualModelTags[mode];
+        
+        if (tags.length === 0) {
+            container.innerHTML = '<span class="tag-input-empty">暂无模型，请在下方输入添加</span>';
+            return;
+        }
+        
+        container.innerHTML = tags.map(tag => `
+            <span class="tag-input-tag">
+                ${App.escapeHtml(tag)}
+                <button type="button" class="tag-remove" onclick="Providers.removeModelTag('${App.escapeHtml(tag)}', '${mode}')" title="删除">×</button>
+            </span>
+        `).join('');
+    },
+
+    /**
+     * 初始化标签输入（用于编辑模式）
+     */
+    initModelTags(mode, models) {
+        this.manualModelTags[mode] = [...models];
+        this.renderModelTags(mode);
     },
 
     async create(event) {
@@ -378,13 +515,30 @@ const Providers = {
         const weight = parseInt(document.getElementById('provider-weight').value) || 1;
         const protocol = document.getElementById('provider-protocol').value || null;
         
-        // 模型列表不再在此处提交，通过"更新模型"按钮同步获取
+        const timeoutVal = document.getElementById('provider-timeout').value;
+        const timeout = timeoutVal ? parseFloat(timeoutVal) : null;
+        
+        const allowHealthCheck = document.getElementById('provider-health-check').checked;
+        const allowModelUpdate = document.getElementById('provider-model-update').checked;
+        
+        let manualModels = null;
+        if (!allowModelUpdate) {
+            manualModels = [...this.manualModelTags.create];
+        }
+        
+        // 清理标签数据
+        this.manualModelTags.create = [];
+        
         const data = {
             name,
             base_url: baseUrl,
             api_key: apiKey,
             weight,
-            default_protocol: protocol
+            timeout,
+            allow_health_check: allowHealthCheck,
+            allow_model_update: allowModelUpdate,
+            default_protocol: protocol,
+            manual_models: manualModels
         };
         
         try {
@@ -404,17 +558,25 @@ const Providers = {
         if (!provider) return;
         
         const currentProtocol = provider.default_protocol || '';
+        const timeoutValue = provider.timeout !== undefined && provider.timeout !== null ? provider.timeout : '';
+        const allowHealthCheck = provider.allow_health_check !== false; // 默认为 true
+        const allowModelUpdate = provider.allow_model_update !== false; // 默认为 true
         
+        // 获取当前模型列表（如果有），用于手动编辑填充
+        let manualModelsText = '';
+        if (this.modelDetails[providerId]) {
+            const models = Object.keys(this.modelDetails[providerId]);
+            manualModelsText = models.join('\n');
+        } else if (provider.supported_models && provider.supported_models.length > 0) {
+            // 兼容性：如果 modelDetails 没有，尝试从 supported_models 获取
+            manualModelsText = provider.supported_models.join('\n');
+        }
+
         const content = `
             <form onsubmit="Providers.update(event, '${providerId}')">
                 <div class="form-group">
                     <label>服务站名称</label>
                     <input type="text" id="edit-provider-name" value="${provider.name}" required>
-                </div>
-                <div class="form-group">
-                    <label>Provider ID</label>
-                    <input type="text" value="${provider.id}" disabled>
-                    <div class="hint">内部唯一标识，不可修改</div>
                 </div>
                 <div class="form-group">
                     <label>API 基础 URL</label>
@@ -435,6 +597,47 @@ const Providers = {
                     </select>
                     <div class="hint">指定该渠道支持的 API 协议类型。如果指定，该渠道仅会被用于处理对应协议的请求（如 /v1/chat/completions 或 /v1/messages）。</div>
                 </div>
+                
+                <div class="collapsible-section" id="advanced-settings-edit">
+                    <div class="collapsible-header" onclick="Providers.toggleAdvancedSettings('edit')">
+                        <h4><span class="collapsible-icon">▶</span> 高级设置</h4>
+                    </div>
+                    <div class="collapsible-content">
+                        <div class="collapsible-body">
+                            <div class="form-group">
+                                <label>超时时间 (秒)</label>
+                                <input type="number" id="edit-provider-timeout" value="${timeoutValue}" placeholder="默认使用全局配置">
+                                <div class="hint">请求超时时间，留空则使用全局设置</div>
+                            </div>
+                            <div class="checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="edit-provider-health-check" ${allowHealthCheck ? 'checked' : ''}>
+                                    允许模型健康检测
+                                    <span class="hint-inline">（取消勾选将禁用自动和手动健康检测）</span>
+                                </label>
+                            </div>
+                            <div class="checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="edit-provider-model-update" ${allowModelUpdate ? 'checked' : ''} onchange="Providers.toggleModelUpdateMode(this.checked, 'edit')">
+                                    允许更新模型
+                                    <span class="hint-inline">（取消勾选将启用手动输入模型列表）</span>
+                                </label>
+                            </div>
+                            
+                            <div id="manual-models-container-edit" style="display: ${allowModelUpdate ? 'none' : 'block'}; margin-top: 16px;">
+                                <label>手动输入模型列表</label>
+                                <div class="tag-input-container" id="tag-input-edit">
+                                    <div class="tag-input-tags" id="tag-input-tags-edit"></div>
+                                    <input type="text" class="tag-input-field" id="tag-input-field-edit"
+                                           placeholder="输入模型 ID 后按 Enter 添加"
+                                           onkeydown="Providers.handleTagInput(event, 'edit')">
+                                </div>
+                                <div class="tag-input-hint">按 Enter 添加模型，点击标签上的 × 删除</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
                     <button type="submit" class="btn btn-primary">保存</button>
@@ -442,6 +645,12 @@ const Providers = {
             </form>
         `;
         Modal.show('编辑服务站', content);
+        
+        // 初始化编辑模式的标签
+        const existingModels = manualModelsText ? manualModelsText.split('\n').filter(m => m.trim()) : [];
+        setTimeout(() => {
+            this.initModelTags('edit', existingModels);
+        }, 50);
     },
 
     async update(event, providerId) {
@@ -453,13 +662,30 @@ const Providers = {
         const weight = parseInt(document.getElementById('edit-provider-weight').value) || 1;
         const protocol = document.getElementById('edit-provider-protocol').value || null;
         
-        // 模型列表不再在此处提交，通过"更新模型"按钮同步获取
+        const timeoutVal = document.getElementById('edit-provider-timeout').value;
+        const timeout = timeoutVal ? parseFloat(timeoutVal) : null;
+        
+        const allowHealthCheck = document.getElementById('edit-provider-health-check').checked;
+        const allowModelUpdate = document.getElementById('edit-provider-model-update').checked;
+        
+        let manualModels = null;
+        if (!allowModelUpdate) {
+            manualModels = [...this.manualModelTags.edit];
+        }
+        
+        // 清理标签数据
+        this.manualModelTags.edit = [];
+        
         const data = {
             name,  // 允许修改名称
             base_url: baseUrl,
             api_key: apiKey,
             weight,
-            default_protocol: protocol
+            timeout,
+            allow_health_check: allowHealthCheck,
+            allow_model_update: allowModelUpdate,
+            default_protocol: protocol,
+            manual_models: manualModels
         };
         
         try {
