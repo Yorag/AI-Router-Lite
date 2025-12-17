@@ -98,6 +98,9 @@ LOG_HOURLY_STATS_DEFAULT_DAYS: int = 7
 MODEL_HEALTH_STORAGE_PATH: str = "data/model_health.json"
 MODEL_HEALTH_FILE: str = MODEL_HEALTH_STORAGE_PATH  # 别名
 
+# 健康检测错误日志最大长度
+HEALTH_CHECK_ERROR_LENGTH_LIMIT: int = 100
+
 
 # ==================== Provider 模型元信息配置 ====================
 

@@ -29,6 +29,7 @@ from .constants import (
     HEALTH_TEST_MAX_TOKENS,
     HEALTH_TEST_MESSAGE,
     STORAGE_BUFFER_INTERVAL_SECONDS,
+    HEALTH_CHECK_ERROR_LENGTH_LIMIT,
 )
 from .storage import BaseStorageManager, persistence_manager
 from .provider import provider_manager
@@ -148,6 +149,10 @@ class ModelHealthManager(BaseStorageManager):
         """
         self._ensure_loaded()
         
+        # 截断错误信息
+        if error and len(error) > HEALTH_CHECK_ERROR_LENGTH_LIMIT:
+            error = error[:HEALTH_CHECK_ERROR_LENGTH_LIMIT-3] + "..."
+            
         result = ModelHealthResult(
             provider=provider_id,
             model=model,
@@ -305,13 +310,19 @@ class ModelHealthManager(BaseStorageManager):
                 else:
                     # 将响应体转为单行字符串作为错误详情
                     error_detail = json.dumps(response_body, ensure_ascii=False).replace('\n', ' ').replace('\r', ' ')
+                    full_error = f"HTTP {response.status_code}: {error_detail}"
+                    
+                    # 截断错误信息
+                    if len(full_error) > HEALTH_CHECK_ERROR_LENGTH_LIMIT:
+                        full_error = full_error[:HEALTH_CHECK_ERROR_LENGTH_LIMIT-3] + "..."
+                        
                     result = ModelHealthResult(
                         provider=provider_id,
                         model=model,
                         success=False,
                         latency_ms=latency_ms,
                         response_body=response_body,
-                        error=f"HTTP {response.status_code}: {error_detail}",
+                        error=full_error,
                         tested_at=datetime.now(timezone.utc).isoformat()
                     )
                     
