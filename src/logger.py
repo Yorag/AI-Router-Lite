@@ -104,6 +104,7 @@ class LogManager:
             "provider_usage": {},  # provider -> count (保持向后兼容)
             "provider_stats": {},  # provider -> {total, successful, failed} (新增详细统计)
             "provider_model_stats": {}, # provider -> model -> {total, successful, failed, tokens} (新增模型级详细统计)
+            "model_provider_stats": {}, # unified_model -> provider -> {total, successful, failed} (新增统一模型下各渠道统计)
         }
         
         # 加载今天的统计数据
@@ -297,6 +298,28 @@ class LogManager:
                 self._stats["model_usage"][log_entry.model] = \
                     self._stats["model_usage"].get(log_entry.model, 0) + 1
             
+            # 统一模型 -> Provider 统计
+            if log_entry.model and log_entry.provider:
+                if "model_provider_stats" not in self._stats:
+                    self._stats["model_provider_stats"] = {}
+                
+                if log_entry.model not in self._stats["model_provider_stats"]:
+                    self._stats["model_provider_stats"][log_entry.model] = {}
+                
+                if log_entry.provider not in self._stats["model_provider_stats"][log_entry.model]:
+                    self._stats["model_provider_stats"][log_entry.model][log_entry.provider] = {
+                        "total": 0,
+                        "successful": 0,
+                        "failed": 0
+                    }
+                
+                mp_stat = self._stats["model_provider_stats"][log_entry.model][log_entry.provider]
+                mp_stat["total"] += 1
+                if is_success:
+                    mp_stat["successful"] += 1
+                else:
+                    mp_stat["failed"] += 1
+
             # Provider 使用统计（保持向后兼容）
             if log_entry.provider:
                 self._stats["provider_usage"][log_entry.provider] = \
@@ -592,7 +615,8 @@ class LogManager:
                 "failed_requests": stats.get("failed_requests", 0),
                 "total_tokens": stats.get("total_tokens", 0),
                 "model_usage": stats.get("model_usage", {}),
-                "provider_model_stats": stats.get("provider_model_stats", {})
+                "provider_model_stats": stats.get("provider_model_stats", {}),
+                "model_provider_stats": stats.get("model_provider_stats", {})
             }
             results.append(daily_data)
             

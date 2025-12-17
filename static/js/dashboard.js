@@ -350,15 +350,33 @@ const Dashboard = {
         // 2. 更新模型分布图 (聚合7天)
         if (this.modelUsageChart) {
             const aggregatedUsage = {};
+            const aggregatedModelProviderStats = {}; // unified_model -> provider -> stats
+
             dailyStats.forEach(day => {
                 if (day.model_usage) {
                     Object.entries(day.model_usage).forEach(([model, count]) => {
                         aggregatedUsage[model] = (aggregatedUsage[model] || 0) + count;
                     });
                 }
+                
+                // 聚合 model_provider_stats
+                if (day.model_provider_stats) {
+                    Object.entries(day.model_provider_stats).forEach(([model, providers]) => {
+                        if (!aggregatedModelProviderStats[model]) aggregatedModelProviderStats[model] = {};
+                        
+                        Object.entries(providers).forEach(([provider, stats]) => {
+                            if (!aggregatedModelProviderStats[model][provider]) {
+                                aggregatedModelProviderStats[model][provider] = { total: 0, successful: 0, failed: 0 };
+                            }
+                            aggregatedModelProviderStats[model][provider].total += stats.total || 0;
+                            aggregatedModelProviderStats[model][provider].successful += stats.successful || 0;
+                            aggregatedModelProviderStats[model][provider].failed += stats.failed || 0;
+                        });
+                    });
+                }
             });
 
-            this.updateModelChart(aggregatedUsage);
+            this.updateModelChart(aggregatedUsage, aggregatedModelProviderStats);
         }
     },
 
@@ -385,12 +403,12 @@ const Dashboard = {
 
         // 2. 更新模型分布图
         if (this.modelUsageChart) {
-            this.updateModelChart(logStats.model_usage || {});
+            this.updateModelChart(logStats.model_usage || {}, logStats.model_provider_stats || {});
         }
     },
 
     // 辅助：更新模型分布图
-    updateModelChart(usageData) {
+    updateModelChart(usageData, modelProviderStats = {}) {
         if (!this.modelUsageChart) return;
 
         const models = Object.keys(usageData);
@@ -404,6 +422,31 @@ const Dashboard = {
             this.modelUsageChart.data.labels = models;
             this.modelUsageChart.data.datasets[0].data = counts;
         }
+        
+        // 更新 Tooltip 回调所需的数据
+        this.modelUsageChart.options.plugins.tooltip.callbacks.label = (context) => {
+            const modelName = context.label;
+            const total = context.raw;
+            const providers = modelProviderStats[modelName] || {};
+            
+            // 基础信息
+            let tooltipText = [`${modelName} (Total: ${total})`];
+            
+            // 详细服务站信息
+            const providerList = Object.entries(providers)
+                .sort((a, b) => b[1].total - a[1].total); // 按调用量降序
+            
+            if (providerList.length > 0) {
+                providerList.forEach(([providerName, stats]) => {
+                    const percentage = total > 0 ? ((stats.total / total) * 100).toFixed(1) : '0.0';
+                    const successRate = stats.total > 0 ? ((stats.successful / stats.total) * 100).toFixed(1) : '0.0';
+                    tooltipText.push(`- ${providerName}: ${stats.total} (${percentage}%, Success: ${successRate}%)`);
+                });
+            }
+            
+            return tooltipText;
+        };
+        
         this.modelUsageChart.update();
     }
 };
