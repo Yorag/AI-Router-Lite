@@ -506,6 +506,13 @@ class ModelMappingManager:
             return False, f"映射 '{unified_name}' 不存在"
         
         mapping = self._mappings[unified_name]
+        
+        # 检查协议是否变更，变更时清空健康状态
+        old_protocol = mapping.get_model_protocol(provider_id, model_id)
+        if old_protocol != protocol:
+            from .model_health import model_health_manager
+            model_health_manager.clear_result(provider_id, model_id)
+        
         mapping.set_model_protocol(provider_id, model_id, protocol)
         
         self.save()

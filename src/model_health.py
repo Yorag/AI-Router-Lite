@@ -26,14 +26,14 @@ import httpx
 from .constants import (
     MODEL_HEALTH_STORAGE_PATH,
     ADMIN_HTTP_TIMEOUT,
-    HEALTH_TEST_MAX_TOKENS,
-    HEALTH_TEST_MESSAGE,
     STORAGE_BUFFER_INTERVAL_SECONDS,
     HEALTH_CHECK_ERROR_LENGTH_LIMIT,
 )
 from .storage import BaseStorageManager, persistence_manager
 from .provider import provider_manager
 from .provider_models import provider_models_manager
+from .model_mapping import model_mapping_manager
+from .protocols import get_protocol
 
 
 @dataclass
@@ -122,6 +122,22 @@ class ModelHealthManager(BaseStorageManager):
             admin_manager: AdminManager 实例
         """
         self._admin_manager = admin_manager
+    
+    def _get_model_protocol(self, provider_id: str, model: str) -> Optional[str]:
+        """
+        查找模型的协议配置
+        
+        遍历所有映射，查找 provider_id:model 对应的协议设置
+        
+        Returns:
+            协议类型字符串，未配置则返回 None
+        """
+        mappings = model_mapping_manager.get_all_mappings()
+        key = f"{provider_id}:{model}"
+        for mapping in mappings.values():
+            if key in mapping.model_settings:
+                return mapping.model_settings[key].get("protocol")
+        return None
     
     # ==================== 被动请求结果记录 ====================
     
@@ -259,34 +275,56 @@ class ModelHealthManager(BaseStorageManager):
         
         # 检查渠道是否被手动禁用
         if not skip_disabled_check and not provider.get("enabled", True):
-            provider_name = provider.get("name", provider_id)
             return ModelHealthResult(
                 provider=provider_id,
                 model=model,
                 success=False,
                 latency_ms=0.0,
                 response_body={},
+                error=None,
+                tested_at=datetime.now(timezone.utc).isoformat()
+            )
+        
+        # 查找模型协议配置
+        protocol_type = self._get_model_protocol(provider_id, model)
+        if not protocol_type:
+            return ModelHealthResult(
+                provider=provider_id,
+                model=model,
+                success=False,
+                latency_ms=0.0,
+                response_body={},
+                error="未配置协议，跳过健康检测",
+                tested_at=datetime.now(timezone.utc).isoformat()
+            )
+        
+        protocol = get_protocol(protocol_type)
+        if not protocol:
+            return ModelHealthResult(
+                provider=provider_id,
+                model=model,
+                success=False,
+                latency_ms=0.0,
+                response_body={},
+                error=f"不支持的协议类型: {protocol_type}",
                 tested_at=datetime.now(timezone.utc).isoformat()
             )
         
         base_url = provider.get("base_url", "").rstrip("/")
         api_key = provider.get("api_key", "")
         
+        # 使用协议适配器构建请求（复用 URL/Headers 逻辑）
+        minimal_body = protocol.get_health_check_body(model)
+        req = protocol.build_request(base_url, api_key, minimal_body, model)
+        
         start_time = time.time()
         
         try:
             async with httpx.AsyncClient(timeout=ADMIN_HTTP_TIMEOUT) as client:
                 response = await client.post(
-                    f"{base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": model,
-                        "messages": [{"role": "user", "content": HEALTH_TEST_MESSAGE}],
-                        "max_tokens": HEALTH_TEST_MAX_TOKENS
-                    }
+                    req.url,
+                    headers=req.headers,
+                    json=req.body
                 )
                 
                 latency_ms = (time.time() - start_time) * 1000
@@ -432,6 +470,13 @@ class ModelHealthManager(BaseStorageManager):
             self.save(immediate=True)
         
         return all_results
+    
+    def clear_result(self, provider_id: str, model: str) -> None:
+        """清除单个模型的检测结果"""
+        self._ensure_loaded()
+        with self._lock:
+            if self._results.pop(ModelHealthResult.make_key(provider_id, model), None):
+                self.mark_dirty()
     
     def clear_results(self) -> None:
         """清除所有检测结果"""

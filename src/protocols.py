@@ -17,6 +17,8 @@ from abc import ABC, abstractmethod
 from typing import Optional, Any, Tuple, Dict, Union
 from dataclasses import dataclass
 
+from .constants import HEALTH_TEST_MAX_TOKENS, HEALTH_TEST_MESSAGE
+
 @dataclass
 class ProtocolRequest:
     """协议请求数据"""
@@ -72,6 +74,11 @@ class BaseProtocol(ABC):
         Returns:
             ProtocolRequest 对象
         """
+        pass
+
+    @abstractmethod
+    def get_health_check_body(self, model: str) -> Dict[str, Any]:
+        """返回健康检测用的最小请求体"""
         pass
 
     def transform_response(self, raw_response: Any, original_model: str) -> ProtocolResponse:
@@ -146,6 +153,9 @@ class OpenAIProtocol(BaseProtocol):
             stream=body.get("stream", False)
         )
 
+    def get_health_check_body(self, model: str) -> Dict[str, Any]:
+        return {"model": model, "messages": [{"role": "user", "content": HEALTH_TEST_MESSAGE}], "max_tokens": HEALTH_TEST_MAX_TOKENS}
+
     def transform_response(self, raw_response: dict, original_model: str) -> ProtocolResponse:
         # 替换模型名为用户请求的原始模型名
         if isinstance(raw_response, dict):
@@ -213,6 +223,9 @@ class OpenAIResponseProtocol(BaseProtocol):
         body = original_request.copy()
         body["model"] = actual_model
         
+        if "max_output_tokens" in body:
+            body.setdefault("max_tokens", body.pop("max_output_tokens"))
+
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
@@ -224,6 +237,9 @@ class OpenAIResponseProtocol(BaseProtocol):
             body=body,
             stream=body.get("stream", False)
         )
+
+    def get_health_check_body(self, model: str) -> Dict[str, Any]:
+        return {"model": model, "input": HEALTH_TEST_MESSAGE, "max_output_tokens": HEALTH_TEST_MAX_TOKENS}
 
     def transform_response(self, raw_response: dict, original_model: str) -> ProtocolResponse:
         # Responses API 结构与 Chat API 略有不同，但仍包含 model 字段
@@ -317,6 +333,9 @@ class AnthropicProtocol(BaseProtocol):
             body=body,
             stream=body.get("stream", False)
         )
+
+    def get_health_check_body(self, model: str) -> Dict[str, Any]:
+        return {"model": model, "messages": [{"role": "user", "content": HEALTH_TEST_MESSAGE}], "max_tokens": HEALTH_TEST_MAX_TOKENS}
 
     def transform_response(self, raw_response: dict, original_model: str) -> ProtocolResponse:
         if isinstance(raw_response, dict):
@@ -426,7 +445,10 @@ class GeminiProtocol(BaseProtocol):
             body=body,
             stream=original_request.get("stream", False)
         )
-        
+
+    def get_health_check_body(self, model: str) -> Dict[str, Any]:
+        return {"model": model, "contents": [{"parts": [{"text": HEALTH_TEST_MESSAGE}]}], "generationConfig": {"maxOutputTokens": HEALTH_TEST_MAX_TOKENS}}
+
     def transform_response(self, raw_response: Any, original_model: str) -> ProtocolResponse:
         # Gemini 响应处理
         return ProtocolResponse(response=raw_response)
