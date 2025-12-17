@@ -10,7 +10,7 @@
 APP_NAME: str = "AI-Router-Lite"
 
 # 应用版本
-APP_VERSION: str = "0.5.0"
+APP_VERSION: str = "0.7.0"
 
 # 应用描述
 APP_DESCRIPTION: str = "轻量级 AI 聚合路由 + 管理面板"
@@ -95,7 +95,7 @@ LOG_HOURLY_STATS_DEFAULT_DAYS: int = 7
 # ==================== 代理错误配置 ====================
 
 # 代理错误消息最大长度（字符），超过将被截断
-PROXY_ERROR_MESSAGE_MAX_LENGTH: int = 100
+PROXY_ERROR_MESSAGE_MAX_LENGTH: int = 300
 
 
 # ==================== 模型健康检测配置 ====================
