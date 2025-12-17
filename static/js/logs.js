@@ -89,18 +89,47 @@ const Logs = {
                 </div>
              `;
         } else if (log.type === 'error') {
-             contentHtml = `
-                <div class="log-content-row">
-                    ${keyLabel}
-                    <span class="log-model">${log.model || ''}</span>
-                    <span class="log-error-msg">${log.error || log.message || ''}</span>
-                </div>
-             `;
+            // 如果有路由信息（provider 和 actual_model），显示完整路由
+            if (log.provider && log.actual_model) {
+                contentHtml = `
+                    <div class="log-content-row">
+                        ${keyLabel}
+                        <span class="log-model" title="请求模型">${log.model || ''}</span>
+                        <span class="log-arrow">⟹</span>
+                        <span class="log-provider" title="服务站">${log.provider}</span>
+                        <span class="log-divider">:</span>
+                        <span class="log-actual-model" title="实际模型">${log.actual_model}</span>
+                        <span class="log-error-msg">${log.error || log.message || ''}</span>
+                    </div>
+                `;
+            } else {
+                // 没有路由信息时，保持原有显示
+                contentHtml = `
+                    <div class="log-content-row">
+                        ${keyLabel}
+                        <span class="log-model">${log.model || ''}</span>
+                        <span class="log-error-msg">${log.error || log.message || ''}</span>
+                    </div>
+                `;
+            }
         } else if (log.type === 'circuit_breaker') {
             contentHtml = `
                 <div class="log-content-row">
                     <span class="log-msg">${log.message || ''}</span>
                     ${log.error ? `<span class="log-error-detail">${log.error}</span>` : ''}
+                </div>
+            `;
+        } else if (log.type === 'sync') {
+            // 同步日志：服务站更新显示provider，模型映射同步显示统一ID
+            const syncLabel = log.path === '/provider-models' && log.provider
+                ? `<span class="log-provider" title="服务站">${log.provider}</span>`
+                : log.path === '/model-mapping' && log.model
+                    ? `<span class="log-model" title="统一模型">${log.model}</span>`
+                    : '';
+            contentHtml = `
+                <div class="log-content-row">
+                    ${syncLabel}
+                    <span class="log-msg">${log.message || ''}</span>
                 </div>
             `;
         } else {
