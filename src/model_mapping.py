@@ -852,27 +852,20 @@ class ModelMappingManager:
         if not added and not removed:
             return
         
-        # 构建控制台输出（带颜色）
-        console_parts = []
-        # 构建日志消息（无颜色）
-        log_parts = []
-        
+        parts = []
         if added:
-            added_models = ", ".join(format_model_ref(m) for m in added[:5])  # 最多显示5个
+            added_models = ", ".join(format_model_ref(m) for m in added[:5])
             suffix = f"等{len(added)}个" if len(added) > 5 else ""
-            console_parts.append(f"新增 {len(added)} 个模型（{added_models}{suffix}）")
-            log_parts.append(f"新增 {len(added)} 个模型（{added_models}{suffix}）")
+            parts.append(f"新增 {len(added)} 个模型（{added_models}{suffix}）")
         
         if removed:
-            removed_models = ", ".join(format_model_ref(m) for m in removed[:5])  # 最多显示5个
+            removed_models = ", ".join(format_model_ref(m) for m in removed[:5])
             suffix = f"等{len(removed)}个" if len(removed) > 5 else ""
-            console_parts.append(f"移除 {len(removed)} 个模型（{removed_models}{suffix}）")
-            log_parts.append(f"移除 {len(removed)} 个模型（{removed_models}{suffix}）")
+            parts.append(f"移除 {len(removed)} 个模型（{removed_models}{suffix}）")
         
-        console_message = f"[{unified_name}] 同步完成：{', '.join(console_parts)}"
-        log_message = f"同步完成：{', '.join(log_parts)}"
+        log_message = f"同步完成：{', '.join(parts)}"
         
-        print(f"[MODEL-MAPPING] {console_message}")
+        print(f"[MODEL-MAPPING] [{unified_name}] {log_message}")
         log_manager.log(
             level=LogLevel.INFO,
             log_type="sync",

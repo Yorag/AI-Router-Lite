@@ -325,29 +325,22 @@ class ProviderModelsManager(BaseStorageManager):
         if not added_models and not removed_models:
             return
         
-        # 构建控制台输出（带颜色）
-        console_parts = []
-        # 构建日志消息（无颜色）
-        log_parts = []
-        
+        parts = []
         if added_models:
             sorted_added = sorted(added_models)
-            models_preview = ", ".join(sorted_added[:5])  # 最多显示5个
+            models_preview = ", ".join(sorted_added[:5])
             suffix = f"等{len(added_models)}个" if len(added_models) > 5 else ""
-            console_parts.append(f"新增 {len(added_models)} 个模型（{models_preview}{suffix}）")
-            log_parts.append(f"新增 {len(added_models)} 个模型（{models_preview}{suffix}）")
+            parts.append(f"新增 {len(added_models)} 个模型（{models_preview}{suffix}）")
         
         if removed_models:
             sorted_removed = sorted(removed_models)
-            models_preview = ", ".join(sorted_removed[:5])  # 最多显示5个
+            models_preview = ", ".join(sorted_removed[:5])
             suffix = f"等{len(removed_models)}个" if len(removed_models) > 5 else ""
-            console_parts.append(f"移除 {len(removed_models)} 个模型（{models_preview}{suffix}）")
-            log_parts.append(f"移除 {len(removed_models)} 个模型（{models_preview}{suffix}）")
+            parts.append(f"移除 {len(removed_models)} 个模型（{models_preview}{suffix}）")
         
-        console_message = f"[{display_name}] 同步完成：{', '.join(console_parts)}"
-        log_message = f"同步完成：{', '.join(log_parts)}"
+        log_message = f"更新完成：{', '.join(parts)}"
         
-        print(f"[PROVIDER-MODELS] {console_message}")
+        print(f"[PROVIDER-MODELS] [{display_name}] {log_message}")
         log_manager.log(
             level=LogLevel.INFO,
             log_type="sync",
