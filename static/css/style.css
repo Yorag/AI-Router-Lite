@@ -1986,6 +1986,42 @@ body {
     border: 1px solid var(--border-color);
 }
 
+/* 密钥创建成功弹窗样式 */
+.key-created-notice {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: var(--border-radius-sm);
+    padding: 12px;
+    margin-bottom: 16px;
+    color: #856404;
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.key-created-notice p {
+    margin: 0;
+}
+
+.key-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-tertiary);
+    padding: 8px 12px;
+    border-radius: var(--border-radius-sm);
+    border: 1px solid var(--border-color);
+}
+
+.key-display code {
+    flex: 1;
+    word-break: break-all;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.875rem;
+    color: var(--text-color);
+}
+
 /* 图标按钮 */
 .btn-icon {
     display: inline-flex;

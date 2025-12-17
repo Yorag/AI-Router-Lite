@@ -39,11 +39,20 @@ class APIKey:
     enabled: bool = True
     total_requests: int = 0
     
-    def to_dict(self) -> dict:
+    @staticmethod
+    def _mask_key(key: str) -> str:
+        """遮蔽密钥: 保留前6位和后4位，中间使用星号"""
+        if not key or len(key) <= 10:
+            return key or ''
+        return f"{key[:6]}****{key[-4:]}"
+    
+    def to_dict(self, include_plain: bool = False) -> dict:
         """转换为字典"""
-        return {
+        masked = self._mask_key(self.key_plain or "")
+        
+        result = {
             "key_id": self.key_id,
-            "key_plain": self.key_plain,
+            "key_masked": masked,
             "name": self.name,
             "created_at": self.created_at,
             "created_at_str": datetime.fromtimestamp(self.created_at).strftime("%Y-%m-%d %H:%M:%S"),
@@ -52,6 +61,11 @@ class APIKey:
             "enabled": self.enabled,
             "total_requests": self.total_requests
         }
+        
+        if include_plain:
+            result["key_plain"] = self.key_plain
+            
+        return result
 
 
 class APIKeyManager(BaseStorageManager):
@@ -154,7 +168,7 @@ class APIKeyManager(BaseStorageManager):
             # 配置变更，立即保存
             self.save(immediate=True)
             
-            return full_key, api_key.to_dict()
+            return full_key, api_key.to_dict(include_plain=True)
     
     def validate_key(self, key: str) -> Optional[APIKey]:
         """

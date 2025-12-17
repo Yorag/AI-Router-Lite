@@ -21,14 +21,6 @@ const APIKeys = {
     },
 
     /**
-     * 遮蔽密钥显示
-     */
-    maskKey(key) {
-        if (!key || key.length < 12) return key || '';
-        return key.substring(0, 7) + '****' + key.substring(key.length - 4);
-    },
-
-    /**
      * 复制文本到剪贴板（带 fallback）
      */
     copyToClipboard(text) {
@@ -63,24 +55,6 @@ const APIKeys = {
         });
     },
 
-    /**
-     * 复制密钥到剪贴板
-     */
-    copyKey(keyId) {
-        const key = this.keys.find(k => k.key_id === keyId);
-        if (!key || !key.key_plain) {
-            Toast.error('无法复制：密钥明文不可用');
-            return;
-        }
-        
-        this.copyToClipboard(key.key_plain).then(() => {
-            Toast.success('密钥已复制到剪贴板');
-        }).catch((err) => {
-            console.error('Copy failed:', err);
-            Toast.error('复制失败，请手动复制');
-        });
-    },
-
     render() {
         const tbody = document.getElementById('api-keys-table');
         
@@ -98,17 +72,12 @@ const APIKeys = {
         }
 
         tbody.innerHTML = this.keys.map(key => {
-            const displayKey = this.maskKey(key.key_plain);
-            
             return `
                 <tr>
-                    <td class="key-cell">
-                        <code class="key-code">${displayKey || key.key_id}</code>
-                        <button class="btn btn-icon" onclick="APIKeys.copyKey('${key.key_id}')" title="复制密钥">
-                            📋
-                        </button>
-                    </td>
                     <td>${key.name}</td>
+                    <td class="key-cell">
+                        <code class="key-code">${key.key_masked || ''}</code>
+                    </td>
                     <td>
                         <span class="status-badge ${key.enabled ? 'enabled' : 'disabled'}">
                             ${key.enabled ? '启用' : '禁用'}
@@ -162,13 +131,47 @@ const APIKeys = {
         }
         
         try {
-            await API.createAPIKey(name);
+            const result = await API.createAPIKey(name);
             Modal.close();
-            Toast.success('密钥创建成功');
-            await this.load();
+            // 显示密钥创建成功弹窗
+            this.showKeyCreatedModal(result.key);
         } catch (error) {
             Toast.error('创建密钥失败: ' + error.message);
         }
+    },
+
+    showKeyCreatedModal(keyPlain) {
+        const content = `
+            <div class="key-created-notice">
+                <p>⚠️ 请立即复制并妥善保存此密钥，关闭后将无法再次查看！</p>
+            </div>
+            <div class="form-group">
+                <label>API 密钥</label>
+                <div class="key-display" onclick="APIKeys.copyCreatedKey(event)" style="cursor: pointer;" title="点击复制">
+                    <code id="created-key-value" style="pointer-events: none;">${keyPlain}</code>
+                </div>
+                <div class="hint" style="text-align: right; margin-top: 4px;">点击密钥即可复制</div>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-primary" onclick="Modal.close(); APIKeys.load();">
+                    我已保存，关闭
+                </button>
+            </div>
+        `;
+        Modal.show('🔑 密钥创建成功', content);
+    },
+
+    copyCreatedKey(event) {
+        if (event) {
+            event.stopPropagation();
+        }
+
+        const keyValue = document.getElementById('created-key-value').textContent;
+        this.copyToClipboard(keyValue).then(() => {
+            Toast.success('密钥已复制到剪贴板');
+        }).catch(() => {
+            Toast.error('复制失败，请手动复制');
+        });
     },
 
     showEditModal(keyId) {
@@ -177,10 +180,6 @@ const APIKeys = {
         
         const content = `
             <form onsubmit="APIKeys.update(event, '${keyId}')">
-                <div class="form-group">
-                    <label>密钥 ID</label>
-                    <input type="text" value="${key.key_id}" disabled>
-                </div>
                 <div class="form-group">
                     <label>密钥名称</label>
                     <input type="text" id="edit-key-name" value="${key.name}" required>
