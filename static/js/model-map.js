@@ -11,6 +11,7 @@ const ModelMap = {
     providerIdNameMap: {},  // provider_id -> provider_name 映射
     providerDefaultProtocols: {},  // provider_id -> default_protocol 映射
     providerEnabledStatus: {},     // provider_id -> enabled 状态映射
+    providerWeights: {},           // provider_id -> weight 映射
     currentProviderId: '',  // 当前选中的 provider_id
     currentProviderModels: [], // 当前选中的中转站模型
     previewResult: {},      // 预览结果缓存
@@ -61,17 +62,20 @@ const ModelMap = {
             const providers = result.providers || [];
             this.providerDefaultProtocols = {};
             this.providerEnabledStatus = {};
+            this.providerWeights = {};
             for (const p of providers) {
                 if (p.id) {
                     this.providerDefaultProtocols[p.id] = p.default_protocol || null;
                     // 默认为 true，只有明确为 false 时才是禁用
                     this.providerEnabledStatus[p.id] = p.enabled !== false;
+                    this.providerWeights[p.id] = p.weight !== undefined ? p.weight : 0;
                 }
             }
         } catch (err) {
             console.warn('加载 Provider 协议配置失败:', err);
             this.providerDefaultProtocols = {};
             this.providerEnabledStatus = {};
+            this.providerWeights = {};
         }
     },
 
@@ -148,27 +152,20 @@ const ModelMap = {
 
         container.innerHTML = entries.map(([unifiedName, mapping]) => {
             const rulesText = this.formatRules(mapping.rules || []);
-            const totalModels = this.countModels(mapping.resolved_models || {});
+            
+            // 计算模型统计信息
+            const stats = this.calculateModelStats(mapping.resolved_models || {});
+            const availableCount = stats.available;
+            const totalCount = stats.total;
             const providerCount = Object.keys(mapping.resolved_models || {}).length;
+            
             const lastSync = mapping.last_sync ? new Date(mapping.last_sync).toLocaleString() : '未同步';
             const excludedProviders = mapping.excluded_providers || [];
-            const manualIncludes = mapping.manual_includes || [];
             
             // 将 excluded_providers (provider_id) 转换为显示名称
             const excludedProviderNames = excludedProviders.map(pid =>
                 this.providerIdNameMap[pid] || pid
             );
-            const manualIncludesDisplay = manualIncludes.map(ref => {
-                const trimmed = (ref || '').trim();
-                if (!trimmed) return '';
-                const sepIndex = trimmed.indexOf(':');
-                if (sepIndex === -1) return trimmed;
-                const providerId = trimmed.slice(0, sepIndex).trim();
-                const modelId = trimmed.slice(sepIndex + 1).trim();
-                if (!providerId || !modelId) return trimmed;
-                const providerName = this.providerIdNameMap[providerId] || providerId;
-                return `${providerName}:${modelId}`;
-            }).filter(Boolean);
             
             // 计算支持的协议并集
             const supportedProtocols = new Set();
@@ -188,65 +185,90 @@ const ModelMap = {
             const protocolsArray = Array.from(supportedProtocols).sort();
             
             return `
-                <div class="model-map-item">
-                    <div class="model-map-header">
-                        <div class="model-map-title">
-                            <h4> ${unifiedName}</h4>
-                            ${mapping.description ? `<span class="model-map-desc">${mapping.description}</span>` : ''}
+                <div class="model-map-card">
+                    <div class="card-header">
+                        <div class="header-main">
+                            <h4 class="unified-name" title="${unifiedName}">${unifiedName}</h4>
                         </div>
-                        <div class="actions">
-                            <button class="btn btn-sm btn-primary" onclick="ModelMap.syncSingle('${unifiedName}')" title="同步此映射">
-                                 同步
+                        <div class="model-map-actions">
+                            <button class="btn-icon-mini" onclick="ModelMap.syncSingle('${unifiedName}')" title="同步">
+                                🔄
                             </button>
-                            <button class="btn btn-sm btn-secondary" onclick="ModelMap.testMappingHealth('${unifiedName}')" title="检测此映射下所有模型的健康状态">
-                                 检测健康
+                            <button class="btn-icon-mini" onclick="ModelMap.testMappingHealth('${unifiedName}')" title="检测健康">
+                                🩺
                             </button>
-                            <button class="btn btn-sm btn-secondary" onclick="ModelMap.showEditModal('${unifiedName}')">
-                                编辑
+                            <button class="btn-icon-mini" onclick="ModelMap.showEditModal('${unifiedName}')" title="编辑">
+                                ✏️
                             </button>
-                            <button class="btn btn-sm btn-danger" onclick="ModelMap.confirmDelete('${unifiedName}')">
-                                删除
+                            <button class="btn-icon-mini danger" onclick="ModelMap.confirmDelete('${unifiedName}')" title="删除">
+                                🗑️
                             </button>
                         </div>
                     </div>
-                    <div class="model-map-info">
-                        <div class="info-row">
-                            <span class="info-label">匹配规则:</span>
-                            <span class="info-value">${rulesText || '<em>无规则</em>'}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">匹配结果:</span>
-                            <span class="info-value">${totalModels} 个模型 来自 ${providerCount} 个渠道</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">支持协议:</span>
-                            <span class="info-value">
+                    
+                    <div class="card-body">
+                        <div class="info-group">
+                            <div class="map-badges">
+                                <span class="match-count-badge ${availableCount > 0 ? 'active' : 'inactive'}" title="可用模型/总匹配模型">
+                                    ${availableCount}/${totalCount}
+                                </span>
                                 ${protocolsArray.length > 0
-                                    ? protocolsArray.map(p => `<span class="status-badge info">${p}</span>`).join(' ')
-                                    : '<span class="status-badge warning">无可用协议</span>'}
-                            </span>
+                                    ? protocolsArray.map(p => `<span class="protocol-tag-mini">${p}</span>`).join('')
+                                    : '<span class="protocol-tag-mini empty">无协议</span>'}
+                            </div>
                         </div>
-                        ${excludedProviders.length > 0 ? `
-                        <div class="info-row">
-                            <span class="info-label">排除渠道:</span>
-                            <span class="info-value excluded-providers-list">${excludedProviderNames.map(name => `<span class="excluded-provider-tag">🚫 ${name}</span>`).join(' ')}</span>
-                        </div>
-                        ` : ''}
-                        ${manualIncludesDisplay.length > 0 ? `
-                        <div class="info-row">
-                            <span class="info-label">手动包含:</span>
-                            <span class="info-value">${manualIncludesDisplay.join(', ')}</span>
-                        </div>
-                        ` : ''}
-                        <div class="info-row">
-                            <span class="info-label">上次同步:</span>
-                            <span class="info-value">${lastSync}</span>
+                        
+                        <div class="meta-row">
+                            <span class="meta-item" title="来源渠道数">📡 ${providerCount}</span>
+                            
+                            ${excludedProviders.length > 0 ?
+                                `<span class="meta-item warning" title="排除渠道: ${excludedProviders.length} 个\n${excludedProviderNames.join(', ')}">🚫 ${excludedProviders.length}</span>` : ''}
+                            
+                            ${mapping.manual_includes && mapping.manual_includes.length > 0 ?
+                                `<span class="meta-item info" title="手动包含: ${mapping.manual_includes.length} 个\n${mapping.manual_includes.join('\n')}">📌 ${mapping.manual_includes.length}</span>` : ''}
+                            
+                            <span class="meta-spacer"></span>
+                            <span class="meta-item time" title="上次同步时间">${lastSync}</span>
                         </div>
                     </div>
+
                     ${this.renderResolvedModels(mapping.resolved_models || {}, unifiedName)}
                 </div>
             `;
         }).join('');
+    },
+
+    /**
+     * 计算模型统计信息 (可用/总数)
+     */
+    calculateModelStats(resolvedModels) {
+        let total = 0;
+        let available = 0;
+
+        for (const [providerId, models] of Object.entries(resolvedModels)) {
+            // 如果 Provider 被禁用，则该 Provider 下的所有模型都不可用
+            const isProviderDisabled = this.providerEnabledStatus[providerId] === false;
+            
+            for (const model of models) {
+                total++;
+                
+                if (isProviderDisabled) continue;
+
+                const key = `${providerId}:${model}`;
+                const runtimeState = this.runtimeStates[key];
+                
+                // 检查是否永久禁用
+                if (runtimeState && runtimeState.status === 'permanently_disabled') {
+                    continue;
+                }
+                
+                // 暂时将 cooling 视为可用（或者你可以决定它不可用，这里假设只要不是永久禁用且渠道开启就算可用）
+                // 如果想要更严格的"可用"，可以排除 cooling
+                
+                available++;
+            }
+        }
+        return { total, available };
     },
 
     renderSyncConfig() {
@@ -323,7 +345,7 @@ const ModelMap = {
                 <div class="resolved-content" style="display: ${contentDisplay};">
                     ${unifiedName ? `
                     <div class="protocol-config-hint">
-                        <span>💡 灰色模型点击可检测健康状态，匹配模型右键可配置协议</span>
+                        <span>左击可检测健康状态，右击可配置协议</span>
                         <button class="btn btn-sm btn-secondary" onclick="ModelMap.showBatchProtocolModal('${escapedUnifiedName}')">
                             批量配置协议
                         </button>
@@ -334,12 +356,18 @@ const ModelMap = {
                         const providerName = this.providerIdNameMap[providerId] || providerId;
                         const providerProtocol = this.providerDefaultProtocols[providerId];
                         const protocolLabel = providerProtocol ? `[${providerProtocol}]` : '[混合]';
+                        const weight = this.providerWeights[providerId] !== undefined ? this.providerWeights[providerId] : 0;
+                        
                         // 检查渠道是否被禁用
                         const isProviderDisabled = this.providerEnabledStatus[providerId] === false;
                         const providerDisabledClass = isProviderDisabled ? 'provider-disabled' : '';
                         return `
                             <div class="provider-models ${providerDisabledClass}">
-                                <span class="provider-name">${providerName} ${protocolLabel}:</span>
+                                <span class="provider-name">
+                                    ${providerName}
+                                    <span class="provider-weight" title="权重">(w:${weight})</span>
+                                    ${protocolLabel}:
+                                </span>
                                 <div class="model-tags" oncontextmenu="return ModelMap.showModelContextMenu(event, '${escapedUnifiedName}', '${providerId}')">
                                     ${models.map(model => this.renderModelTag(providerId, model, unifiedName)).join('')}
                                 </div>

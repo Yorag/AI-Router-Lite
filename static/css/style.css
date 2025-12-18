@@ -804,80 +804,178 @@ body {
 /* ==================== 模型映射（增强型） ==================== */
 
 .model-map-list {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 16px;
+    align-items: start;
 }
 
-.model-map-item {
-    background: var(--bg-tertiary);
-    border-radius: var(--border-radius-sm);
-    padding: 16px;
+/* Model Map Card */
+.model-map-card {
+    background: var(--bg-secondary);
+    border-radius: var(--border-radius);
+    padding: 12px 14px;
     border: 1px solid var(--border-color);
     transition: var(--transition);
-}
-
-.model-map-item:hover {
-    border-color: var(--primary-light);
-}
-
-.model-map-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 12px;
-}
-
-.model-map-title {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 10px;
+    box-shadow: var(--shadow-sm);
+    height: 100%;
 }
 
-.model-map-title h4 {
+.model-map-card:hover {
+    border-color: var(--primary-light);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.header-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.unified-name {
     font-size: 1rem;
     font-weight: 600;
-    color: var(--primary-light);
+    color: var(--text-color);
     margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
 }
 
-.model-map-desc {
-    font-size: 0.8125rem;
+.card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.info-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.map-badges {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.match-count-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
+.match-count-badge.active {
+    background: rgba(34, 197, 94, 0.1);
+    color: var(--success-color);
+    border-color: rgba(34, 197, 94, 0.2);
+}
+
+.match-count-badge.inactive {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning-color);
+    border-color: rgba(245, 158, 11, 0.2);
+}
+
+.protocol-tag-mini {
+    font-size: 0.6875rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(59, 130, 246, 0.08);
+    color: var(--info-color);
+    font-weight: 500;
+    text-transform: uppercase;
+}
+
+.protocol-tag-mini.empty {
+    background: var(--bg-tertiary);
     color: var(--text-muted);
 }
 
-.model-map-header .actions {
+.model-map-actions {
     display: flex;
-    gap: 8px;
+    gap: 2px;
     flex-shrink: 0;
+    margin-left: 8px;
 }
 
-.model-map-info {
-    margin-bottom: 12px;
-}
-
-.info-row {
-    display: flex;
-    gap: 8px;
-    font-size: 0.875rem;
-    margin-bottom: 6px;
-    flex-wrap: wrap;
+.btn-icon-mini {
+    display: inline-flex;
     align-items: center;
-}
-
-.info-label {
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: var(--transition);
+    opacity: 0.7;
     color: var(--text-secondary);
-    flex-shrink: 0;
 }
 
-.info-value {
+.btn-icon-mini:hover {
+    background: var(--bg-tertiary);
+    opacity: 1;
     color: var(--text-color);
 }
 
-.model-map-targets {
+.btn-icon-mini.danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger-color);
+}
+
+/* New Meta Row Styles */
+.meta-row {
     display: flex;
-    flex-wrap: wrap;
+    align-items: center;
     gap: 8px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    padding-top: 4px;
+}
+
+.meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.meta-item.warning {
+    color: var(--warning-color);
+}
+
+.meta-item.info {
+    color: var(--info-color);
+}
+
+.meta-item.time {
+    font-family: 'JetBrains Mono', monospace;
+    opacity: 0.8;
+}
+
+.meta-spacer {
+    flex: 1;
 }
 
 /* 规则标签 */
@@ -969,6 +1067,16 @@ body {
     color: var(--text-secondary);
     font-weight: 500;
     margin-right: 8px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.provider-weight {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-weight: normal;
+    margin-left: 4px;
+    font-family: 'JetBrains Mono', monospace;
 }
 
 .resolved-models .model-list {
