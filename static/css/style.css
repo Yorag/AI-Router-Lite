@@ -593,7 +593,7 @@ body {
     border-radius: var(--border-radius-sm);
     font-size: 0.75rem;
     font-family: 'JetBrains Mono', monospace;
-    white-space: pre; /* 支持换行 */
+    white-space: pre-wrap;
     z-index: 1000;
     margin-bottom: 8px;
     box-shadow: var(--shadow-md);
@@ -673,22 +673,42 @@ body {
     transition: var(--transition);
 }
 
+/* 通用 Tooltip 样式 (DRY) */
+.custom-tooltip,
+.model-tag[title]:hover::after {
+    padding: 8px 12px;
+    background: rgba(30, 41, 59, 0.95);
+    backdrop-filter: blur(4px);
+    border-radius: var(--border-radius-sm);
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    text-align: left;
+    color: #e2e8f0;
+    box-shadow: var(--shadow-md);
+    pointer-events: none;
+    z-index: 1000;
+}
+
 .model-tag[title]:hover::after {
     content: attr(title);
     position: absolute;
     bottom: 100%;
     left: 50%;
     transform: translateX(-50%);
-    padding: 6px 10px;
-    background: var(--text-color);
-    border-radius: var(--border-radius-sm);
-    font-size: 0.75rem;
-    white-space: pre;
-    text-align: left;
-    z-index: 100;
-    margin-bottom: 4px;
-    color: #ffffff;
-    max-width: 300px;
+    margin-bottom: 6px;
+    width: max-content;
+    max-width: 1000px;
+    min-width: 120px;
+}
+
+/* Chart.js External Tooltip */
+#chartjs-tooltip {
+    opacity: 0;
+    position: absolute;
+    transition: all 0.1s ease;
+    transform: translate(-50%, 0);
+    pointer-events: none;
 }
 
 .model-tag.model-more-btn,

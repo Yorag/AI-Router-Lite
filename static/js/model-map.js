@@ -469,15 +469,18 @@ const ModelMap = {
             } else if (healthResult && !healthResult.success) {
                 // 健康检测失败
                 healthClass = 'health-error';
-                try {
-                    let jsonStr = JSON.stringify(healthResult.response_body);
-                    if (healthResult.error) {
-                        tooltipContent = `错误: ${healthResult.error} | 响应: ${jsonStr}`;
-                    } else {
-                        tooltipContent = jsonStr;
+                // healthResult.error 已包含完整错误信息（如 "HTTP 403: {...}"），无需重复添加 response_body
+                if (healthResult.error) {
+                    tooltipContent = `错误: ${healthResult.error}`;
+                } else if (healthResult.response_body) {
+                    // 仅当没有 error 字段时才显示 response_body
+                    try {
+                        tooltipContent = JSON.stringify(healthResult.response_body);
+                    } catch (e) {
+                        tooltipContent = '检测失败';
                     }
-                } catch (e) {
-                    tooltipContent = healthResult.error || '检测失败';
+                } else {
+                    tooltipContent = '检测失败';
                 }
                 // 失败的模型点击可以重新检测
                 clickAction = `ModelMap.testSingleModelSilent(this, '${providerId}', '${model}')`;
@@ -511,9 +514,13 @@ const ModelMap = {
     },
 
     escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        if (!text) return '';
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     },
 
     // 静默检测单个模型（点击灰色/红色模型标签时触发）

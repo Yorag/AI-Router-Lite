@@ -319,7 +319,7 @@ class RequestProxy:
             
             self._log_info(
                 f"[流式尝试 {attempt}/{max_attempts}] "
-                f"Provider: {provider.config.name} (ID: {provider.config.id}), 模型: {actual_model}, 协议: {req_protocol}"
+                f"Provider: {provider.config.name}, 模型: {actual_model}, 协议: {req_protocol}"
             )
             
             try:

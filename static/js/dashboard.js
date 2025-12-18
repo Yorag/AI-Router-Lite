@@ -289,7 +289,7 @@ const Dashboard = {
 
         // 格式化每一行
         return statsList.map(m =>
-            `${m.name} 请求: ${m.total} 成功率: ${m.successRate} Tokens: ${(m.tokens || 0).toLocaleString()}`
+            `${m.name} 请求: ${m.total} 成功率: ${m.successRate} Tokens: ${App.formatNumber(m.tokens || 0)}`
         ).join('&#10;');
     },
 
@@ -373,8 +373,67 @@ const Dashboard = {
                                 padding: 16
                             }
                         },
-                        // 预留 tooltip 对象，便于后续在 updateModelChart 中覆盖回调
+                        // 使用外部 Tooltip
                         tooltip: {
+                            enabled: false,
+                            external: function(context) {
+                                // Tooltip Element
+                                let tooltipEl = document.getElementById('chartjs-tooltip');
+
+                                // Create element on first render
+                                if (!tooltipEl) {
+                                    tooltipEl = document.createElement('div');
+                                    tooltipEl.id = 'chartjs-tooltip';
+                                    tooltipEl.classList.add('custom-tooltip');
+                                    document.body.appendChild(tooltipEl);
+                                }
+
+                                // Hide if no tooltip
+                                const tooltipModel = context.tooltip;
+                                if (tooltipModel.opacity === 0) {
+                                    tooltipEl.style.opacity = 0;
+                                    return;
+                                }
+
+                                // Set Text
+                                if (tooltipModel.body) {
+                                    const titleLines = tooltipModel.title || [];
+                                    const bodyLines = tooltipModel.body.map(b => b.lines);
+
+                                    let innerHtml = '';
+
+                                    titleLines.forEach(function(title) {
+                                        innerHtml += '<div style="font-weight: 600; margin-bottom: 4px;">' + title + '</div>';
+                                    });
+
+                                    bodyLines.forEach(function(body, i) {
+                                        // Chart.js may return body as an array of strings if callbacks.label returns an array
+                                        // But here callbacks.label returns an array of strings (one per provider),
+                                        // so bodyLines is an array of arrays if we have multiple datasets, or just an array of strings.
+                                        // Let's handle it safely.
+                                        // Handle potential string or array, and split by our custom separator
+                                        const rawLines = Array.isArray(body) ? body : [body];
+                                        const lines = rawLines.flatMap(l => l.split('|||'));
+                                        
+                                        lines.forEach(line => {
+                                            if (line.trim()) {
+                                                innerHtml += '<div>' + line + '</div>';
+                                            }
+                                        });
+                                    });
+
+                                    tooltipEl.innerHTML = innerHtml;
+                                }
+
+                                const position = context.chart.canvas.getBoundingClientRect();
+
+                                // Display, position, and set styles for font
+                                tooltipEl.style.opacity = 1;
+                                tooltipEl.style.position = 'absolute';
+                                tooltipEl.style.left = position.left + window.pageXOffset + tooltipModel.caretX + 'px';
+                                tooltipEl.style.top = position.top + window.pageYOffset + tooltipModel.caretY + 'px';
+                                tooltipEl.style.pointerEvents = 'none';
+                            },
                             callbacks: {
                                 label: () => ''
                             }
@@ -497,7 +556,7 @@ const Dashboard = {
                 const percentage = total > 0 ? ((stats.total / total) * 100).toFixed(1) : '0.0';
                 const successRate = stats.total > 0 ? ((stats.successful / stats.total) * 100).toFixed(1) : '0.0';
                 return `- ${providerName}: ${stats.total} (${percentage}%, Success: ${successRate}%)`;
-            });
+            }).join('|||'); // Join with special separator to ensure single string passed to external tooltip, then split there
         };
         
         this.modelUsageChart.update();
