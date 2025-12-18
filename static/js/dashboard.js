@@ -152,18 +152,80 @@ const Dashboard = {
             const tooltip = this.getProviderStatsTooltip(providerModelsStats);
             const tooltipAttr = tooltip ? `data-tooltip="${tooltip}"` : '';
             
+            // 生成健康状态圆点
+            const healthDotHtml = ProviderHealth.renderDot(info);
+
+            const total = currentStats.total;
+            const success = currentStats.successful;
+            const rate = total > 0 ? ((success / total) * 100).toFixed(1) : '-';
+            
+            let rateClass = 'rate-neutral';
+            if (total > 0) {
+                const rateNum = (success / total) * 100;
+                if (rateNum >= 95) rateClass = 'rate-success';
+                else if (rateNum >= 80) rateClass = 'rate-warning';
+                else rateClass = 'rate-danger';
+            }
+
             return `
-            <div class="provider-status-item" ${tooltipAttr}>
-                <div class="provider-status-info">
-                    <h4>${providerName}</h4>
-                    <div class="stats">
-                        成功: ${currentStats.successful.toLocaleString()} / 总计: ${currentStats.total.toLocaleString()}
-                        ${info.cooldown_remaining ? ` | 冷却中: ${info.cooldown_remaining}` : ''}
-                    </div>
+            <div class="provider-status-item compact" ${tooltipAttr}>
+                <div class="provider-main">
+                    ${healthDotHtml}
+                    <span class="provider-name">${providerName}</span>
                 </div>
-                <span class="status-badge ${info.status}">${this.getStatusText(info.status)}</span>
+                <div class="provider-meta">
+                    <span class="provider-rate ${rateClass}">${rate}%</span>
+                    <span class="provider-count">${total.toLocaleString()}</span>
+                </div>
             </div>
         `}).join('');
+    },
+
+    /**
+     * 渲染健康状态圆点 (Dashboard 专用版本)
+     * @param {Object} info - Provider 统计信息对象
+     * @returns {string} HTML 字符串
+     */
+    renderHealthDot(info) {
+        const isEnabled = info.enabled !== false; // 默认为 true
+        const status = info.status;
+        
+        // 手动禁用优先级最高
+        if (!isEnabled) {
+            return `<span class="provider-health-dot disabled" data-tooltip="已禁用"></span>`;
+        }
+        
+        // 检查运行时状态
+        if (status === 'permanently_disabled') {
+            const reason = this.formatCooldownReason(info.cooldown_reason);
+            const error = info.last_error ? `&#10;错误: ${info.last_error}` : '';
+            return `<span class="provider-health-dot permanently_disabled" data-tooltip="已熔断: ${reason}${error}"></span>`;
+        }
+        
+        if (status === 'cooling') {
+            const reason = this.formatCooldownReason(info.cooldown_reason);
+            const remaining = info.cooldown_remaining || '0s';
+            return `<span class="provider-health-dot cooling" data-tooltip="冷却中: ${reason} (${remaining})"></span>`;
+        }
+        
+        // 健康状态
+        return `<span class="provider-health-dot healthy" data-tooltip="运行正常"></span>`;
+    },
+
+    /**
+     * 格式化冷却原因
+     */
+    formatCooldownReason(reason) {
+        const reasonMap = {
+            'rate_limited': '触发限流',
+            'server_error': '服务器错误',
+            'timeout': '请求超时',
+            'auth_failed': '认证失败',
+            'network_error': '网络错误',
+            'model_not_found': '模型不存在',
+            'health_check_failed': '健康检测失败'
+        };
+        return reasonMap[reason] || reason || '未知原因';
     },
 
     // 聚合每日统计数据

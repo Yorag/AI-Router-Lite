@@ -558,6 +558,7 @@ class ProviderManager:
             stats["providers"][provider_id] = {
                 "name": provider_name,
                 "status": provider.status.value,
+                "enabled": provider.config.enabled,
                 "total_requests": total_requests,
                 "successful_requests": successful_requests,
                 "failed_requests": failed_requests,
