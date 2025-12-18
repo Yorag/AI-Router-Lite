@@ -870,7 +870,7 @@ class ModelMappingManager:
             suffix = f"等{len(removed)}个" if len(removed) > 5 else ""
             parts.append(f"移除 {len(removed)} 个模型（{removed_models}{suffix}）")
         
-        log_message = f"同步完成：{', '.join(parts)}"
+        log_message = f"{', '.join(parts)}"
         
         print(f"[MODEL-MAPPING] [{unified_name}] {log_message}")
         log_manager.log(

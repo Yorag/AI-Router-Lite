@@ -411,7 +411,7 @@ class ProviderModelsManager(BaseStorageManager):
             suffix = f"等{len(removed_models)}个" if len(removed_models) > 5 else ""
             parts.append(f"移除 {len(removed_models)} 个模型（{models_preview}{suffix}）")
         
-        log_message = f"更新完成：{', '.join(parts)}"
+        log_message = f"{', '.join(parts)}"
         
         print(f"[PROVIDER-MODELS] [{display_name}] {log_message}")
         log_manager.log(

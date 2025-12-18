@@ -120,6 +120,31 @@ class RequestProxy:
         if self._client and not self._client.is_closed:
             await self._client.aclose()
     
+    def _log_proxy_error(
+        self,
+        provider_name: str,
+        original_model: str,
+        actual_model: str,
+        status_code: Optional[int],
+        error_message: str,
+        is_stream: bool = False
+    ) -> None:
+        """记录代理请求错误日志（用于统计）"""
+        path = "/proxy/stream" if is_stream else "/proxy"
+        prefix = "流式请求失败" if is_stream else "请求失败"
+        log_manager.log(
+            level=LogLevel.ERROR,
+            log_type="error",
+            method="POST",
+            path=path,
+            model=original_model,
+            provider=provider_name,
+            actual_model=actual_model,
+            status_code=status_code,
+            error=error_message,
+            message=f"{prefix} [{provider_name}:{actual_model}]"
+        )
+    
     def _weighted_random_select_index(
         self,
         candidates: list[tuple["ProviderState", str]]
@@ -267,6 +292,12 @@ class RequestProxy:
                     error_message=e.message
                 )
                 
+                # 记录错误日志（用于统计）
+                self._log_proxy_error(
+                    provider.config.name, original_model, actual_model,
+                    e.status_code, e.message, is_stream=False
+                )
+                
                 # 记录被动健康状态（缓冲落盘）
                 model_health_manager.record_passive_result(
                     provider.config.id, actual_model, success=False, error=e.message,
@@ -366,6 +397,12 @@ class RequestProxy:
                     model_name=actual_model,
                     status_code=e.status_code,
                     error_message=e.message
+                )
+                
+                # 记录错误日志（用于统计）
+                self._log_proxy_error(
+                    provider.config.name, original_model, actual_model,
+                    e.status_code, e.message, is_stream=True
                 )
                 
                 # 记录被动健康状态（缓冲落盘）
