@@ -167,8 +167,8 @@ const ModelMap = {
                 this.providerIdNameMap[pid] || pid
             );
             
-            // 计算支持的协议并集
-            const supportedProtocols = new Set();
+            // 计算支持的协议并集及其模型数量
+            const protocolCounts = {};
             if (mapping.resolved_models) {
                 for (const [providerId, models] of Object.entries(mapping.resolved_models)) {
                     // 跳过被禁用的 Provider
@@ -177,12 +177,12 @@ const ModelMap = {
                     for (const model of models) {
                         const status = this.getModelProtocolStatus(unifiedName, providerId, model);
                         if (status.isConfigured && status.protocol) {
-                            supportedProtocols.add(status.protocol);
+                            protocolCounts[status.protocol] = (protocolCounts[status.protocol] || 0) + 1;
                         }
                     }
                 }
             }
-            const protocolsArray = Array.from(supportedProtocols).sort();
+            const sortedProtocols = Object.keys(protocolCounts).sort();
             
             return `
                 <div class="model-map-card">
@@ -212,8 +212,8 @@ const ModelMap = {
                                 <span class="match-count-badge ${availableCount > 0 ? 'active' : 'inactive'}" title="可用模型/总匹配模型">
                                     ${availableCount}/${totalCount}
                                 </span>
-                                ${protocolsArray.length > 0
-                                    ? protocolsArray.map(p => `<span class="protocol-tag-mini">${p}</span>`).join('')
+                                ${sortedProtocols.length > 0
+                                    ? sortedProtocols.map(p => `<span class="protocol-tag-mini">${p} (${protocolCounts[p]})</span>`).join('')
                                     : '<span class="protocol-tag-mini empty">无协议</span>'}
                             </div>
                         </div>
@@ -507,7 +507,7 @@ const ModelMap = {
                 data-provider-id="${providerId}"
                 data-model="${model}"
                 ${clickAction ? `onclick="${clickAction}"` : ''}
-                ${tooltipContent ? `title="${this.escapeHtml(tooltipContent)}"` : ''}>
+                ${tooltipContent ? `data-tooltip="${this.escapeHtml(tooltipContent)}"` : ''}>
                 ${model}${protocolBadge}
             </span>
         `;
@@ -925,8 +925,8 @@ const ModelMap = {
         
         container.innerHTML = models.map(model => `
             <span class="model-tag clickable" 
-                onclick="ModelMap.addToManualInclude('${model}')" 
-                title="点击添加到手动包含">
+                onclick="ModelMap.addToManualInclude('${model}')"
+                data-tooltip="点击添加到手动包含">
                 ${model}
             </span>
         `).join('');

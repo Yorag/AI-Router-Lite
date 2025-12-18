@@ -159,8 +159,8 @@ const Providers = {
         // 创建模型标签（带能力提示）
         const createModelTag = (model) => {
             const tooltip = this.getModelTooltip(providerUuid, model);
-            const titleAttr = tooltip ? `title="${tooltip}"` : '';
-            return `<span class="model-tag" ${titleAttr}>${model}</span>`;
+            const tooltipAttr = tooltip ? `data-tooltip="${tooltip}"` : '';
+            return `<span class="model-tag" ${tooltipAttr}>${model}</span>`;
         };
 
         let modelTagsHtml = '';

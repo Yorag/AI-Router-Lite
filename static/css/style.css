@@ -619,7 +619,7 @@ body {
 .provider-card-header h3 {
     font-size: 1rem;
     font-weight: 600;
-    margin-bottom: 4px;
+    margin-bottom: 0; /* 移除底部外边距，避免影响居中 */
 }
 
 .provider-card-header .url {
@@ -675,7 +675,7 @@ body {
 
 /* 通用 Tooltip 样式 (DRY) */
 .custom-tooltip,
-.model-tag[title]:hover::after {
+.model-tag[data-tooltip]:hover::after {
     padding: 8px 12px;
     background: rgba(30, 41, 59, 0.95);
     backdrop-filter: blur(4px);
@@ -690,8 +690,8 @@ body {
     z-index: 1000;
 }
 
-.model-tag[title]:hover::after {
-    content: attr(title);
+.model-tag[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
     position: absolute;
     bottom: 100%;
     left: 50%;
@@ -1777,6 +1777,7 @@ body {
     border-radius: var(--border-radius-sm);
     box-shadow: var(--shadow-lg);
     min-width: 320px;
+    max-width: 450px;
     animation: slideIn 0.3s ease;
 }
 
@@ -1816,6 +1817,8 @@ body {
     flex: 1;
     font-size: 0.875rem;
     color: var(--text-color);
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 .toast-close {
@@ -2524,6 +2527,7 @@ body {
     flex-shrink: 0;
     cursor: default;
     position: relative;
+    align-self: center; /* 自动垂直居中 */
 }
 
 /* 健康状态 - 绿色 */
