@@ -127,14 +127,15 @@ class RequestProxy:
         actual_model: str,
         status_code: Optional[int],
         error_message: str,
-        is_stream: bool = False
+        is_stream: bool = False,
+        api_key_name: Optional[str] = None
     ) -> None:
         """记录代理请求错误日志（用于统计）"""
         path = "/proxy/stream" if is_stream else "/proxy"
         prefix = "流式请求失败" if is_stream else "请求失败"
         log_manager.log(
             level=LogLevel.ERROR,
-            log_type="error",
+            log_type="proxy",
             method="POST",
             path=path,
             model=original_model,
@@ -142,7 +143,8 @@ class RequestProxy:
             actual_model=actual_model,
             status_code=status_code,
             error=error_message,
-            message=f"{prefix} [{provider_name}:{actual_model}]"
+            message=f"{prefix} [{provider_name}:{actual_model}]",
+            api_key_name=api_key_name
         )
     
     def _weighted_random_select_index(
@@ -205,7 +207,8 @@ class RequestProxy:
         request_body: Dict[str, Any],
         protocol_handler: BaseProtocol,
         original_model: str,
-        required_protocol: Optional[str] = None
+        required_protocol: Optional[str] = None,
+        api_key_name: Optional[str] = None
     ) -> ProxyResult:
         """
         转发非流式请求（带模型级重试机制）
@@ -295,7 +298,8 @@ class RequestProxy:
                 # 记录错误日志（用于统计）
                 self._log_proxy_error(
                     provider.config.name, original_model, actual_model,
-                    e.status_code, e.message, is_stream=False
+                    e.status_code, e.message, is_stream=False,
+                    api_key_name=api_key_name
                 )
                 
                 # 记录被动健康状态（缓冲落盘）
@@ -317,7 +321,8 @@ class RequestProxy:
         protocol_handler: BaseProtocol,
         original_model: str,
         stream_context: Optional[StreamContext] = None,
-        required_protocol: Optional[str] = None
+        required_protocol: Optional[str] = None,
+        api_key_name: Optional[str] = None
     ) -> AsyncIterator[str]:
         """
         转发流式请求（带模型级重试机制）
@@ -402,7 +407,8 @@ class RequestProxy:
                 # 记录错误日志（用于统计）
                 self._log_proxy_error(
                     provider.config.name, original_model, actual_model,
-                    e.status_code, e.message, is_stream=True
+                    e.status_code, e.message, is_stream=True,
+                    api_key_name=api_key_name
                 )
                 
                 # 记录被动健康状态（缓冲落盘）
@@ -468,7 +474,22 @@ class RequestProxy:
                     response_body=error_response_body
                 )
             
-            raw_response = response.json()
+            try:
+                raw_response = response.json()
+            except Exception:
+                # 捕获 JSON 解析错误 (如返回 HTML 或空字符串)
+                error_body = response.text
+                error_msg = error_body.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
+                if len(error_msg) > PROXY_ERROR_MESSAGE_MAX_LENGTH:
+                    error_msg = error_msg[:PROXY_ERROR_MESSAGE_MAX_LENGTH] + "..."
+                    
+                raise ProxyError(
+                    f"无效的响应格式: {error_msg or '空响应'}",
+                    status_code=502,
+                    provider_name=provider.config.name,
+                    actual_model=actual_model,
+                    response_body={"raw": error_body[:1000]}
+                )
             
             # 使用协议处理器转换响应
             protocol_response = protocol_handler.transform_response(raw_response, original_model)
@@ -532,8 +553,12 @@ class RequestProxy:
                         continue
                     
                     # 使用协议处理器转换流式块
-                    transformed, usage = protocol_handler.transform_stream_chunk(line, original_model)
-                    
+                    try:
+                        transformed, usage = protocol_handler.transform_stream_chunk(line, original_model)
+                    except Exception:
+                        # 忽略无法解析的行（可能是心跳包或非标准格式）
+                        continue
+
                     if transformed:
                         if stream_context and usage:
                             # 累加或更新 usage

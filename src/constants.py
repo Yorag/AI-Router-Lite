@@ -44,9 +44,6 @@ CONFIG_FILE_PATH: str = "config.json"
 # 如果模型在此时间内有活动记录（调用或测试），自动健康检测会跳过该模型
 HEALTH_CHECK_SKIP_THRESHOLD_HOURS: float = 6.0
 
-# 自动健康检测间隔（小时）
-AUTO_HEALTH_CHECK_INTERVAL_HOURS: float = 6.0
-
 # 健康测试失败时的冷却时间（秒）
 HEALTH_TEST_FAILURE_COOLDOWN_SECONDS: int = 60
 
@@ -163,12 +160,6 @@ TOAST_DURATION_WARNING: int = 4000
 
 # 错误通知显示时长
 TOAST_DURATION_ERROR: int = 5000
-
-
-# ==================== 前端自动刷新配置 ====================
-
-# 自动健康检测间隔（毫秒）
-AUTO_HEALTH_CHECK_INTERVAL_MS: int = int(AUTO_HEALTH_CHECK_INTERVAL_HOURS * 60 * 60 * 1000)
 
 
 # ==================== 持久化存储配置 ====================

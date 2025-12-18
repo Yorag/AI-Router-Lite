@@ -325,7 +325,7 @@ class LogManager:
         - response: 请求成功完成
         - error: 请求失败
         """
-        if log_entry.type in ("response", "error"):
+        if log_entry.type == "proxy":
             self._stats["total_requests"] += 1
             
             # 判断是成功还是失败

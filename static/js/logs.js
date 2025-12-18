@@ -76,42 +76,40 @@ const Logs = {
         let contentHtml = '';
         const keyLabel = log.api_key_name ? `<span class="log-key-tag" title="密钥: ${log.api_key_name}">${log.api_key_name}</span>` : '';
         
-        if (log.type === 'response' && log.model && log.provider && log.actual_model) {
-             contentHtml = `
-                <div class="log-content-row">
-                    ${keyLabel}
-                    ${protocolHtml}
-                    <span class="log-model" title="请求模型">${log.model}</span>
-                    <span class="log-arrow">⟹</span>
-                    <span class="log-provider" title="服务站">${log.provider}</span>
-                    <span class="log-divider">:</span>
-                    <span class="log-actual-model" title="实际模型">${log.actual_model}</span>
-                </div>
-             `;
-        } else if (log.type === 'error') {
-            // 如果有路由信息（provider 和 actual_model），显示完整路由
-            if (log.provider && log.actual_model) {
-                contentHtml = `
+        if (log.type === 'proxy') {
+             // 统一处理代理层日志（包括成功和失败）
+             if (log.provider && log.actual_model) {
+                 contentHtml = `
                     <div class="log-content-row">
                         ${keyLabel}
+                        ${protocolHtml}
                         <span class="log-model" title="请求模型">${log.model || ''}</span>
                         <span class="log-arrow">⟹</span>
                         <span class="log-provider" title="服务站">${log.provider}</span>
                         <span class="log-divider">:</span>
                         <span class="log-actual-model" title="实际模型">${log.actual_model}</span>
-                        <span class="log-error-msg">${log.error || log.message || ''}</span>
+                        ${log.error ? `<span class="log-error-msg">${log.error}</span>` : ''}
                     </div>
-                `;
-            } else {
-                // 没有路由信息时，保持原有显示
-                contentHtml = `
+                 `;
+             } else {
+                 // 异常情况：没有路由信息（可能是早期的代理错误）
+                 contentHtml = `
                     <div class="log-content-row">
                         ${keyLabel}
                         <span class="log-model">${log.model || ''}</span>
                         <span class="log-error-msg">${log.error || log.message || ''}</span>
                     </div>
-                `;
-            }
+                 `;
+             }
+        } else if (log.type === 'system') {
+            // 系统日志（可能是普通消息或错误）
+            contentHtml = `
+                <div class="log-content-row">
+                    ${keyLabel}
+                    <span class="log-model">${log.model || ''}</span>
+                    <span class="${log.error ? 'log-error-msg' : 'log-msg'}">${log.error || log.message || ''}</span>
+                </div>
+            `;
         } else if (log.type === 'circuit_breaker') {
             contentHtml = `
                 <div class="log-content-row">

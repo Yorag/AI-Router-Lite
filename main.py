@@ -455,7 +455,8 @@ async def process_request(
             async def stream_with_logging():
                 try:
                     async for chunk in proxy.forward_stream(
-                        body, protocol_handler, original_model, stream_context
+                        body, protocol_handler, original_model, stream_context,
+                        api_key_name=api_key_name
                     ):
                         yield chunk
                     
@@ -472,7 +473,7 @@ async def process_request(
                     
                     log_manager.log(
                         level=LogLevel.INFO,
-                        log_type="response",
+                        log_type="proxy",
                         method=request.method,
                         path=request.url.path,
                         model=original_model,
@@ -493,7 +494,7 @@ async def process_request(
                     duration_ms = (time.time() - start_time) * 1000
                     log_manager.log(
                         level=LogLevel.ERROR,
-                        log_type="error",
+                        log_type="proxy",
                         method=request.method,
                         path=request.url.path,
                         model=original_model,
@@ -523,7 +524,7 @@ async def process_request(
                     duration_ms = (time.time() - start_time) * 1000
                     log_manager.log(
                         level=LogLevel.ERROR,
-                        log_type="error",
+                        log_type="system",
                         method=request.method,
                         path=request.url.path,
                         model=original_model,
@@ -557,7 +558,8 @@ async def process_request(
         else:
             # 非流式响应
             result: ProxyResult = await proxy.forward_request(
-                body, protocol_handler, original_model
+                body, protocol_handler, original_model,
+                api_key_name=api_key_name
             )
             
             duration_ms = (time.time() - start_time) * 1000
@@ -574,7 +576,7 @@ async def process_request(
             
             log_manager.log(
                 level=LogLevel.INFO,
-                log_type="response",
+                log_type="proxy",
                 method=request.method,
                 path=request.url.path,
                 model=original_model,
@@ -600,7 +602,7 @@ async def process_request(
         
         log_manager.log(
             level=LogLevel.ERROR,
-            log_type="error",
+            log_type="proxy",
             method=request.method,
             path=request.url.path,
             model=original_model,
@@ -631,7 +633,7 @@ async def process_request(
         
         log_manager.log(
             level=LogLevel.ERROR,
-            log_type="error",
+            log_type="system",
             method=request.method,
             path=request.url.path,
             model=original_model,

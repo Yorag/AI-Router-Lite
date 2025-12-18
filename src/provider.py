@@ -423,7 +423,7 @@ class ProviderManager:
             provider.status = ProviderStatus.COOLING
             provider.cooldown_until = time.time() + cooldown_seconds
             provider.cooldown_reason = reason
-            message = f"Provider [{provider.config.name}] 进入冷却状态（渠道级），冷却 {cooldown_seconds} 秒，原因: {reason.value}"
+            message = f"[{provider.config.name}] 进入冷却状态（渠道级），冷却 {cooldown_seconds} 秒，原因: {reason.value}"
             self._log_warning(message)
             # 记录熔断状态变更日志（不包含详细错误，错误已在 proxy.py 中记录）
             log_manager = self._get_log_manager()
@@ -467,7 +467,7 @@ class ProviderManager:
             model_state.status = ModelStatus.COOLING
             model_state.cooldown_until = time.time() + cooldown_seconds
             model_state.cooldown_reason = reason
-            message = f"模型 [{provider_name}:{model_state.model_name}] 进入冷却状态（模型级），冷却 {cooldown_seconds} 秒，原因: {reason.value}"
+            message = f"[{provider_name}:{model_state.model_name}] 进入冷却状态（模型级），冷却 {cooldown_seconds} 秒，原因: {reason.value}"
             self._log_warning(message)
             # 记录熔断状态变更日志（不包含详细错误，错误已在 proxy.py 中记录）
             log_manager = self._get_log_manager()
