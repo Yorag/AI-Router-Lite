@@ -730,16 +730,6 @@ body {
     background: rgba(245, 158, 11, 0.15);
     border-color: var(--warning-color);
     color: var(--warning-color);
-    animation: pulse-warning 2s ease-in-out infinite;
-}
-
-@keyframes pulse-warning {
-    0%, 100% {
-        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3);
-    }
-    50% {
-        box-shadow: 0 0 0 4px rgba(245, 158, 11, 0);
-    }
 }
 
 /* 永久禁用状态 - 深灰色 */
@@ -953,6 +943,13 @@ body {
     flex-wrap: wrap;
     gap: 6px;
     margin-top: 4px;
+}
+
+/* 模型标签加载中状态 */
+.model-tag.is-loading {
+    opacity: 0.5;
+    cursor: wait !important;
+    pointer-events: none;
 }
 
 .help-text {
@@ -2373,7 +2370,6 @@ body {
 .provider-health-dot.cooling {
     background-color: var(--warning-color);
     box-shadow: 0 0 4px rgba(245, 158, 11, 0.4);
-    animation: pulse-dot 2s ease-in-out infinite;
 }
 
 /* 熔断状态 - 红色 */
@@ -2386,18 +2382,6 @@ body {
 .provider-health-dot.disabled {
     background-color: var(--text-muted);
     box-shadow: none;
-}
-
-/* 圆点脉冲动画（用于冷却状态） */
-@keyframes pulse-dot {
-    0%, 100% {
-        transform: scale(1);
-        opacity: 1;
-    }
-    50% {
-        transform: scale(1.2);
-        opacity: 0.7;
-    }
 }
 
 /* 圆点工具提示 - 仅使用 ::after，与项目其他 tooltip 保持一致 */

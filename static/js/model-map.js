@@ -388,7 +388,7 @@ const ModelMap = {
         
         let healthClass = 'health-unknown';
         let tooltipContent = '点击检测';
-        let clickAction = `ModelMap.testSingleModelSilent('${providerId}', '${model}')`;
+        let clickAction = `ModelMap.testSingleModelSilent(this, '${providerId}', '${model}')`;
         
         // 如果渠道被禁用，添加禁用样式
         if (isProviderDisabled) {
@@ -410,7 +410,7 @@ const ModelMap = {
                     tooltipContent += ` | 错误: ${runtimeState.last_error}`;
                 }
                 // 熔断中的模型仍可点击重新检测
-                clickAction = `ModelMap.testSingleModelSilent('${providerId}', '${model}')`;
+                clickAction = `ModelMap.testSingleModelSilent(this, '${providerId}', '${model}')`;
             } else if (runtimeState.status === 'permanently_disabled') {
                 healthClass = 'health-disabled';
                 tooltipContent = '永久禁用';
@@ -452,7 +452,7 @@ const ModelMap = {
                     tooltipContent = healthResult.error || '检测失败';
                 }
                 // 失败的模型点击可以重新检测
-                clickAction = `ModelMap.testSingleModelSilent('${providerId}', '${model}')`;
+                clickAction = `ModelMap.testSingleModelSilent(this, '${providerId}', '${model}')`;
             }
         }
         
@@ -489,11 +489,10 @@ const ModelMap = {
     },
 
     // 静默检测单个模型（点击灰色/红色模型标签时触发）
-    async testSingleModelSilent(providerId, model) {
+    async testSingleModelSilent(el, providerId, model) {
         // 禁用模型标签，防止重复点击
-        const modelTag = document.querySelector(`.model-tag[data-provider-id="${providerId}"][data-model="${model}"]`);
-        if (modelTag) {
-            modelTag.style.pointerEvents = 'none';
+        if (el) {
+            el.classList.add('is-loading');
         }
         
         try {
@@ -514,8 +513,8 @@ const ModelMap = {
         } catch (error) {
             Toast.error('检测失败: ' + error.message);
             // 发生错误时恢复模型标签状态
-            if (modelTag) {
-                modelTag.style.pointerEvents = '';
+            if (el) {
+                el.classList.remove('is-loading');
             }
         }
     },
