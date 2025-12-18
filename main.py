@@ -268,6 +268,9 @@ class UpdateProviderRequest(BaseModel):
     timeout: Optional[float] = None
     enabled: Optional[bool] = None
     default_protocol: Optional[str] = None  # 默认协议: openai, openai-response, anthropic, gemini, 或 null 表示混合类型
+    allow_health_check: Optional[bool] = None  # 是否允许健康检测
+    allow_model_update: Optional[bool] = None  # 是否允许自动更新模型
+    manual_models: Optional[list[str]] = None  # 手动指定的模型列表（仅当 allow_model_update=False 时使用）
 
 class CreateModelMappingRequest(BaseModel):
     """创建模型映射请求"""
