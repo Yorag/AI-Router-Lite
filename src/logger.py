@@ -10,7 +10,7 @@ import asyncio
 from pathlib import Path
 from typing import Optional, AsyncIterator
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from collections import deque
 from enum import Enum
 
@@ -23,7 +23,26 @@ from .constants import (
     LOG_SUBSCRIBE_QUEUE_SIZE,
     LOG_RECENT_LIMIT_DEFAULT,
     LOG_DATE_LIMIT_DEFAULT,
+    DEFAULT_TIMEZONE_OFFSET,
 )
+
+# 统一时区：使用 UTC 偏移量（无需 tzdata 依赖）
+_TZ = timezone(timedelta(hours=DEFAULT_TIMEZONE_OFFSET))
+
+
+def get_current_time() -> datetime:
+    """获取当前时间（带时区）"""
+    return datetime.now(_TZ)
+
+
+def get_today_str() -> str:
+    """获取今天的日期字符串 (YYYY-MM-DD)"""
+    return get_current_time().strftime("%Y-%m-%d")
+
+
+def timestamp_to_datetime(ts: float) -> datetime:
+    """将 Unix 时间戳转换为带时区的 datetime"""
+    return datetime.fromtimestamp(ts, _TZ)
 
 
 class LogLevel(Enum):
@@ -61,7 +80,7 @@ class RequestLog:
     def to_dict(self) -> dict:
         """转换为字典"""
         data = asdict(self)
-        data["timestamp_str"] = datetime.fromtimestamp(self.timestamp).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        data["timestamp_str"] = timestamp_to_datetime(self.timestamp).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         # 添加格式化的实际模型信息（Provider:Model格式）
         if self.provider and self.actual_model:
             data["actual_model_full"] = f"{self.provider}:{self.actual_model}"
@@ -93,19 +112,11 @@ class LogManager:
         # 统计数据变更标记（用于判断是否需要保存）
         self._stats_dirty = False
         
+        # 当前统计数据对应的日期（用于跨天检测）
+        self._stats_date: str = get_today_str()
+        
         # 统计数据
-        self._stats = {
-            "total_requests": 0,
-            "successful_requests": 0,
-            "failed_requests": 0,
-            "total_tokens": 0,
-            "hourly_requests": {},  # hour -> count
-            "model_usage": {},  # model -> count
-            "provider_usage": {},  # provider -> count (保持向后兼容)
-            "provider_stats": {},  # provider -> {total, successful, failed} (新增详细统计)
-            "provider_model_stats": {}, # provider -> model -> {total, successful, failed, tokens} (新增模型级详细统计)
-            "model_provider_stats": {}, # unified_model -> provider -> {total, successful, failed} (新增统一模型下各渠道统计)
-        }
+        self._stats = self._get_empty_stats()
         
         # 加载今天的统计数据
         self._load_today_stats()
@@ -113,16 +124,53 @@ class LogManager:
         # 加载今天的日志到内存
         self._load_today_logs()
     
+    def _get_empty_stats(self) -> dict:
+        """返回空的统计数据结构"""
+        return {
+            "total_requests": 0,
+            "successful_requests": 0,
+            "failed_requests": 0,
+            "total_tokens": 0,
+            "hourly_requests": {},
+            "model_usage": {},
+            "provider_usage": {},
+            "provider_stats": {},
+            "provider_model_stats": {},
+            "model_provider_stats": {},
+        }
+    
+    def _check_day_change(self) -> None:
+        """检查是否跨天，如果跨天则保存旧数据并重置"""
+        today = get_today_str()
+        if today != self._stats_date:
+            # 保存旧日期的统计数据
+            if self._stats_dirty:
+                old_stats_file = self._get_stats_file_path(self._stats_date)
+                try:
+                    with open(old_stats_file, "w", encoding="utf-8") as f:
+                        json.dump(self._stats, f, indent=2, ensure_ascii=False)
+                    print(f"[LogManager] 跨天保存: {self._stats_date}")
+                except Exception as e:
+                    print(f"[LogManager] 跨天保存失败: {e}")
+            
+            # 重置为新的一天
+            self._stats_date = today
+            self._stats = self._get_empty_stats()
+            self._stats_dirty = False
+            
+            # 尝试加载新日期的统计（如果存在）
+            self._load_today_stats()
+    
     def _get_log_file_path(self, date: Optional[str] = None) -> Path:
         """获取日志文件路径"""
         if date is None:
-            date = datetime.now().strftime("%Y-%m-%d")
+            date = get_today_str()
         return self.storage_dir / f"requests_{date}.jsonl"
     
     def _get_stats_file_path(self, date: Optional[str] = None) -> Path:
         """获取统计文件路径"""
         if date is None:
-            date = datetime.now().strftime("%Y-%m-%d")
+            date = get_today_str()
         return self.storage_dir / f"stats_{date}.json"
     
     def _load_today_stats(self) -> None:
@@ -221,6 +269,8 @@ class LogManager:
             response_tokens: Optional[int] = None,
             total_tokens: Optional[int] = None) -> RequestLog:
         """记录日志"""
+        # 检查是否跨天
+        self._check_day_change()
         log_entry = RequestLog(
             id=self._generate_log_id(),
             timestamp=time.time(),
@@ -290,7 +340,7 @@ class LogManager:
                 self._stats["failed_requests"] += 1
             
             # 小时统计
-            hour = datetime.fromtimestamp(log_entry.timestamp).strftime("%H")
+            hour = timestamp_to_datetime(log_entry.timestamp).strftime("%H")
             self._stats["hourly_requests"][hour] = self._stats["hourly_requests"].get(hour, 0) + 1
             
             # 模型使用统计
@@ -580,10 +630,8 @@ class LogManager:
                 ...
             ]
         """
-        from datetime import timedelta
-        
         results = []
-        now = datetime.now()
+        now = get_current_time()
         
         # 遍历最近N天（包含今天）
         # 注意：reversed让结果按日期升序排列
@@ -624,9 +672,7 @@ class LogManager:
 
     def clear_old_logs(self, keep_days: int = LOG_RETENTION_DAYS) -> int:
         """清理旧日志"""
-        from datetime import timedelta
-        
-        cutoff = datetime.now() - timedelta(days=keep_days)
+        cutoff = get_current_time() - timedelta(days=keep_days)
         deleted = 0
         
         for file in self.storage_dir.glob("*.jsonl"):

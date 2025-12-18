@@ -9,8 +9,13 @@ const Dashboard = {
     selectedDate: null,   // YYYY-MM-DD
 
     async init() {
-        // 初始化日期选择器为今天
-        this.selectedDate = new Date().toISOString().split('T')[0];
+        // 从后端获取"今天"的日期（确保时区一致）
+        try {
+            const sysStats = await API.getSystemStats();
+            this.selectedDate = sysStats.today || new Date().toISOString().split('T')[0];
+        } catch {
+            this.selectedDate = new Date().toISOString().split('T')[0];
+        }
         document.getElementById('stats-date-picker').value = this.selectedDate;
         
         // 默认显示今天，需要显示日期选择器并更新按钮状态
@@ -24,10 +29,19 @@ const Dashboard = {
 
     async load() {
         try {
-            await Promise.all([
-                this.loadStats(),
-                this.loadProviderStatus()
+            // 集中获取所有数据，避免重复 API 调用
+            const [sysStats, baseData, rangeData] = await Promise.all([
+                API.getSystemStats(),
+                API.getStats(),
+                this.currentRange === 'week'
+                    ? API.getDailyStats(7)
+                    : API.getLogStats(this.selectedDate)
             ]);
+            
+            // 使用获取的数据渲染各组件
+            this.renderStats(sysStats, rangeData);
+            this.renderProviderStatus(baseData, rangeData);
+            this.renderCharts(rangeData);
         } catch (error) {
             console.error('Dashboard load error:', error);
             Toast.error('加载仪表板数据失败');
@@ -36,7 +50,6 @@ const Dashboard = {
 
     async refresh() {
         await this.load();
-        await this.loadChartData();
     },
 
     // 切换统计范围
@@ -63,109 +76,94 @@ const Dashboard = {
         }
     },
 
-    async loadStats() {
-        try {
-            // 获取系统基础状态（活跃服务站）- 这个是全局的，不受日期影响
-            const sysStats = await API.getSystemStats();
-            document.getElementById('stat-providers').textContent =
-                `${sysStats.providers.available_providers}/${sysStats.providers.total_providers}`;
+    // 渲染统计卡片
+    renderStats(sysStats, rangeData) {
+        // 活跃服务站
+        document.getElementById('stat-providers').textContent =
+            `${sysStats.providers.available_providers}/${sysStats.providers.total_providers}`;
 
-            // 根据当前模式获取统计数据
-            let requestStats = {};
-
-            if (this.currentRange === 'week') {
-                // 近一周：获取过去7天的聚合数据
-                const dailyStats = await API.getDailyStats(7);
-                
-                // 聚合数据
-                requestStats = dailyStats.reduce((acc, day) => {
-                    acc.total_requests += day.total_requests;
-                    acc.successful_requests += day.successful_requests;
-                    acc.total_tokens += day.total_tokens || 0;
-                    return acc;
-                }, { total_requests: 0, successful_requests: 0, total_tokens: 0 });
-
-            } else {
-                // 指定日期：获取单日数据
-                const logStats = await API.getLogStats(this.selectedDate);
-                requestStats = {
-                    total_requests: logStats.total_requests || 0,
-                    successful_requests: logStats.successful_requests || 0,
-                    total_tokens: logStats.total_tokens || 0
-                };
-            }
-            
-            // 更新请求统计卡片
-            document.getElementById('stat-requests').textContent = requestStats.total_requests.toLocaleString();
-            
-            // 更新 Tokens 统计卡片
-            document.getElementById('stat-tokens').textContent = requestStats.total_tokens.toLocaleString();
-            
-            // 计算成功率
-            const total = requestStats.total_requests || 0;
-            const success = requestStats.successful_requests || 0;
-            const rate = total > 0 ? ((success / total) * 100).toFixed(1) : '100';
-            document.getElementById('stat-success-rate').textContent = `${rate}%`;
-            
-        } catch (error) {
-            console.error('Load stats error:', error);
+        // 计算请求统计
+        let requestStats;
+        if (this.currentRange === 'week') {
+            requestStats = rangeData.reduce((acc, day) => {
+                acc.total_requests += day.total_requests;
+                acc.successful_requests += day.successful_requests;
+                acc.total_tokens += day.total_tokens || 0;
+                return acc;
+            }, { total_requests: 0, successful_requests: 0, total_tokens: 0 });
+        } else {
+            requestStats = {
+                total_requests: rangeData.total_requests || 0,
+                successful_requests: rangeData.successful_requests || 0,
+                total_tokens: rangeData.total_tokens || 0
+            };
         }
+        
+        document.getElementById('stat-requests').textContent = requestStats.total_requests.toLocaleString();
+        document.getElementById('stat-tokens').textContent = requestStats.total_tokens.toLocaleString();
+        
+        const total = requestStats.total_requests || 0;
+        const success = requestStats.successful_requests || 0;
+        const rate = total > 0 ? ((success / total) * 100).toFixed(1) : '100';
+        document.getElementById('stat-success-rate').textContent = `${rate}%`;
     },
 
-    async loadProviderStatus() {
-        try {
-            // 获取基础状态（用于显示状态标签和冷却信息）
-            const baseData = await API.getStats();
-            const container = document.getElementById('provider-status-list');
-            
-            if (!baseData.providers || Object.keys(baseData.providers).length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">📡</div>
-                        <div class="empty-state-text">暂无服务站</div>
-                    </div>
-                `;
-                return;
-            }
-
-            // 获取当前时间范围的统计数据（用于 Tooltip）
-            let rangeStats = {};
-            if (this.currentRange === 'week') {
-                const dailyStats = await API.getDailyStats(7);
-                // 聚合7天的数据
-                rangeStats = this.aggregateDailyStats(dailyStats);
-            } else {
-                const logStats = await API.getLogStats(this.selectedDate);
-                rangeStats = logStats.provider_model_stats || {};
-            }
-            
-            container.innerHTML = Object.entries(baseData.providers)
-                .sort((a, b) => b[1].total_requests - a[1].total_requests)
-                .map(([id, info]) => {
-                // 使用当前时间范围的统计数据生成 Tooltip
-                // 注意：rangeStats 是按 providerName 索引的，而 info.name 是 providerName
-                const providerName = info.name || id;
-                const providerModelsStats = rangeStats[providerName];
-                
-                const tooltip = this.getProviderStatsTooltip(providerModelsStats);
-                const tooltipAttr = tooltip ? `data-tooltip="${tooltip}"` : '';
-                
-                return `
-                <div class="provider-status-item" ${tooltipAttr}>
-                    <div class="provider-status-info">
-                        <h4>${info.name || id}</h4>
-                        <div class="stats">
-                            成功: ${info.successful_requests.toLocaleString()} / 总计: ${info.total_requests.toLocaleString()}
-                            ${info.cooldown_remaining ? ` | 冷却中: ${info.cooldown_remaining}` : ''}
-                        </div>
-                    </div>
-                    <span class="status-badge ${info.status}">${this.getStatusText(info.status)}</span>
+    // 渲染服务站状态
+    renderProviderStatus(baseData, rangeData) {
+        const container = document.getElementById('provider-status-list');
+        
+        if (!baseData.providers || Object.keys(baseData.providers).length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">📡</div>
+                    <div class="empty-state-text">暂无服务站</div>
                 </div>
-            `}).join('');
-            
-        } catch (error) {
-            console.error('Load provider status error:', error);
+            `;
+            return;
         }
+
+        // 获取 provider_model_stats
+        const rangeStats = this.currentRange === 'week'
+            ? this.aggregateDailyStats(rangeData)
+            : (rangeData.provider_model_stats || {});
+        
+        // 聚合每个服务站的统计
+        const providerRangeStats = {};
+        Object.entries(rangeStats).forEach(([providerName, models]) => {
+            let total = 0, successful = 0;
+            Object.values(models).forEach(stats => {
+                total += stats.total || 0;
+                successful += stats.successful || 0;
+            });
+            providerRangeStats[providerName] = { total, successful };
+        });
+        
+        container.innerHTML = Object.entries(baseData.providers)
+            .sort((a, b) => {
+                const aStats = providerRangeStats[a[1].name || a[0]] || { total: 0 };
+                const bStats = providerRangeStats[b[1].name || b[0]] || { total: 0 };
+                return bStats.total - aStats.total;
+            })
+            .map(([id, info]) => {
+            const providerName = info.name || id;
+            const providerModelsStats = rangeStats[providerName];
+            const currentStats = providerRangeStats[providerName] || { total: 0, successful: 0 };
+            
+            const tooltip = this.getProviderStatsTooltip(providerModelsStats);
+            const tooltipAttr = tooltip ? `data-tooltip="${tooltip}"` : '';
+            
+            return `
+            <div class="provider-status-item" ${tooltipAttr}>
+                <div class="provider-status-info">
+                    <h4>${providerName}</h4>
+                    <div class="stats">
+                        成功: ${currentStats.successful.toLocaleString()} / 总计: ${currentStats.total.toLocaleString()}
+                        ${info.cooldown_remaining ? ` | 冷却中: ${info.cooldown_remaining}` : ''}
+                    </div>
+                </div>
+                <span class="status-badge ${info.status}">${this.getStatusText(info.status)}</span>
+            </div>
+        `}).join('');
     },
 
     // 聚合每日统计数据
@@ -324,41 +322,35 @@ const Dashboard = {
             });
         }
 
-        // 加载图表数据
-        this.loadChartData();
+        // 初始加载时需要单独获取数据
+        this.load();
     },
 
-    async loadChartData() {
-        try {
-            if (this.currentRange === 'week') {
-                await this.loadWeekChartData();
-            } else {
-                await this.loadDayChartData();
-            }
-        } catch (error) {
-            console.error('Load chart data error:', error);
+    // 渲染图表
+    renderCharts(rangeData) {
+        if (this.currentRange === 'week') {
+            this.renderWeekCharts(rangeData);
+        } else {
+            this.renderDayCharts(rangeData);
         }
     },
 
-    // 加载近一周图表数据
-    async loadWeekChartData() {
-        const dailyStats = await API.getDailyStats(7);
-        
-        // 1. 更新趋势图 (按天)
+    // 渲染周视图图表
+    renderWeekCharts(dailyStats) {
+        // 趋势图
         if (this.requestsChart) {
-            const labels = dailyStats.map(d => d.date.slice(5)); // MM-DD
+            const labels = dailyStats.map(d => d.date.slice(5));
             const data = dailyStats.map(d => d.total_requests);
-
             this.requestsChart.data.labels = labels;
             this.requestsChart.data.datasets[0].label = '日请求量';
             this.requestsChart.data.datasets[0].data = data;
             this.requestsChart.update();
         }
 
-        // 2. 更新模型分布图 (聚合7天)
+        // 模型分布图
         if (this.modelUsageChart) {
             const aggregatedUsage = {};
-            const aggregatedModelProviderStats = {}; // unified_model -> provider -> stats
+            const aggregatedModelProviderStats = {};
 
             dailyStats.forEach(day => {
                 if (day.model_usage) {
@@ -366,12 +358,9 @@ const Dashboard = {
                         aggregatedUsage[model] = (aggregatedUsage[model] || 0) + count;
                     });
                 }
-                
-                // 聚合 model_provider_stats
                 if (day.model_provider_stats) {
                     Object.entries(day.model_provider_stats).forEach(([model, providers]) => {
                         if (!aggregatedModelProviderStats[model]) aggregatedModelProviderStats[model] = {};
-                        
                         Object.entries(providers).forEach(([provider, stats]) => {
                             if (!aggregatedModelProviderStats[model][provider]) {
                                 aggregatedModelProviderStats[model][provider] = { total: 0, successful: 0, failed: 0 };
@@ -383,33 +372,28 @@ const Dashboard = {
                     });
                 }
             });
-
             this.updateModelChart(aggregatedUsage, aggregatedModelProviderStats);
         }
     },
 
-    // 加载单日图表数据
-    async loadDayChartData() {
-        const logStats = await API.getLogStats(this.selectedDate);
-
-        // 1. 更新趋势图 (按小时)
+    // 渲染日视图图表
+    renderDayCharts(logStats) {
+        // 趋势图
         if (this.requestsChart) {
             const hours = [];
             const counts = [];
-            
             for (let i = 0; i < 24; i++) {
                 const hour = i.toString().padStart(2, '0');
                 hours.push(`${hour}:00`);
                 counts.push(logStats.hourly_requests ? (logStats.hourly_requests[hour] || 0) : 0);
             }
-            
             this.requestsChart.data.labels = hours;
             this.requestsChart.data.datasets[0].label = '小时请求量';
             this.requestsChart.data.datasets[0].data = counts;
             this.requestsChart.update();
         }
 
-        // 2. 更新模型分布图
+        // 模型分布图
         if (this.modelUsageChart) {
             this.updateModelChart(logStats.model_usage || {}, logStats.model_provider_stats || {});
         }

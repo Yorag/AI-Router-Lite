@@ -40,7 +40,7 @@ from src.provider import provider_manager
 from src.router import ModelRouter
 from src.proxy import RequestProxy, ProxyError, ProxyResult, StreamContext
 from src.api_keys import api_key_manager, APIKey
-from src.logger import log_manager, LogLevel
+from src.logger import log_manager, LogLevel, get_today_str
 from src.admin import admin_manager
 from src.model_mapping import model_mapping_manager
 from src.model_health import model_health_manager
@@ -1461,7 +1461,8 @@ async def get_system_stats():
         "providers": provider_manager.get_stats(),
         "api_keys": api_key_manager.get_stats(),
         "logs": log_manager.get_stats(),
-        "model_mappings": len(model_mapping_manager.get_all_mappings())
+        "model_mappings": len(model_mapping_manager.get_all_mappings()),
+        "today": get_today_str()
     }
 
 
