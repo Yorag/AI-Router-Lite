@@ -7,7 +7,8 @@ const Dashboard = {
     modelUsageChart: null,
     currentRange: 'day', // 'week' or 'day'
     selectedDate: null,   // YYYY-MM-DD
-
+    selectedTag: '',      // 选中的标签（API Key Name）
+ 
     async init() {
         // 从后端获取"今天"的日期（确保时区一致）
         try {
@@ -23,19 +24,43 @@ const Dashboard = {
         document.getElementById('btn-range-day').classList.add('active');
         document.getElementById('date-picker-wrapper').style.display = 'block';
 
+        // 加载标签列表
+        await this.loadTags();
+ 
         await this.load();
         this.initCharts();
     },
 
+    async loadTags() {
+        try {
+            const data = await API.listAPIKeys();
+            const select = document.getElementById('stats-tag-select');
+            
+            select.innerHTML = '<option value="">全部密钥</option>';
+            
+            if (data && data.keys) {
+                data.keys.forEach(key => {
+                    const option = document.createElement('option');
+                    option.value = key.name;
+                    option.textContent = key.name;
+                    select.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Failed to load tags:', error);
+        }
+    },
+ 
     async load() {
         try {
             // 集中获取所有数据，避免重复 API 调用
+            // 注意：getStats 也需要支持 tag 参数，以便获取过滤后的 Provider 统计
             const [sysStats, baseData, rangeData] = await Promise.all([
                 API.getSystemStats(),
-                API.getStats(),
+                API.getStats(this.selectedTag),
                 this.currentRange === 'week'
-                    ? API.getDailyStats(7)
-                    : API.getLogStats(this.selectedDate)
+                    ? API.getDailyStats(7, this.selectedTag)
+                    : API.getLogStats(this.selectedDate, this.selectedTag)
             ]);
             
             // 使用获取的数据渲染各组件
@@ -74,6 +99,13 @@ const Dashboard = {
             this.selectedDate = date;
             this.refresh();
         }
+    },
+
+    // 标签变更
+    onTagChange() {
+        const tag = document.getElementById('stats-tag-select').value;
+        this.selectedTag = tag;
+        this.refresh();
     },
 
     // 渲染统计卡片

@@ -518,11 +518,25 @@ class ProviderManager:
         for name in self._providers:
             self.reset(name)
     
-    def get_stats(self) -> dict:
+    def get_stats(self, tag: Optional[str] = None) -> dict:
         """获取统计信息（包括渠道级和模型级）
         
-        Provider 统计数据从日志系统获取（持久化），运行时状态从内存获取
+        Args:
+            tag: 标签过滤（API Key Name）
         """
+        log_manager = self._get_log_manager()
+        log_stats = log_manager.get_stats(tag=tag)
+        
+        persisted_provider_stats = log_stats.get("provider_stats", {})
+        # 兼容旧格式
+        if not persisted_provider_stats and "provider_usage" in log_stats:
+             persisted_provider_stats = {
+                p: {"total": c, "successful": c, "failed": 0}
+                for p, c in log_stats["provider_usage"].items()
+            }
+            
+        persisted_model_stats = log_stats.get("provider_model_stats", {})
+        
         stats = {
             "total_providers": len(self._providers),
             "available_providers": len(self.get_available()),
@@ -530,30 +544,23 @@ class ProviderManager:
             "models": {}
         }
         
-        # 从日志系统获取持久化的 Provider 统计数据（按 provider name 索引）
-        log_manager = self._get_log_manager()
-        persisted_provider_stats = log_manager.get_provider_stats()
-        persisted_model_stats = log_manager.get_provider_model_stats()
-        
+        # 处理 Provider 统计
         for provider_id, provider in self._providers.items():
             provider_name = provider.config.name
+            p_stats = persisted_provider_stats.get(provider_name, {})
             
-            # 从日志系统获取持久化的统计数据
-            persisted = persisted_provider_stats.get(provider_name, {})
-            total_requests = persisted.get("total", 0)
-            successful_requests = persisted.get("successful", 0)
-            failed_requests = persisted.get("failed", 0)
-            
-            # 计算成功率
-            success_rate = 1.0 if total_requests == 0 else successful_requests / total_requests
+            total = p_stats.get("total", 0)
+            successful = p_stats.get("successful", 0)
+            failed = p_stats.get("failed", 0)
+            success_rate = 1.0 if total == 0 else successful / total
             
             stats["providers"][provider_id] = {
                 "name": provider_name,
                 "status": provider.status.value,
                 "enabled": provider.config.enabled,
-                "total_requests": total_requests,
-                "successful_requests": successful_requests,
-                "failed_requests": failed_requests,
+                "total_requests": total,
+                "successful_requests": successful,
+                "failed_requests": failed,
                 "success_rate": f"{success_rate:.1%}",
                 "last_error": provider.last_error,
                 "cooldown_reason": provider.cooldown_reason.value if provider.cooldown_reason else None,
@@ -563,75 +570,62 @@ class ProviderManager:
                 remaining = max(0, provider.cooldown_until - time.time())
                 stats["providers"][provider_id]["cooldown_remaining"] = f"{remaining:.0f}s"
         
-        # 模型级统计：合并持久化数据和运行时状态
-        # 1. 遍历所有运行时模型状态
-        processed_models = set()
-        for key, model_state in self._model_states.items():
-            processed_models.add(key)
-            provider = self._providers.get(model_state.provider_id)
-            provider_name = provider.config.name if provider else ""
+        # 处理模型级统计
+        all_model_keys = set(self._model_states.keys())
+        for provider_name, models in persisted_model_stats.items():
+             provider = self.get_by_name(provider_name)
+             if provider:
+                 for model_name in models:
+                     all_model_keys.add(self._get_model_key(provider.config.id, model_name))
+
+        for key in all_model_keys:
+            parts = key.split(":", 1)
+            if len(parts) != 2: continue
+            provider_id, model_name = parts
             
-            # 尝试从持久化数据中获取统计
-            p_stats = {}
-            if provider_name and provider_name in persisted_model_stats:
-                p_stats = persisted_model_stats[provider_name].get(model_state.model_name, {})
+            provider = self._providers.get(provider_id)
+            if not provider: continue
             
-            # 优先使用持久化数据，如果不存在则使用内存数据（可能是刚启动还没写入日志）
-            total = p_stats.get("total", model_state.total_requests)
-            successful = p_stats.get("successful", model_state.successful_requests)
-            failed = p_stats.get("failed", model_state.failed_requests)
-            tokens = p_stats.get("tokens", model_state.total_tokens)
+            model_state = self._model_states.get(key)
+            pm_stats = persisted_model_stats.get(provider.config.name, {}).get(model_name, {})
             
-            # 如果内存数据比持久化数据新（更大），则使用内存数据
-            if model_state.total_requests > total:
+            total = pm_stats.get("total", 0)
+            successful = pm_stats.get("successful", 0)
+            failed = pm_stats.get("failed", 0)
+            tokens = pm_stats.get("tokens", 0)
+            
+            # 如果没有 tag 过滤，且内存数据更新，则使用内存数据
+            if not tag and model_state and model_state.total_requests > total:
                 total = model_state.total_requests
                 successful = model_state.successful_requests
                 failed = model_state.failed_requests
                 tokens = model_state.total_tokens
 
-            success_rate = 1.0 if total == 0 else successful / total
-
-            if total > 0 or model_state.status != ModelStatus.HEALTHY:
-                stats["models"][key] = {
-                    "status": model_state.status.value,
+            # 仅显示有数据或状态异常的模型（tag 模式下仅显示有数据的）
+            if total > 0 or (model_state and model_state.status != ModelStatus.HEALTHY) or not tag:
+                success_rate = 1.0 if total == 0 else successful / total
+                
+                model_data = {
+                    "status": ModelStatus.HEALTHY.value,
                     "total_requests": total,
                     "successful_requests": successful,
                     "failed_requests": failed,
                     "total_tokens": tokens,
                     "success_rate": f"{success_rate:.1%}",
-                    "last_error": model_state.last_error,
-                    "cooldown_reason": model_state.cooldown_reason.value if model_state.cooldown_reason else None,
+                    "last_error": None,
+                    "cooldown_reason": None,
                 }
                 
-                if model_state.status == ModelStatus.COOLING:
-                    remaining = max(0, model_state.cooldown_until - time.time())
-                    stats["models"][key]["cooldown_remaining"] = f"{remaining:.0f}s"
-        
-        # 2. 遍历持久化数据中存在但运行时未加载的模型（可能是重启后还没被调用过）
-        for provider_id, provider in self._providers.items():
-            provider_name = provider.config.name
-            if provider_name in persisted_model_stats:
-                for model_name, p_stats in persisted_model_stats[provider_name].items():
-                    key = self._get_model_key(provider_id, model_name)
-                    if key not in processed_models:
-                        # 这是一个历史模型，运行时还没有状态，创建一个默认状态
-                        total = p_stats.get("total", 0)
-                        if total > 0:
-                            successful = p_stats.get("successful", 0)
-                            failed = p_stats.get("failed", 0)
-                            tokens = p_stats.get("tokens", 0)
-                            success_rate = 1.0 if total == 0 else successful / total
-                            
-                            stats["models"][key] = {
-                                "status": ModelStatus.HEALTHY.value, # 默认为健康
-                                "total_requests": total,
-                                "successful_requests": successful,
-                                "failed_requests": failed,
-                                "total_tokens": tokens,
-                                "success_rate": f"{success_rate:.1%}",
-                                "last_error": None,
-                                "cooldown_reason": None,
-                            }
+                if model_state:
+                    model_data.update({
+                        "status": model_state.status.value,
+                        "last_error": model_state.last_error,
+                        "cooldown_reason": model_state.cooldown_reason.value if model_state.cooldown_reason else None
+                    })
+                    if model_state.status == ModelStatus.COOLING:
+                        model_data["cooldown_remaining"] = f"{max(0, model_state.cooldown_until - time.time()):.0f}s"
+                
+                stats["models"][key] = model_data
         
         return stats
     

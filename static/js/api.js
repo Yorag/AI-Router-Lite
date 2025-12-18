@@ -45,8 +45,9 @@ const API = {
         return this.request('GET', '/api/admin/system-stats');
     },
 
-    async getStats() {
-        return this.request('GET', '/stats');
+    async getStats(tag = null) {
+        const params = tag ? `?tag=${encodeURIComponent(tag)}` : '';
+        return this.request('GET', `/stats${params}`);
     },
 
     async reloadConfig() {
@@ -89,13 +90,20 @@ const API = {
         return this.request('GET', `/api/logs${query ? '?' + query : ''}`);
     },
 
-    async getLogStats(date = null) {
-        const params = date ? `?date=${date}` : '';
-        return this.request('GET', `/api/logs/stats${params}`);
+    async getLogStats(date = null, tag = null) {
+        const params = new URLSearchParams();
+        if (date) params.append('date', date);
+        if (tag) params.append('tag', tag);
+        const query = params.toString();
+        return this.request('GET', `/api/logs/stats${query ? '?' + query : ''}`);
     },
 
-    async getDailyStats(days = 7) {
-        return this.request('GET', `/api/logs/daily?days=${days}`);
+    async getDailyStats(days = 7, tag = null) {
+        const params = new URLSearchParams();
+        params.append('days', days);
+        if (tag) params.append('tag', tag);
+        const query = params.toString();
+        return this.request('GET', `/api/logs/daily?${query}`);
     },
 
     // ==================== Provider ====================

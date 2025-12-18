@@ -59,6 +59,14 @@
                     <div class="header-actions">
                         <!-- 统计范围切换 -->
                         <div class="stats-range-control">
+                            <!-- 标签筛选下拉框 -->
+                            <div class="filter-group" style="flex-direction: row; align-items: center; margin-right: 12px;">
+                                <select id="stats-tag-select" onchange="Dashboard.onTagChange()" style="padding: 6px 12px; font-size: 0.8125rem;">
+                                    <option value="">全部密钥</option>
+                                    <!-- 动态生成 -->
+                                </select>
+                            </div>
+                            
                             <div class="toggle-group">
                                 <button class="toggle-btn" onclick="Dashboard.switchRange('week')" id="btn-range-week">近一周</button>
                                 <button class="toggle-btn active" onclick="Dashboard.switchRange('day')" id="btn-range-day">指定日期</button>
@@ -241,6 +249,13 @@
                                 <option value="admin">Admin</option>
                                 <option value="sync">Sync</option>
                                 <option value="proxy">Proxy</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>标签</label>
+                            <select id="filter-tag" onchange="Logs.applyFilters()">
+                                <option value="">全部</option>
+                                <!-- 动态生成 -->
                             </select>
                         </div>
                         <div class="filter-group">

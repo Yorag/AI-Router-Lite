@@ -716,9 +716,13 @@ async def health_check():
 
 
 @app.get("/stats")
-async def get_stats():
-    """获取详细统计信息"""
-    return provider_manager.get_stats()
+async def get_stats(tag: Optional[str] = None):
+    """获取详细统计信息
+    
+    Args:
+        tag: 标签过滤 (API Key Name)
+    """
+    return provider_manager.get_stats(tag=tag)
 
 
 # ==================== API 密钥管理 ====================
@@ -818,15 +822,25 @@ async def stream_logs():
 
 
 @app.get("/api/logs/stats")
-async def get_log_stats(date: Optional[str] = None):
-    """获取日志统计"""
-    return log_manager.get_stats(date)
+async def get_log_stats(date: Optional[str] = None, tag: Optional[str] = None):
+    """获取日志统计
+    
+    Args:
+        date: 日期
+        tag: 标签过滤
+    """
+    return log_manager.get_stats(date, tag=tag)
 
 
 @app.get("/api/logs/daily")
-async def get_daily_stats(days: int = Query(7, ge=1, le=30)):
-    """获取每日统计数据（用于近一周趋势图）"""
-    return log_manager.get_daily_stats(days)
+async def get_daily_stats(days: int = Query(7, ge=1, le=30), tag: Optional[str] = None):
+    """获取每日统计数据（用于近一周趋势图）
+    
+    Args:
+        days: 天数
+        tag: 标签过滤
+    """
+    return log_manager.get_daily_stats(days, tag=tag)
 
 
 # ==================== Provider 管理 ====================

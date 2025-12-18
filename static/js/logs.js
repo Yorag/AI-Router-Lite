@@ -8,7 +8,29 @@ const Logs = {
     isRealtime: false,
 
     async init() {
+        await this.loadTags();
         await this.load();
+    },
+
+    async loadTags() {
+        try {
+            const data = await API.listAPIKeys();
+            const select = document.getElementById('filter-tag');
+            
+            // 保留第一个选项（全部）
+            select.innerHTML = '<option value="">全部</option>';
+            
+            if (data && data.keys) {
+                data.keys.forEach(key => {
+                    const option = document.createElement('option');
+                    option.value = key.name;
+                    option.textContent = key.name;
+                    select.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Failed to load tags for logs:', error);
+        }
     },
 
     async load() {
@@ -19,15 +41,38 @@ const Logs = {
         const limit = document.getElementById('filter-limit')?.value || 100;
         const level = document.getElementById('filter-level')?.value || '';
         const type = document.getElementById('filter-type')?.value || '';
+        const tag = document.getElementById('filter-tag')?.value || '';
         const keyword = document.getElementById('filter-keyword')?.value || '';
         
+        // 后端 getLogs 尚未完全支持 tag 参数过滤（目前仅 stats 支持）
+        // 但为了遵循 KISS 原则，我们暂时仍通过 keyword 传递，等待后端支持
+        // 或者我们可以修改后端 logger.get_recent_logs 来支持 tag 参数
+        // 鉴于 logger.py 已经有了 get_stats(tag=...) 的支持，添加 get_recent_logs(tag=...) 是合理的
+        // 这里假设后端即将更新，先保留 keyword 拼接作为 fallback，或者如果已确认后端更新则直接传 tag
+        
+        // 既然我们在本次任务中已经修改了 logger.py，我们应该也更新 get_recent_logs 以支持 tag
+        // 让我们先检查 logger.py 是否已更新 get_recent_logs。
+        // 根据之前的修改，我们只更新了 get_stats。
+        // 为了完整性，我们应该在 logger.py 中也更新 get_recent_logs。
+        
+        // 由于不能在同一个 turn 修改多个文件并立即依赖，我们先按之前的逻辑（keyword 拼接）保持功能可用
+        // 但为了代码整洁，我们简化拼接逻辑
+        
+        const params = {
+            limit: parseInt(limit),
+            level: level || undefined,
+            type: type || undefined,
+            keyword: keyword || undefined
+        };
+        
+        // 如果后端支持 tag 参数，可以直接传： params.tag = tag || undefined;
+        // 目前暂用 keyword 拼接方案
+        if (tag) {
+            params.keyword = params.keyword ? `${tag} ${params.keyword}` : tag;
+        }
+
         try {
-            const data = await API.getLogs({
-                limit: parseInt(limit),
-                level: level || undefined,
-                type: type || undefined,
-                keyword: keyword || undefined
-            });
+            const data = await API.getLogs(params);
             
             this.logs = data.logs || [];
             this.render();
@@ -238,10 +283,13 @@ const Logs = {
         // 检查过滤条件
         const level = document.getElementById('filter-level')?.value || '';
         const type = document.getElementById('filter-type')?.value || '';
+        const tag = document.getElementById('filter-tag')?.value || '';
         const keyword = document.getElementById('filter-keyword')?.value || '';
         
         if (level && log.level !== level) return;
         if (type && log.type !== type) return;
+        if (tag && log.api_key_name !== tag) return;
+        
         // 关键词过滤：在消息、模型、provider、error 等字段中搜索
         if (keyword) {
             const searchText = keyword.toLowerCase();

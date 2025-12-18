@@ -139,6 +139,84 @@ class LogManager:
             "model_provider_stats": {},
         }
     
+    def _accumulate_log_entry(self, stats: dict, entry: dict) -> None:
+        """聚合单条日志到统计数据中 (Helper)"""
+        if entry.get("type") != "proxy":
+            return
+            
+        stats["total_requests"] += 1
+        
+        status_code = entry.get("status_code")
+        is_success = status_code and 200 <= status_code < 400
+        
+        if is_success:
+            stats["successful_requests"] += 1
+        else:
+            stats["failed_requests"] += 1
+            
+        # 小时统计
+        timestamp = entry.get("timestamp", 0)
+        hour = timestamp_to_datetime(timestamp).strftime("%H")
+        stats["hourly_requests"][hour] = stats["hourly_requests"].get(hour, 0) + 1
+        
+        model = entry.get("model")
+        provider = entry.get("provider")
+        actual_model = entry.get("actual_model")
+        
+        # 模型使用统计
+        if model:
+            stats["model_usage"][model] = stats["model_usage"].get(model, 0) + 1
+        
+        # 统一模型 -> Provider 统计
+        if model and provider:
+            mp_stats = stats.setdefault("model_provider_stats", {}).setdefault(model, {}).setdefault(provider, {
+                "total": 0, "successful": 0, "failed": 0
+            })
+            mp_stats["total"] += 1
+            if is_success:
+                mp_stats["successful"] += 1
+            else:
+                mp_stats["failed"] += 1
+
+        # Provider 使用统计
+        if provider:
+            stats["provider_usage"][provider] = stats["provider_usage"].get(provider, 0) + 1
+            
+            # Provider 详细统计
+            p_stats = stats.setdefault("provider_stats", {}).setdefault(provider, {
+                "total": 0, "successful": 0, "failed": 0
+            })
+            p_stats["total"] += 1
+            if is_success:
+                p_stats["successful"] += 1
+            else:
+                p_stats["failed"] += 1
+            
+            # Provider 模型级详细统计
+            model_key = actual_model or model or "unknown"
+            pm_stats = stats.setdefault("provider_model_stats", {}).setdefault(provider, {}).setdefault(model_key, {
+                "total": 0, "successful": 0, "failed": 0, "tokens": 0
+            })
+            
+            pm_stats["total"] += 1
+            if is_success:
+                pm_stats["successful"] += 1
+            else:
+                pm_stats["failed"] += 1
+            
+            # Token 统计
+            request_tokens = entry.get("request_tokens") or 0
+            response_tokens = entry.get("response_tokens") or 0
+            entry_total_tokens = entry.get("total_tokens") or 0
+            
+            current_tokens = max(request_tokens + response_tokens, entry_total_tokens)
+            pm_stats["tokens"] += current_tokens
+
+        # 全局 Token 统计
+        request_tokens = entry.get("request_tokens") or 0
+        response_tokens = entry.get("response_tokens") or 0
+        stats["total_tokens"] += (request_tokens + response_tokens)
+
     def _check_day_change(self) -> None:
         """检查是否跨天，如果跨天则保存旧数据并重置"""
         today = get_today_str()
@@ -318,125 +396,16 @@ class LogManager:
             print(f"[LogManager] 写入日志失败: {e}")
     
     def _update_stats(self, log_entry: RequestLog) -> None:
-        """更新统计数据
+        """更新统计数据"""
+        # 将 RequestLog 转换为 dict 以复用 _accumulate_log_entry
+        entry = log_entry.to_dict()
         
-        注意：只在 response 或 error 类型的日志时更新统计，
-        避免 request + response 两条日志导致重复计数。
-        - response: 请求成功完成
-        - error: 请求失败
-        """
-        if log_entry.type == "proxy":
-            self._stats["total_requests"] += 1
-            
-            # 判断是成功还是失败
-            is_success = False
-            if log_entry.status_code and 200 <= log_entry.status_code < 400:
-                self._stats["successful_requests"] += 1
-                is_success = True
-            elif log_entry.status_code and log_entry.status_code >= 400:
-                self._stats["failed_requests"] += 1
-            elif log_entry.type == "error":
-                # error 类型但没有 status_code 的情况，也计入失败
-                self._stats["failed_requests"] += 1
-            
-            # 小时统计
-            hour = timestamp_to_datetime(log_entry.timestamp).strftime("%H")
-            self._stats["hourly_requests"][hour] = self._stats["hourly_requests"].get(hour, 0) + 1
-            
-            # 模型使用统计
-            if log_entry.model:
-                self._stats["model_usage"][log_entry.model] = \
-                    self._stats["model_usage"].get(log_entry.model, 0) + 1
-            
-            # 统一模型 -> Provider 统计
-            if log_entry.model and log_entry.provider:
-                if "model_provider_stats" not in self._stats:
-                    self._stats["model_provider_stats"] = {}
-                
-                if log_entry.model not in self._stats["model_provider_stats"]:
-                    self._stats["model_provider_stats"][log_entry.model] = {}
-                
-                if log_entry.provider not in self._stats["model_provider_stats"][log_entry.model]:
-                    self._stats["model_provider_stats"][log_entry.model][log_entry.provider] = {
-                        "total": 0,
-                        "successful": 0,
-                        "failed": 0
-                    }
-                
-                mp_stat = self._stats["model_provider_stats"][log_entry.model][log_entry.provider]
-                mp_stat["total"] += 1
-                if is_success:
-                    mp_stat["successful"] += 1
-                else:
-                    mp_stat["failed"] += 1
-
-            # Provider 使用统计（保持向后兼容）
-            if log_entry.provider:
-                self._stats["provider_usage"][log_entry.provider] = \
-                    self._stats["provider_usage"].get(log_entry.provider, 0) + 1
-                
-                # 新增：Provider 详细统计（成功/失败）
-                if "provider_stats" not in self._stats:
-                    self._stats["provider_stats"] = {}
-                
-                if log_entry.provider not in self._stats["provider_stats"]:
-                    self._stats["provider_stats"][log_entry.provider] = {
-                        "total": 0,
-                        "successful": 0,
-                        "failed": 0
-                    }
-                
-                provider_stat = self._stats["provider_stats"][log_entry.provider]
-                provider_stat["total"] += 1
-                if is_success:
-                    provider_stat["successful"] += 1
-                else:
-                    provider_stat["failed"] += 1
-                
-                # 新增：Provider 模型级详细统计
-                if "provider_model_stats" not in self._stats:
-                    self._stats["provider_model_stats"] = {}
-                
-                if log_entry.provider not in self._stats["provider_model_stats"]:
-                    self._stats["provider_model_stats"][log_entry.provider] = {}
-                
-                # 使用 actual_model 作为 key，如果为空则使用 model
-                model_key = log_entry.actual_model or log_entry.model or "unknown"
-                
-                if model_key not in self._stats["provider_model_stats"][log_entry.provider]:
-                    self._stats["provider_model_stats"][log_entry.provider][model_key] = {
-                        "total": 0,
-                        "successful": 0,
-                        "failed": 0,
-                        "tokens": 0
-                    }
-                
-                model_stat = self._stats["provider_model_stats"][log_entry.provider][model_key]
-                model_stat["total"] += 1
-                if is_success:
-                    model_stat["successful"] += 1
-                else:
-                    model_stat["failed"] += 1
-                
-                # 模型级 Token 统计
-                current_tokens = 0
-                if log_entry.request_tokens:
-                    current_tokens += log_entry.request_tokens
-                if log_entry.response_tokens:
-                    current_tokens += log_entry.response_tokens
-                # 如果日志中有 total_tokens，优先使用（可能包含未分开的 token）
-                if log_entry.total_tokens and log_entry.total_tokens > current_tokens:
-                    current_tokens = log_entry.total_tokens
-                
-                model_stat["tokens"] += current_tokens
-
-            # Token 统计（只有 response 才有 token 信息）
-            if log_entry.request_tokens:
-                self._stats["total_tokens"] += log_entry.request_tokens
-            if log_entry.response_tokens:
-                self._stats["total_tokens"] += log_entry.response_tokens
-            
-            # 标记统计数据已变更
+        # 记录变更前后的请求数，判断是否有更新
+        old_requests = self._stats["total_requests"]
+        self._accumulate_log_entry(self._stats, entry)
+        new_requests = self._stats["total_requests"]
+        
+        if new_requests > old_requests:
             self._stats_dirty = True
         
         # 定期保存统计
@@ -535,8 +504,52 @@ class LogManager:
         
         return logs
     
-    def get_stats(self, date: Optional[str] = None) -> dict:
-        """获取统计数据"""
+    def calculate_stats_from_logs(self, date: Optional[str], tag: str) -> dict:
+        """从日志文件计算指定标签的统计数据
+        
+        Args:
+            date: 日期字符串 (YYYY-MM-DD)，None 表示今天
+            tag: 标签名 (API 密钥名称)
+        """
+        stats = self._get_empty_stats()
+        log_file = self._get_log_file_path(date)
+        
+        if not log_file.exists():
+            # 如果是今天且文件不存在（可能还没写入），检查内存日志
+            if date is None or date == get_today_str():
+                 for log in self._logs:
+                    if log.api_key_name == tag:
+                        self._accumulate_log_entry(stats, log.to_dict())
+            return stats
+            
+        try:
+            with open(log_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        data = json.loads(line)
+                        if data.get("api_key_name") == tag:
+                            self._accumulate_log_entry(stats, data)
+                    except:
+                        pass
+        except Exception as e:
+            print(f"[LogManager] 计算标签统计失败: {e}")
+            
+        return stats
+
+    def get_stats(self, date: Optional[str] = None, tag: Optional[str] = None) -> dict:
+        """获取统计数据
+        
+        Args:
+            date: 日期，None 表示今天
+            tag: 标签过滤 (API Key Name)
+        """
+        # 如果指定了标签，必须从日志重新计算
+        if tag:
+            return self.calculate_stats_from_logs(date, tag)
+            
+        # 否则使用预计算的统计数据
         if date is None:
             return self._stats.copy()
         
@@ -610,25 +623,15 @@ class LogManager:
         stats = self.get_stats(date)
         return stats.get("provider_model_stats", {})
 
-    def get_daily_stats(self, days: int = 7) -> list[dict]:
+    def get_daily_stats(self, days: int = 7, tag: Optional[str] = None) -> list[dict]:
         """获取最近N天的每日统计数据
         
         Args:
             days: 天数，默认7天
+            tag: 标签过滤
             
         Returns:
             list[dict]: 每日统计列表，按日期升序排列
-            [
-                {
-                    "date": "2023-10-27",
-                    "total_requests": 100,
-                    "successful_requests": 90,
-                    "failed_requests": 10,
-                    "total_tokens": 5000,
-                    "model_usage": {...}
-                },
-                ...
-            ]
         """
         results = []
         now = get_current_time()
@@ -637,23 +640,13 @@ class LogManager:
         # 注意：reversed让结果按日期升序排列
         for i in reversed(range(days)):
             date_str = (now - timedelta(days=i)).strftime("%Y-%m-%d")
-            stats = self.get_stats(date_str)
+            
+            # 使用 get_stats 获取 (支持 tag 过滤)
+            stats = self.get_stats(date_str, tag=tag)
             
             if not stats:
-                # 如果没有当天的统计文件，尝试从内存中的stats获取（如果是今天）
-                if i == 0:
-                    stats = self._stats.copy()
-                else:
-                    # 否则返回空统计
-                    stats = {
-                        "total_requests": 0,
-                        "successful_requests": 0,
-                        "failed_requests": 0,
-                        "total_tokens": 0,
-                        "hourly_requests": {},
-                        "model_usage": {},
-                        "provider_usage": {}
-                    }
+                # 否则返回空统计
+                stats = self._get_empty_stats()
             
             # 添加日期字段
             daily_data = {
