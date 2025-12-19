@@ -64,13 +64,13 @@
 
 11. **可视化管理面板**：功能完善的 Web 管理界面，让你轻松管理所有配置。
 
-12. **统一持久化存储**：
-    * 配置变更（创建、删除、禁用）：立即落盘
-    * 高频统计数据（调用次数、Token 用量）：缓冲落盘（5分钟间隔）
-    * 优雅关闭：收到终止信号时自动刷盘所有数据
-    * 无需数据库，所有数据以 JSON 格式存储
+12. **高性能 SQLite 存储**：
+    * 采用 SQLite (WAL 模式) 作为底层存储，支持高并发读写。
+    * 数据分为 `app.db` (配置) 和 `logs.db` (日志)，互不干扰。
+    * **安全加固**：Provider API Key 在数据库中加密存储。
+    * **零配置**：无需安装 MySQL/PostgreSQL，开箱即用。
 
-13. **极简配置**：核心配置通过 `config.json` 管理，运行时数据自动持久化。
+13. **极简配置**：核心配置通过 `config.json` 管理（仅作为初始导入），运行时数据完全由数据库管理。
 
 ## 🎨 管理面板
 
@@ -134,21 +134,19 @@ ai-router-lite/
 ├── .gitignore
 ├── data/                   # 运行时数据目录（自动生成）
 │   ├── .gitkeep
-│   ├── api_keys.json       # API 密钥数据
-│   ├── model_mappings.json # 增强型模型映射数据
-│   ├── model_health.json   # 模型健康检测结果
-│   ├── provider_models.json # Provider 模型元信息存储
-│   └── logs/               # 日志文件目录
+│   ├── app.db              # 核心数据库 (Providers, Keys, Mappings)
+│   └── logs.db             # 日志数据库 (Request Logs)
 ├── src/
 │   ├── __init__.py
 │   ├── config.py           # 配置管理模块
 │   ├── constants.py        # 统一常量定义模块
+│   ├── db.py               # 数据库连接与初始化
+│   ├── sqlite_repos.py     # SQLite 数据访问层 (Repository)
 │   ├── models.py           # OpenAI 兼容数据模型
 │   ├── protocols.py        # 多协议适配器（OpenAI/Anthropic/Gemini）
 │   ├── provider.py         # Provider 管理和双层熔断逻辑
 │   ├── router.py           # 路由策略模块（支持模型级熔断检查）
 │   ├── proxy.py            # 请求代理（流式/非流式）
-│   ├── storage.py          # 持久化存储管理模块
 │   ├── api_keys.py         # API 密钥管理模块
 │   ├── logger.py           # 日志记录模块
 │   ├── admin.py            # 管理功能模块
@@ -195,9 +193,9 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. 配置你的中转站 (`config.json`)
+### 3. 配置文件 (`config.json`)
 
-复制 `config.example.json` 为 `config.json`，然后填入你的中转站信息：
+复制 `config.example.json` 为 `config.json`，然后配置：
 
 ```json
 {
@@ -205,37 +203,33 @@ pip install -r requirements.txt
   "server_host": "0.0.0.0",
   "max_retries": 3,
   "request_timeout": 120,
-  "providers": [
-    {
-      "name": "Provider_A",
-      "base_url": "https://api.example-a.com/v1",
-      "api_key": "sk-your-api-key-here",
-      "weight": 10,
-      "timeout": 60
-    },
-    {
-      "name": "Provider_B",
-      "base_url": "https://api.example-b.com/v1",
-      "api_key": "sk-another-api-key",
-      "weight": 5,
-      "timeout": 90
-    },
-    {
-      "name": "Provider_C_Backup",
-      "base_url": "https://api.backup-site.com/v1",
-      "api_key": "sk-backup-key",
-      "weight": 1,
-      "timeout": 120
-    }
-  ]
+  "db_encryption_key": "你的加密密钥"
 }
 ```
 
-> **提示**：现在可以通过管理面板配置服务站的 `default_protocol`（默认协议），支持 `openai`, `openai-response`, `anthropic`, `gemini`。
+> **重要**：`db_encryption_key` 用于加密数据库中的敏感数据（如 Provider API Key）。
 
-> **注意**：模型列表不再需要在配置文件中手动维护。启动后通过管理面板的「服务站管理」同步模型列表，模型映射通过「模型映射」功能配置。
+### 4. 生成加密密钥
 
-### 4. 启动服务
+运行以下命令生成 Fernet 加密密钥：
+
+```bash
+python scripts/gen_fernet_key.py
+```
+
+将生成的密钥复制到 `config.json` 的 `db_encryption_key` 字段中。
+
+### 5. 初始化数据库与启动
+
+首次运行前，请初始化数据库：
+
+```bash
+python scripts/init_db.py
+```
+
+> **注意**：Provider 配置通过管理面板添加和管理，不再需要在配置文件中维护。
+
+然后启动服务：
 
 ```bash
 python main.py
@@ -262,11 +256,11 @@ python main.py
 [STARTUP] 服务启动完成，等待请求...
 ```
 
-### 5. 访问管理面板
+### 6. 访问管理面板
 
 打开浏览器访问 `http://127.0.0.1:8000/admin` 即可使用管理面板。
 
-### 6. 连接客户端
+### 7. 连接客户端
 
 打开 Chatbox 或 NextChat：
 
@@ -352,7 +346,6 @@ python main.py
 |------|------|------|
 | `/api/admin/reset/{provider_id}` | POST | 重置指定 Provider 状态（通过 ID） |
 | `/api/admin/reset-all` | POST | 重置所有 Provider 状态 |
-| `/api/admin/reload-config` | POST | 重新加载配置 |
 | `/api/admin/system-stats` | GET | 系统统计信息 |
 
 ## 🧩 核心逻辑说明
@@ -428,16 +421,16 @@ python main.py
 | **SSL EOF** | SSL 连接中断 | ❌ **不冷却** | 直接返回错误 |
 | **健康检测失败** | 主动检测失败 | ⏳ **60 秒** | 模型级 |
 
-### 持久化存储策略
+### 持久化存储策略 (SQLite)
 
-系统采用两层存储策略，平衡数据安全和性能：
+系统采用 SQLite (WAL 模式) 作为底层存储，确保数据一致性与高性能：
 
-| 操作类型 | 保存策略 | 说明 |
-|:---------|:---------|:-----|
-| **配置变更** | 立即落盘 | API 密钥创建/删除、Provider 增删改、映射配置变更 |
-| **统计更新** | 缓冲落盘 | 请求计数、Token 用量、最后使用时间（5分钟间隔） |
-| **健康状态** | 缓冲落盘 | 被动健康记录、活动时间更新 |
-| **系统关闭** | 强制刷盘 | 收到 SIGINT/SIGTERM 信号时自动保存所有未落盘数据 |
+| 数据库 | 用途 | 说明 |
+|:-------|:-----|:-----|
+| **app.db** | 核心配置 | 存储 Provider、API Key、模型映射、健康状态等低频读写数据。 |
+| **logs.db** | 日志数据 | 存储高频写入的请求日志。支持按时间、模型、Provider 快速检索。 |
+
+> **注意**：所有敏感数据（如 Provider API Key）均在数据库中加密存储。
 
 ## 📚 依赖库说明
 

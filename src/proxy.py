@@ -56,7 +56,9 @@ class ProxyError(Exception):
         provider_name: Optional[str] = None,
         actual_model: Optional[str] = None,
         response_body: Optional[Dict[str, Any]] = None,
-        skip_retry: bool = False
+        skip_retry: bool = False,
+        provider_id: Optional[str] = None,
+        log_type: str = "proxy"
     ):
         super().__init__(message)
         self.message = message
@@ -65,12 +67,20 @@ class ProxyError(Exception):
         self.actual_model = actual_model
         self.response_body = response_body
         self.skip_retry = skip_retry
+        self.provider_id = provider_id
+        self.log_type = log_type
+
+
+class RoutingError(Exception):
+    """路由错误（无可用 Provider）"""
+    pass
 
 
 def _create_network_error(
     e: Exception,
     provider_name: str,
-    actual_model: Optional[str] = None
+    actual_model: Optional[str] = None,
+    provider_id: Optional[str] = None
 ) -> ProxyError:
     """根据网络异常类型创建对应的 ProxyError"""
     error_msg = str(e) or type(e).__name__
@@ -79,12 +89,15 @@ def _create_network_error(
     lower_msg = error_msg.lower()
     is_ssl_eof = "ssl" in lower_msg and "eof" in lower_msg
     
+    # 所有网络层错误（超时、连接重置、SSL错误等）都归类为 system 错误
     return ProxyError(
         error_msg,
         status_code=503 if is_ssl_eof else 502,
         provider_name=provider_name,
         actual_model=actual_model,
-        skip_retry=is_ssl_eof
+        skip_retry=is_ssl_eof,
+        provider_id=provider_id,
+        log_type="system"
     )
 
 
@@ -128,23 +141,30 @@ class RequestProxy:
         status_code: Optional[int],
         error_message: str,
         is_stream: bool = False,
-        api_key_name: Optional[str] = None
+        api_key_name: Optional[str] = None,
+        api_key_id: Optional[str] = None,
+        provider_id: Optional[str] = None,
+        log_type: str = "proxy",
+        protocol: Optional[str] = None
     ) -> None:
         """记录代理请求错误日志（用于统计）"""
         path = "/proxy/stream" if is_stream else "/proxy"
         prefix = "流式请求失败" if is_stream else "请求失败"
         log_manager.log(
             level=LogLevel.ERROR,
-            log_type="proxy",
+            log_type=log_type,
             method="POST",
             path=path,
             model=original_model,
             provider=provider_name,
+            provider_id=provider_id,
             actual_model=actual_model,
             status_code=status_code,
             error=error_message,
             message=f"{prefix} [{provider_name}:{actual_model}]",
-            api_key_name=api_key_name
+            api_key_name=api_key_name,
+            api_key_id=api_key_id,
+            protocol=protocol
         )
     
     def _weighted_random_select_index(
@@ -208,7 +228,8 @@ class RequestProxy:
         protocol_handler: BaseProtocol,
         original_model: str,
         required_protocol: Optional[str] = None,
-        api_key_name: Optional[str] = None
+        api_key_name: Optional[str] = None,
+        api_key_id: Optional[str] = None
     ) -> ProxyResult:
         """
         转发非流式请求（带模型级重试机制）
@@ -233,10 +254,7 @@ class RequestProxy:
         all_candidates = self.router.find_candidate_models(original_model, required_protocol=req_protocol)
         
         if not all_candidates:
-            raise ProxyError(
-                f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider",
-                status_code=404
-            )
+            raise RoutingError(f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider")
         
         # 重排列表：首个加权随机，其余按原顺序
         ordered_candidates = self._reorder_candidates_with_weighted_first(all_candidates)
@@ -299,7 +317,11 @@ class RequestProxy:
                 self._log_proxy_error(
                     provider.config.name, original_model, actual_model,
                     e.status_code, e.message, is_stream=False,
-                    api_key_name=api_key_name
+                    api_key_name=api_key_name,
+                    api_key_id=api_key_id,
+                    provider_id=provider.config.id,
+                    log_type=e.log_type,
+                    protocol=req_protocol
                 )
                 
                 # 记录被动健康状态（缓冲落盘）
@@ -322,7 +344,8 @@ class RequestProxy:
         original_model: str,
         stream_context: Optional[StreamContext] = None,
         required_protocol: Optional[str] = None,
-        api_key_name: Optional[str] = None
+        api_key_name: Optional[str] = None,
+        api_key_id: Optional[str] = None
     ) -> AsyncIterator[str]:
         """
         转发流式请求（带模型级重试机制）
@@ -337,10 +360,7 @@ class RequestProxy:
         all_candidates = self.router.find_candidate_models(original_model, required_protocol=req_protocol)
         
         if not all_candidates:
-            raise ProxyError(
-                f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider",
-                status_code=404
-            )
+            raise RoutingError(f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider")
         
         # 重排列表：首个加权随机，其余按原顺序
         ordered_candidates = self._reorder_candidates_with_weighted_first(all_candidates)
@@ -408,7 +428,11 @@ class RequestProxy:
                 self._log_proxy_error(
                     provider.config.name, original_model, actual_model,
                     e.status_code, e.message, is_stream=True,
-                    api_key_name=api_key_name
+                    api_key_name=api_key_name,
+                    api_key_id=api_key_id,
+                    provider_id=provider.config.id,
+                    log_type=e.log_type,
+                    protocol=req_protocol
                 )
                 
                 # 记录被动健康状态（缓冲落盘）
@@ -471,7 +495,8 @@ class RequestProxy:
                     f"HTTP {response.status_code}: {error_body_oneline}",
                     status_code=response.status_code,
                     provider_name=provider.config.name,
-                    response_body=error_response_body
+                    response_body=error_response_body,
+                    provider_id=provider.config.id
                 )
             
             try:
@@ -488,7 +513,8 @@ class RequestProxy:
                     status_code=502,
                     provider_name=provider.config.name,
                     actual_model=actual_model,
-                    response_body={"raw": error_body[:1000]}
+                    response_body={"raw": error_body[:1000]},
+                    provider_id=provider.config.id
                 )
             
             # 使用协议处理器转换响应
@@ -497,7 +523,7 @@ class RequestProxy:
             return raw_response, protocol_response
             
         except (httpx.TimeoutException, ssl.SSLError, ConnectionResetError, BrokenPipeError, httpx.RequestError) as e:
-            raise _create_network_error(e, provider.config.name)
+            raise _create_network_error(e, provider.config.name, provider_id=provider.config.id)
     
     async def _do_stream_request(
         self,
@@ -545,7 +571,8 @@ class RequestProxy:
                         status_code=response.status_code,
                         provider_name=provider.config.name,
                         actual_model=actual_model,
-                        response_body=error_response_body
+                        response_body=error_response_body,
+                        provider_id=provider.config.id
                     )
                 
                 async for line in response.aiter_lines():
@@ -575,7 +602,7 @@ class RequestProxy:
                         yield transformed
                         
         except (httpx.TimeoutException, ssl.SSLError, ConnectionResetError, BrokenPipeError, httpx.RequestError) as e:
-            raise _create_network_error(e, provider.config.name, actual_model)
+            raise _create_network_error(e, provider.config.name, actual_model, provider_id=provider.config.id)
     
     @staticmethod
     def _log_info(message: str) -> None:

@@ -50,10 +50,6 @@ const API = {
         return this.request('GET', `/stats${params}`);
     },
 
-    async reloadConfig() {
-        return this.request('POST', '/api/admin/reload-config');
-    },
-
     // ==================== API 密钥 ====================
 
     async listAPIKeys() {

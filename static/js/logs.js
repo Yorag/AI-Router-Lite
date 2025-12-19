@@ -8,29 +8,7 @@ const Logs = {
     isRealtime: false,
 
     async init() {
-        await this.loadTags();
         await this.load();
-    },
-
-    async loadTags() {
-        try {
-            const data = await API.listAPIKeys();
-            const select = document.getElementById('filter-tag');
-            
-            // 保留第一个选项（全部）
-            select.innerHTML = '<option value="">全部</option>';
-            
-            if (data && data.keys) {
-                data.keys.forEach(key => {
-                    const option = document.createElement('option');
-                    option.value = key.name;
-                    option.textContent = key.name;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            console.error('Failed to load tags for logs:', error);
-        }
     },
 
     async load() {
@@ -41,22 +19,7 @@ const Logs = {
         const limit = document.getElementById('filter-limit')?.value || 100;
         const level = document.getElementById('filter-level')?.value || '';
         const type = document.getElementById('filter-type')?.value || '';
-        const tag = document.getElementById('filter-tag')?.value || '';
         const keyword = document.getElementById('filter-keyword')?.value || '';
-        
-        // 后端 getLogs 尚未完全支持 tag 参数过滤（目前仅 stats 支持）
-        // 但为了遵循 KISS 原则，我们暂时仍通过 keyword 传递，等待后端支持
-        // 或者我们可以修改后端 logger.get_recent_logs 来支持 tag 参数
-        // 鉴于 logger.py 已经有了 get_stats(tag=...) 的支持，添加 get_recent_logs(tag=...) 是合理的
-        // 这里假设后端即将更新，先保留 keyword 拼接作为 fallback，或者如果已确认后端更新则直接传 tag
-        
-        // 既然我们在本次任务中已经修改了 logger.py，我们应该也更新 get_recent_logs 以支持 tag
-        // 让我们先检查 logger.py 是否已更新 get_recent_logs。
-        // 根据之前的修改，我们只更新了 get_stats。
-        // 为了完整性，我们应该在 logger.py 中也更新 get_recent_logs。
-        
-        // 由于不能在同一个 turn 修改多个文件并立即依赖，我们先按之前的逻辑（keyword 拼接）保持功能可用
-        // 但为了代码整洁，我们简化拼接逻辑
         
         const params = {
             limit: parseInt(limit),
@@ -64,12 +27,6 @@ const Logs = {
             type: type || undefined,
             keyword: keyword || undefined
         };
-        
-        // 如果后端支持 tag 参数，可以直接传： params.tag = tag || undefined;
-        // 目前暂用 keyword 拼接方案
-        if (tag) {
-            params.keyword = params.keyword ? `${tag} ${params.keyword}` : tag;
-        }
 
         try {
             const data = await API.getLogs(params);
@@ -121,45 +78,85 @@ const Logs = {
         let contentHtml = '';
         const keyLabel = log.api_key_name ? `<span class="log-key-tag" title="密钥: ${log.api_key_name}">${log.api_key_name}</span>` : '';
         
-        if (log.type === 'proxy') {
-             // 统一处理代理层日志（包括成功和失败）
-             if (log.provider && log.actual_model) {
+        // 统一处理代理相关日志（proxy类型，或带有路由信息的system类型）
+        if (log.type === 'proxy' || (log.type === 'system' && (log.provider || log.actual_model))) {
+             // 即使是错误日志，只要有 Provider 或 Actual Model 信息，也尽量使用统一格式展示
+             if (log.provider || log.actual_model) {
+                 // 错误消息处理：如果是 JSON 格式，尝试简化展示
+                 let errorDisplay = log.error || '';
+                 if (errorDisplay.startsWith('{') && errorDisplay.length > 100) {
+                     try {
+                        const errObj = JSON.parse(errorDisplay);
+                        if (errObj.error && errObj.error.message) {
+                            errorDisplay = errObj.error.message;
+                        } else if (errObj.message) {
+                            errorDisplay = errObj.message;
+                        }
+                     } catch (e) {
+                         // JSON 解析失败，保持原样
+                     }
+                 }
+                 
+                 // 去除 HTML 标签，防止样式污染
+                 if (errorDisplay && errorDisplay.includes('<')) {
+                     errorDisplay = errorDisplay.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                 }
+
                  contentHtml = `
                     <div class="log-content-row">
                         ${keyLabel}
                         ${protocolHtml}
                         <span class="log-model" title="请求模型">${log.model || ''}</span>
                         <span class="log-arrow">⟹</span>
-                        <span class="log-provider" title="服务站">${log.provider}</span>
+                        <span class="log-provider" title="服务站">${log.provider || '?'}</span>
                         <span class="log-divider">:</span>
-                        <span class="log-actual-model" title="实际模型">${log.actual_model}</span>
-                        ${log.error ? `<span class="log-error-msg">${log.error}</span>` : ''}
+                        <span class="log-actual-model" title="实际模型">${log.actual_model || '?'}</span>
+                        ${errorDisplay ? `<span class="log-error-msg" title="${log.error ? log.error.replace(/"/g, '"') : ''}">${errorDisplay}</span>` : ''}
                     </div>
                  `;
              } else {
-                 // 异常情况：没有路由信息（可能是早期的代理错误）
+                 // 异常情况：确实没有路由信息（例如找不到 Provider）
+                 let errorMsg = log.error || log.message || '';
+                 if (errorMsg && errorMsg.includes('<')) {
+                     errorMsg = errorMsg.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                 }
+                 
                  contentHtml = `
                     <div class="log-content-row">
                         ${keyLabel}
                         <span class="log-model">${log.model || ''}</span>
-                        <span class="log-error-msg">${log.error || log.message || ''}</span>
+                        <span class="log-error-msg">${errorMsg}</span>
                     </div>
                  `;
              }
         } else if (log.type === 'system') {
             // 系统日志（可能是普通消息或错误）
+            let msg = log.error || log.message || '';
+            if (msg && msg.includes('<')) {
+                msg = msg.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+            }
+            
             contentHtml = `
                 <div class="log-content-row">
                     ${keyLabel}
                     <span class="log-model">${log.model || ''}</span>
-                    <span class="${log.error ? 'log-error-msg' : 'log-msg'}">${log.error || log.message || ''}</span>
+                    <span class="${log.error ? 'log-error-msg' : 'log-msg'}">${msg}</span>
                 </div>
             `;
-        } else if (log.type === 'circuit_breaker') {
+        } else if (log.type === 'breaker') {
+            // 尝试简化消息，移除前缀（因为我们已经显示了 Provider/Model）
+            let messageText = log.message || '';
+            // 匹配 [Provider] 或 [Provider:Model]
+            messageText = messageText.replace(/^\[.*\]\s*/, '');
+            
+            // 高亮 "原因: xxx" 部分
+            messageText = messageText.replace(/(原因[:：]\s*)(.*)/, '$1<span class="log-error-detail" style="color: #ef4444;">$2</span>');
+
             contentHtml = `
                 <div class="log-content-row">
-                    <span class="log-msg">${log.message || ''}</span>
-                    ${log.error ? `<span class="log-error-detail">${log.error}</span>` : ''}
+                    <span class="log-provider" title="服务站">${log.provider || '?'}</span>
+                    ${log.actual_model ? `<span class="log-divider">:</span><span class="log-actual-model" title="模型">${log.actual_model}</span>` : ''}
+                    <span class="log-error-msg">${messageText}</span>
                 </div>
             `;
         } else if (log.type === 'sync') {
@@ -169,16 +166,34 @@ const Logs = {
                 : log.path === '/model-mapping' && log.model
                     ? `<span class="log-model" title="统一模型">${log.model}</span>`
                     : '';
+            
+            // 尝试解析 message 中的 provider name (e.g. "Fengye 新增 ...")
+            // 如果 message 以 provider name 开头，我们将其高亮
+            let messageHtml = log.message || '';
+            if (log.path === '/provider-models' && log.provider && messageHtml.startsWith(log.provider)) {
+                 const rest = messageHtml.slice(log.provider.length);
+                 messageHtml = `<span class="log-provider">${log.provider}</span>${rest}`;
+            }
+
             contentHtml = `
                 <div class="log-content-row">
                     ${syncLabel}
-                    <span class="log-msg">${log.message || ''}</span>
+                    <span class="log-msg">${messageHtml}</span>
                 </div>
             `;
         } else {
-             contentHtml = `<div class="log-message-text">${log.message || ''}</div>`;
+             let msg = log.message || '';
+             if (msg && msg.includes('<')) {
+                 msg = msg.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+             }
+             contentHtml = `<div class="log-message-text">${msg}</div>`;
+             
              if (log.error) {
-                 contentHtml += `<div class="log-error-detail">${log.error}</div>`;
+                 let err = log.error;
+                 if (err && err.includes('<')) {
+                     err = err.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                 }
+                 contentHtml += `<div class="log-error-detail">${err}</div>`;
              }
         }
 
@@ -283,12 +298,10 @@ const Logs = {
         // 检查过滤条件
         const level = document.getElementById('filter-level')?.value || '';
         const type = document.getElementById('filter-type')?.value || '';
-        const tag = document.getElementById('filter-tag')?.value || '';
         const keyword = document.getElementById('filter-keyword')?.value || '';
         
         if (level && log.level !== level) return;
         if (type && log.type !== type) return;
-        if (tag && log.api_key_name !== tag) return;
         
         // 关键词过滤：在消息、模型、provider、error 等字段中搜索
         if (keyword) {

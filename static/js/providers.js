@@ -496,8 +496,6 @@ const Providers = {
             Modal.close();
             await this.load();
             
-            // 提示重新加载配置
-            this.showReloadHint();
         } catch (error) {
             Toast.error('添加失败: ' + error.message);
         }
@@ -642,7 +640,6 @@ const Providers = {
             await API.updateProvider(providerId, data);
             Modal.close();
             await this.load();
-            this.showReloadHint();
         } catch (error) {
             Toast.error('更新失败: ' + error.message);
         }
@@ -663,7 +660,6 @@ const Providers = {
             await API.deleteProvider(providerId);
             Toast.success('服务站已删除');
             await this.load();
-            this.showReloadHint();
         } catch (error) {
             Toast.error('删除失败: ' + error.message);
         }
@@ -688,7 +684,6 @@ const Providers = {
             const displayName = provider ? provider.name : providerId;
             Toast.success(`${displayName} 已${enabled ? '启用' : '禁用'}`);
             await this.load();
-            this.showReloadHint();
         } catch (error) {
             Toast.error('操作失败: ' + error.message);
         }
@@ -737,7 +732,6 @@ const Providers = {
                 : '';
             Toast.success(`已同步 ${models.length} 个模型 ${statsMsg}`);
             await this.load();
-            this.showReloadHint();
         } catch (error) {
             Toast.error('获取模型失败: ' + error.message);
         } finally {
@@ -786,11 +780,6 @@ const Providers = {
             // 复用现有的 updateAllModels 逻辑
             await this.updateAllModels();
             
-            // 渠道更新完成后，自动同步模型映射
-            if (typeof ModelMap !== 'undefined' && ModelMap.syncAll) {
-                await ModelMap.syncAll();
-            }
-            
         } finally {
             this.isUpdatingAll = false;
             if (btn) {
@@ -829,17 +818,9 @@ const Providers = {
             
             Toast.success(`已并发同步 ${result.synced_count || 0} 个服务站，共 ${result.total_models || 0} 个模型`);
             await this.load();
-            this.showReloadHint();
         } catch (error) {
             Toast.error('更新模型失败: ' + error.message);
         }
     },
 
-    async showReloadHint() {
-        try {
-            await API.reloadConfig();
-        } catch (error) {
-            Toast.error('重新加载失败: ' + error.message);
-        }
-    }
 };

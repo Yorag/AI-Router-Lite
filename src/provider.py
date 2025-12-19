@@ -413,10 +413,11 @@ class ProviderManager:
             log_manager = self._get_log_manager()
             log_manager.log(
                 level=LogLevel.WARNING,
-                log_type="circuit_breaker",
+                log_type="breaker",
                 method="BREAKER",
                 path="/provider",
                 provider=provider.config.name,
+                provider_id=provider.config.id,
                 message=message
             )
         else:
@@ -429,10 +430,11 @@ class ProviderManager:
             log_manager = self._get_log_manager()
             log_manager.log(
                 level=LogLevel.WARNING,
-                log_type="circuit_breaker",
+                log_type="breaker",
                 method="BREAKER",
                 path="/provider",
                 provider=provider.config.name,
+                provider_id=provider.config.id,
                 message=message
             )
     
@@ -456,10 +458,11 @@ class ProviderManager:
             log_manager = self._get_log_manager()
             log_manager.log(
                 level=LogLevel.WARNING,
-                log_type="circuit_breaker",
+                log_type="breaker",
                 method="BREAKER",
                 path="/model",
                 provider=provider_name,
+                provider_id=model_state.provider_id,
                 actual_model=model_state.model_name,
                 message=message
             )
@@ -473,10 +476,11 @@ class ProviderManager:
             log_manager = self._get_log_manager()
             log_manager.log(
                 level=LogLevel.WARNING,
-                log_type="circuit_breaker",
+                log_type="breaker",
                 method="BREAKER",
                 path="/model",
                 provider=provider_name,
+                provider_id=model_state.provider_id,
                 actual_model=model_state.model_name,
                 message=message
             )

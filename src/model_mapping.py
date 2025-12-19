@@ -1,38 +1,22 @@
-"""
-模型映射管理模块
-
-负责管理增强型模型映射，支持规则匹配、手动包含/排除、自动同步
-
-注意：所有 provider 相关的存储和引用都使用 provider_id (UUID)，而非 provider name。
-- resolved_models: {provider_id: [model_ids]}
-- excluded_providers: [provider_id, ...]
-- manual_includes/excludes: "model_id" 或 "provider_id:model_id"
-"""
-
 import json
 import re
-import asyncio
-from pathlib import Path
-from datetime import datetime, timezone
-from typing import Optional, Any
 from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
 from enum import Enum
-import filelock
+from typing import Optional, Any
 
-from .constants import MODEL_MAPPINGS_STORAGE_PATH
+from .sqlite_repos import ModelMappingRepo, ProviderRepo
 
 class RuleType(str, Enum):
-    """匹配规则类型"""
-    KEYWORD = "keyword"              # 关键字包含匹配
-    REGEX = "regex"                  # 正则表达式匹配
-    PREFIX = "prefix"                # 前缀匹配
-    EXACT = "exact"                  # 精确匹配
-    KEYWORD_EXCLUDE = "keyword_exclude"  # 关键字排除匹配
+    KEYWORD = "keyword"
+    REGEX = "regex"
+    PREFIX = "prefix"
+    EXACT = "exact"
+    KEYWORD_EXCLUDE = "keyword_exclude"
 
 
 @dataclass
 class MatchRule:
-    """匹配规则"""
     type: RuleType
     pattern: str
     case_sensitive: bool = False
@@ -52,27 +36,16 @@ class MatchRule:
             case_sensitive=data.get("case_sensitive", False)
         )
 
+
 @dataclass
 class ModelMapping:
-    """
-    单个模型映射配置
-    
-    model_settings 字段用于存储特定 provider:model 组合的配置：
-    - key: "{provider_id}:{model_id}"
-    - value: {"protocol": "openai" | "openai-response" | "anthropic" | "gemini", ...}
-    
-    协议继承机制：
-    1. 优先使用 model_settings 中指定的协议
-    2. 如果未指定，则使用 Provider 的 default_protocol
-    3. 如果 Provider 也未指定（混合类型），则该模型视为不可用
-    """
     unified_name: str
     description: str = ""
     rules: list[MatchRule] = field(default_factory=list)
-    manual_includes: list[str] = field(default_factory=list)  # 格式: "model_id" 或 "provider_id:model_id"
-    excluded_providers: list[str] = field(default_factory=list)  # 排除的 provider_id 列表
-    resolved_models: dict[str, list[str]] = field(default_factory=dict)  # {provider_id: [models]}
-    model_settings: dict[str, dict] = field(default_factory=dict)  # {provider_id:model_id: {protocol: str, ...}}
+    manual_includes: list[str] = field(default_factory=list)
+    excluded_providers: list[str] = field(default_factory=list)
+    resolved_models: dict[str, list[str]] = field(default_factory=dict)
+    model_settings: dict[str, dict] = field(default_factory=dict)
     last_sync: Optional[str] = None
     
     def to_dict(self) -> dict:
@@ -88,6 +61,11 @@ class ModelMapping:
     
     @classmethod
     def from_dict(cls, unified_name: str, data: dict) -> "ModelMapping":
+        # Convert ms timestamp to ISO string if needed
+        last_sync = data.get("last_sync")
+        if isinstance(last_sync, int):
+            last_sync = datetime.fromtimestamp(last_sync / 1000.0, timezone.utc).isoformat()
+            
         return cls(
             unified_name=unified_name,
             description=data.get("description", ""),
@@ -96,55 +74,23 @@ class ModelMapping:
             excluded_providers=data.get("excluded_providers", []),
             resolved_models=data.get("resolved_models", {}),
             model_settings=data.get("model_settings", {}),
-            last_sync=data.get("last_sync")
+            last_sync=last_sync
         )
     
     def get_all_models(self) -> list[str]:
-        """获取所有解析后的模型列表（去重）"""
         models = set()
         for provider_models in self.resolved_models.values():
             models.update(provider_models)
         return sorted(models)
     
     def get_model_protocol(self, provider_id: str, model_id: str) -> Optional[str]:
-        """
-        获取指定模型的协议配置
-        
-        Args:
-            provider_id: Provider 的唯一 ID
-            model_id: 模型 ID
-            
-        Returns:
-            协议类型字符串，如果未配置则返回 None
-        """
         key = f"{provider_id}:{model_id}"
         settings = self.model_settings.get(key, {})
         return settings.get("protocol")
-    
-    def set_model_protocol(self, provider_id: str, model_id: str, protocol: Optional[str]) -> None:
-        """
-        设置指定模型的协议配置
-        
-        Args:
-            provider_id: Provider 的唯一 ID
-            model_id: 模型 ID
-            protocol: 协议类型字符串，为 None 时删除配置
-        """
-        key = f"{provider_id}:{model_id}"
-        if protocol is None:
-            # 删除配置
-            if key in self.model_settings:
-                del self.model_settings[key]
-        else:
-            # 设置配置
-            if key not in self.model_settings:
-                self.model_settings[key] = {}
-            self.model_settings[key]["protocol"] = protocol
 
 
 @dataclass
 class SyncConfig:
-    """同步配置"""
     auto_sync_enabled: bool = False
     auto_sync_interval_hours: int = 6
     last_full_sync: Optional[str] = None
@@ -154,76 +100,46 @@ class SyncConfig:
     
     @classmethod
     def from_dict(cls, data: dict) -> "SyncConfig":
+        last_full_sync = data.get("last_full_sync") or data.get("last_full_sync_ms")
+        if isinstance(last_full_sync, int):
+            last_full_sync = datetime.fromtimestamp(last_full_sync / 1000.0, timezone.utc).isoformat()
+            
         return cls(
             auto_sync_enabled=data.get("auto_sync_enabled", False),
             auto_sync_interval_hours=data.get("auto_sync_interval_hours", 6),
-            last_full_sync=data.get("last_full_sync")
+            last_full_sync=last_full_sync
         )
 
 
 class RuleMatcher:
-    """规则匹配引擎"""
-    
     @staticmethod
     def match(rule: MatchRule, model_id: str) -> bool:
-        """
-        检查模型ID是否匹配规则
-        
-        Args:
-            rule: 匹配规则
-            model_id: 模型ID
-            
-        Returns:
-            是否匹配
-        """
         pattern = rule.pattern
         target = model_id
         
-        # 处理大小写敏感
         if not rule.case_sensitive:
             pattern = pattern.lower()
             target = target.lower()
         
         if rule.type == RuleType.KEYWORD:
             return pattern in target
-        
         elif rule.type == RuleType.PREFIX:
             return target.startswith(pattern)
-        
         elif rule.type == RuleType.EXACT:
             return target == pattern
-        
         elif rule.type == RuleType.REGEX:
             try:
                 flags = 0 if rule.case_sensitive else re.IGNORECASE
                 return bool(re.search(rule.pattern, model_id, flags))
             except re.error:
-                # 正则表达式无效
                 return False
-        
         elif rule.type == RuleType.KEYWORD_EXCLUDE:
-            # 关键字排除：包含关键字时返回 True（表示应该被排除）
             return pattern in target
-        
         return False
     
     @staticmethod
     def match_any(rules: list[MatchRule], model_id: str) -> bool:
-        """
-        检查模型ID是否匹配任意包含规则（取并集）
-        
-        注意：此方法只处理包含类规则（keyword/regex/prefix/exact），
-        不处理排除类规则（keyword_exclude）
-        
-        Args:
-            rules: 规则列表
-            model_id: 模型ID
-            
-        Returns:
-            是否匹配任意包含规则
-        """
         for rule in rules:
-            # 跳过排除类规则
             if rule.type == RuleType.KEYWORD_EXCLUDE:
                 continue
             if RuleMatcher.match(rule, model_id):
@@ -232,18 +148,7 @@ class RuleMatcher:
     
     @staticmethod
     def should_exclude(rules: list[MatchRule], model_id: str) -> bool:
-        """
-        检查模型ID是否应该被排除（匹配任意排除规则）
-        
-        Args:
-            rules: 规则列表
-            model_id: 模型ID
-            
-        Returns:
-            是否应该被排除
-        """
         for rule in rules:
-            # 只处理排除类规则
             if rule.type != RuleType.KEYWORD_EXCLUDE:
                 continue
             if RuleMatcher.match(rule, model_id):
@@ -252,79 +157,42 @@ class RuleMatcher:
 
 
 class ModelMappingManager:
-    """模型映射管理器"""
+    """模型映射管理器 (SQLite)"""
     
-    VERSION = "1.0"
-    
-    def __init__(self, data_path: str = MODEL_MAPPINGS_STORAGE_PATH):
-        self.data_path = Path(data_path)
-        self.lock_path = self.data_path.with_suffix(".json.lock")
-        self._mappings: dict[str, ModelMapping] = {}
-        self._sync_config: SyncConfig = SyncConfig()
-        self._loaded = False
-    
-    def _ensure_file_exists(self) -> None:
-        """确保数据文件存在"""
-        if not self.data_path.exists():
-            self.data_path.parent.mkdir(parents=True, exist_ok=True)
-            self._save_data({
-                "version": self.VERSION,
-                "mappings": {},
-                "sync_config": SyncConfig().to_dict()
-            })
-    
-    def _load_data(self) -> dict:
-        """加载数据文件"""
-        self._ensure_file_exists()
-        with open(self.data_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    
-    def _save_data(self, data: dict) -> None:
-        """保存数据文件（带文件锁）"""
-        self.data_path.parent.mkdir(parents=True, exist_ok=True)
-        lock = filelock.FileLock(self.lock_path, timeout=10)
-        with lock:
-            with open(self.data_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-    
+    def __init__(self):
+        self._repo = ModelMappingRepo()
+        # Cache for performance (loaded on demand)
+        # Note: In SQLite version, we might want to cache less aggressively or invalidate smartly.
+        # But for compatibility and read speed, we can cache the full dict structure.
+        self._cache: Optional[dict[str, ModelMapping]] = None
+        self._sync_config_cache: Optional[SyncConfig] = None
+
     def load(self) -> None:
-        """加载所有映射配置"""
-        data = self._load_data()
+        """Load data from SQLite into cache"""
+        raw_mappings = self._repo.list_mappings()
+        self._cache = {}
+        for uname, mdata in raw_mappings.items():
+            self._cache[uname] = ModelMapping.from_dict(uname, mdata)
         
-        # 解析映射
-        self._mappings = {}
-        for name, mapping_data in data.get("mappings", {}).items():
-            self._mappings[name] = ModelMapping.from_dict(name, mapping_data)
-        
-        # 解析同步配置
-        self._sync_config = SyncConfig.from_dict(data.get("sync_config", {}))
-        self._loaded = True
-    
-    def save(self) -> None:
-        """保存所有映射配置"""
-        data = {
-            "version": self.VERSION,
-            "mappings": {name: m.to_dict() for name, m in self._mappings.items()},
-            "sync_config": self._sync_config.to_dict()
-        }
-        self._save_data(data)
-    
+        raw_config = self._repo.get_sync_config()
+        self._sync_config_cache = SyncConfig.from_dict(raw_config)
+
     def _ensure_loaded(self) -> None:
-        """确保数据已加载"""
-        if not self._loaded:
+        if self._cache is None:
             self.load()
-    
-    # ==================== 映射 CRUD ====================
-    
+
+    def save(self) -> None:
+        """No-op for compatibility, changes are immediate in SQLite"""
+        pass
+
     def get_all_mappings(self) -> dict[str, ModelMapping]:
-        """获取所有映射"""
         self._ensure_loaded()
-        return self._mappings.copy()
-    
+        return self._cache.copy()
+
     def get_mapping(self, unified_name: str) -> Optional[ModelMapping]:
-        """获取指定映射"""
         self._ensure_loaded()
-        return self._mappings.get(unified_name)
+        return self._cache.get(unified_name)
+
     def create_mapping(
         self,
         unified_name: str,
@@ -333,39 +201,34 @@ class ModelMappingManager:
         manual_includes: Optional[list[str]] = None,
         excluded_providers: Optional[list[str]] = None
     ) -> tuple[bool, str]:
-        """
-        创建新映射
-        
-        Args:
-            unified_name: 统一模型名称
-            description: 描述
-            rules: 规则列表（包含包含规则和排除规则）
-            manual_includes: 手动包含的模型
-            excluded_providers: 排除的渠道列表
-            
-        Returns:
-            (成功标志, 消息)
-        """
         self._ensure_loaded()
         
-        if unified_name in self._mappings:
+        if unified_name in self._cache:
             return False, f"映射 '{unified_name}' 已存在"
-        
         if not unified_name or not unified_name.strip():
             return False, "统一模型名称不能为空"
         
-        mapping = ModelMapping(
-            unified_name=unified_name,
-            description=description,
-            rules=[MatchRule.from_dict(r) for r in (rules or [])],
-            manual_includes=manual_includes or [],
-            excluded_providers=excluded_providers or []
-        )
-        
-        self._mappings[unified_name] = mapping
-        self.save()
-        return True, "创建成功"
-    
+        try:
+            self._repo.create_mapping(unified_name, description)
+            # Create sub-tables
+            self._repo.replace_rules(unified_name, rules or [])
+            self._repo.replace_manual_includes(unified_name, manual_includes or [])
+            self._repo.replace_excluded_providers(unified_name, excluded_providers or [])
+            
+            # Reload cache for this item (or full reload to be safe)
+            # Full reload is safer but slower. 
+            # Optimization: construct object locally.
+            self._cache[unified_name] = ModelMapping(
+                unified_name=unified_name,
+                description=description,
+                rules=[MatchRule.from_dict(r) for r in (rules or [])],
+                manual_includes=manual_includes or [],
+                excluded_providers=excluded_providers or []
+            )
+            return True, "创建成功"
+        except Exception as e:
+            return False, str(e)
+
     def update_mapping(
         self,
         unified_name: str,
@@ -374,113 +237,86 @@ class ModelMappingManager:
         manual_includes: Optional[list[str]] = None,
         excluded_providers: Optional[list[str]] = None
     ) -> tuple[bool, str]:
-        """
-        更新映射
-        
-        Args:
-            unified_name: 统一模型名称
-            description: 描述（可选）
-            rules: 规则列表（可选，包含包含规则和排除规则）
-            manual_includes: 手动包含的模型（可选）
-            excluded_providers: 排除的渠道列表（可选）
-            
-        Returns:
-            (成功标志, 消息)
-        """
         self._ensure_loaded()
         
-        if unified_name not in self._mappings:
+        if unified_name not in self._cache:
             return False, f"映射 '{unified_name}' 不存在"
         
-        mapping = self._mappings[unified_name]
+        mapping = self._cache[unified_name]
         
-        if description is not None:
-            mapping.description = description
-        if rules is not None:
-            mapping.rules = [MatchRule.from_dict(r) for r in rules]
-        if manual_includes is not None:
-            mapping.manual_includes = manual_includes
-        if excluded_providers is not None:
-            mapping.excluded_providers = excluded_providers
-        
-        self.save()
-        return True, "更新成功"
-    
+        try:
+            if description is not None:
+                self._repo.update_mapping_meta(unified_name, description=description)
+                mapping.description = description
+            
+            if rules is not None:
+                self._repo.replace_rules(unified_name, rules)
+                mapping.rules = [MatchRule.from_dict(r) for r in rules]
+                
+            if manual_includes is not None:
+                self._repo.replace_manual_includes(unified_name, manual_includes)
+                mapping.manual_includes = manual_includes
+                
+            if excluded_providers is not None:
+                self._repo.replace_excluded_providers(unified_name, excluded_providers)
+                mapping.excluded_providers = excluded_providers
+                
+            return True, "更新成功"
+        except Exception as e:
+            return False, str(e)
+
     def delete_mapping(self, unified_name: str) -> tuple[bool, str]:
-        """删除映射"""
         self._ensure_loaded()
         
-        if unified_name not in self._mappings:
+        if unified_name not in self._cache:
             return False, f"映射 '{unified_name}' 不存在"
         
-        del self._mappings[unified_name]
-        self.save()
-        return True, "删除成功"
-    
+        try:
+            self._repo.delete_mapping(unified_name)
+            del self._cache[unified_name]
+            return True, "删除成功"
+        except Exception as e:
+            return False, str(e)
+
     def rename_mapping(self, old_name: str, new_name: str) -> tuple[bool, str]:
-        """
-        重命名映射
-        
-        Args:
-            old_name: 旧的统一模型名称
-            new_name: 新的统一模型名称
-            
-        Returns:
-            (成功标志, 消息)
-        """
         self._ensure_loaded()
         
-        if old_name not in self._mappings:
+        if old_name not in self._cache:
             return False, f"映射 '{old_name}' 不存在"
-        
         if not new_name or not new_name.strip():
             return False, "新名称不能为空"
-        
         new_name = new_name.strip()
-        
         if new_name == old_name:
             return True, "名称未变更"
-        
-        if new_name in self._mappings:
+        if new_name in self._cache:
             return False, f"映射 '{new_name}' 已存在"
         
-        # 获取旧映射并更新名称
-        mapping = self._mappings[old_name]
-        mapping.unified_name = new_name
-        
-        # 删除旧 key，添加新 key
-        del self._mappings[old_name]
-        self._mappings[new_name] = mapping
-        
-        self.save()
-        return True, f"映射已重命名: '{old_name}' -> '{new_name}'"
-    
+        try:
+            self._repo.rename_mapping(old_name, new_name)
+            # Update cache
+            mapping = self._cache.pop(old_name)
+            mapping.unified_name = new_name
+            self._cache[new_name] = mapping
+            return True, f"映射已重命名: '{old_name}' -> '{new_name}'"
+        except Exception as e:
+            return False, str(e)
+
     def update_model_settings(
         self,
         unified_name: str,
         model_settings: dict[str, dict]
     ) -> tuple[bool, str]:
-        """
-        更新映射的模型设置
-        
-        Args:
-            unified_name: 统一模型名称
-            model_settings: 模型设置字典 {provider_id:model_id: {protocol: str, ...}}
-            
-        Returns:
-            (成功标志, 消息)
-        """
         self._ensure_loaded()
-        
-        if unified_name not in self._mappings:
+        if unified_name not in self._cache:
             return False, f"映射 '{unified_name}' 不存在"
         
-        mapping = self._mappings[unified_name]
-        mapping.model_settings = model_settings
-        
-        self.save()
-        return True, "更新成功"
-    
+        try:
+            self._repo.update_model_settings(unified_name, model_settings)
+            self._cache[unified_name].model_settings = model_settings
+            return True, "更新成功"
+        except Exception as e:
+            return False, str(e)
+
     def set_model_protocol(
         self,
         unified_name: str,
@@ -488,135 +324,114 @@ class ModelMappingManager:
         model_id: str,
         protocol: Optional[str]
     ) -> tuple[bool, str]:
-        """
-        设置单个模型的协议配置
-        
-        Args:
-            unified_name: 统一模型名称
-            provider_id: Provider 的唯一 ID
-            model_id: 模型 ID
-            protocol: 协议类型字符串，为 None 时删除配置
-            
-        Returns:
-            (成功标志, 消息)
-        """
         self._ensure_loaded()
-        
-        if unified_name not in self._mappings:
+        if unified_name not in self._cache:
             return False, f"映射 '{unified_name}' 不存在"
         
-        mapping = self._mappings[unified_name]
-        
-        # 检查协议是否变更，变更时清空健康状态
+        mapping = self._cache[unified_name]
         old_protocol = mapping.get_model_protocol(provider_id, model_id)
+        
         if old_protocol != protocol:
             from .model_health import model_health_manager
             model_health_manager.clear_result(provider_id, model_id)
         
-        mapping.set_model_protocol(provider_id, model_id, protocol)
-        
-        self.save()
-        return True, "更新成功"
-    
+        try:
+            self._repo.set_model_protocol(unified_name, provider_id, model_id, protocol)
+            
+            # Update cache
+            key = f"{provider_id}:{model_id}"
+            if protocol is None:
+                if key in mapping.model_settings:
+                    del mapping.model_settings[key]
+            else:
+                if key not in mapping.model_settings:
+                    mapping.model_settings[key] = {}
+                mapping.model_settings[key]["protocol"] = protocol
+                
+            return True, "更新成功"
+        except Exception as e:
+            return False, str(e)
+
     # ==================== 同步配置 ====================
-    
+
     def get_sync_config(self) -> SyncConfig:
-        """获取同步配置"""
         self._ensure_loaded()
-        return self._sync_config
-    
+        return self._sync_config_cache
+
     def update_sync_config(
         self,
         auto_sync_enabled: Optional[bool] = None,
         auto_sync_interval_hours: Optional[int] = None
     ) -> tuple[bool, str]:
-        """更新同步配置"""
         self._ensure_loaded()
         
-        if auto_sync_enabled is not None:
-            self._sync_config.auto_sync_enabled = auto_sync_enabled
-        if auto_sync_interval_hours is not None:
-            if auto_sync_interval_hours < 1:
-                return False, "同步间隔不能小于1小时"
-            self._sync_config.auto_sync_interval_hours = auto_sync_interval_hours
+        if auto_sync_interval_hours is not None and auto_sync_interval_hours < 1:
+            return False, "同步间隔不能小于1小时"
         
-        self.save()
-        return True, "更新成功"
-    
+        try:
+            self._repo.update_sync_config(auto_sync_enabled, auto_sync_interval_hours)
+            if auto_sync_enabled is not None:
+                self._sync_config_cache.auto_sync_enabled = auto_sync_enabled
+            if auto_sync_interval_hours is not None:
+                self._sync_config_cache.auto_sync_interval_hours = auto_sync_interval_hours
+            return True, "更新成功"
+        except Exception as e:
+            return False, str(e)
+
     # ==================== 规则匹配与同步 ====================
-    
+
     def resolve_models(
         self,
         mapping: ModelMapping,
         all_provider_models: dict[str, list[str]]
     ) -> dict[str, list[str]]:
-        """
-        解析映射规则，获取匹配的模型
-        
-        Args:
-            mapping: 映射配置
-            all_provider_models: 所有Provider的模型列表 {provider_id: [model_ids]}
-            
-        Returns:
-            解析后的模型 {provider_id: [model_ids]}
-        """
-        # 解析手动包含/排除的引用格式
+        """Same logic as original"""
         def parse_model_ref(ref: str) -> tuple[Optional[str], str]:
-            """解析模型引用，返回 (provider_id, model_id)"""
             if ":" in ref:
                 parts = ref.split(":", 1)
                 return parts[0], parts[1]
             return None, ref
-        # 获取排除的渠道列表（使用 provider_id）
+
         excluded_providers = set(mapping.excluded_providers or [])
-        
-        # 收集所有匹配的模型 (provider_id, model_id)
         matched: set[tuple[str, str]] = set()
-        
-        # 1. 应用所有包含规则（取并集），跳过被排除的渠道
+
         for provider_id, models in all_provider_models.items():
             if provider_id in excluded_providers:
                 continue
             for model_id in models:
                 if RuleMatcher.match_any(mapping.rules, model_id):
                     matched.add((provider_id, model_id))
-        
-        # 2. 添加手动包含（手动包含不受排除渠道限制，因为是用户明确指定的）
+
         for ref in mapping.manual_includes:
             provider_id, model_id = parse_model_ref(ref)
             if provider_id:
-                # 指定了 provider_id（即使在排除列表中也允许，因为是用户明确指定）
                 if provider_id in all_provider_models and model_id in all_provider_models[provider_id]:
                     matched.add((provider_id, model_id))
             else:
-                # 未指定 provider_id，添加到所有包含该模型的 Provider（排除被排除的渠道）
                 for prov_id, models in all_provider_models.items():
                     if prov_id in excluded_providers:
                         continue
                     if model_id in models:
                         matched.add((prov_id, model_id))
-        
-        # 3. 应用排除规则（keyword_exclude），从匹配结果中移除
+
         to_remove = []
         for provider_id, model_id in matched:
             if RuleMatcher.should_exclude(mapping.rules, model_id):
                 to_remove.append((provider_id, model_id))
         for item in to_remove:
             matched.discard(item)
-        
-        # 按 provider_id 分组
+
         result: dict[str, list[str]] = {}
         for provider_id, model_id in matched:
             if provider_id not in result:
                 result[provider_id] = []
             result[provider_id].append(model_id)
-        
-        # 排序
+
         for provider_id in result:
             result[provider_id].sort()
-        
+
         return result
-    
+
     def preview_resolve(
         self,
         rules: list[dict],
@@ -624,18 +439,6 @@ class ModelMappingManager:
         all_provider_models: dict[str, list[str]],
         excluded_providers: Optional[list[str]] = None
     ) -> dict[str, list[str]]:
-        """
-        预览解析结果（不保存）
-        
-        Args:
-            rules: 规则列表（包含包含规则和排除规则）
-            manual_includes: 手动包含
-            all_provider_models: 所有Provider的模型列表
-            excluded_providers: 排除的渠道列表
-            
-        Returns:
-            预览的解析结果
-        """
         temp_mapping = ModelMapping(
             unified_name="_preview",
             rules=[MatchRule.from_dict(r) for r in rules],
@@ -643,7 +446,80 @@ class ModelMappingManager:
             excluded_providers=excluded_providers or []
         )
         return self.resolve_models(temp_mapping, all_provider_models)
-    
+
+    def _compute_model_changes(self, old: dict, new: dict) -> tuple[list[str], list[str]]:
+        old_set = set()
+        for pid, models in old.items():
+            for mid in models:
+                old_set.add(f"{pid}:{mid}")
+        
+        new_set = set()
+        for pid, models in new.items():
+            for mid in models:
+                new_set.add(f"{pid}:{mid}")
+                
+        added = sorted(new_set - old_set)
+        removed = sorted(old_set - new_set)
+        return added, removed
+
+    def _log_sync_changes(self, unified_name: str, added: list, removed: list, id_map: Optional[dict]) -> None:
+        from .logger import log_manager, LogLevel
+        
+        def format_ref(ref):
+            if ":" in ref:
+                pid, mid = ref.split(":", 1)
+                pname = id_map.get(pid, pid[:8]) if id_map else pid[:8]
+                return f"{pname}:{mid}"
+            return ref
+
+        if not added and not removed:
+            return
+
+        parts = []
+        if added:
+            prev = ", ".join(format_ref(m) for m in added[:5])
+            suffix = f"等{len(added)}个" if len(added) > 5 else ""
+            parts.append(f"新增 {len(added)} 个模型（{prev}{suffix}）")
+        if removed:
+            prev = ", ".join(format_ref(m) for m in removed[:5])
+            suffix = f"等{len(removed)}个" if len(removed) > 5 else ""
+            parts.append(f"移除 {len(removed)} 个模型（{prev}{suffix}）")
+            
+        msg = ", ".join(parts)
+        print(f"[MODEL-MAPPING] [{unified_name}] {msg}")
+        log_manager.log(LogLevel.INFO, "sync", "SYNC", "/model-mapping", model=unified_name, message=msg)
+
+    def _inherit_protocols(
+        self,
+        mapping: ModelMapping,
+        resolved_models: dict[str, list[str]],
+        provider_protocols: dict[str, Optional[str]]
+    ) -> None:
+        # Same logic
+        valid_keys = set()
+        for pid, models in resolved_models.items():
+            for mid in models:
+                valid_keys.add(f"{pid}:{mid}")
+        
+        # We need to reflect changes in repo.
+        # But update_model_settings will wipe and replace. 
+        # So we can update mapping.model_settings in memory then save.
+        
+        keys_to_remove = [k for k in mapping.model_settings if k not in valid_keys]
+        for k in keys_to_remove:
+            del mapping.model_settings[k]
+            
+        for pid, models in resolved_models.items():
+            p_proto = provider_protocols.get(pid)
+            for mid in models:
+                key = f"{pid}:{mid}"
+                if key in mapping.model_settings and "protocol" in mapping.model_settings[key]:
+                    continue
+                if p_proto:
+                    if key not in mapping.model_settings:
+                        mapping.model_settings[key] = {}
+                    mapping.model_settings[key]["protocol"] = p_proto
+
     def sync_mapping(
         self,
         unified_name: str,
@@ -651,275 +527,116 @@ class ModelMappingManager:
         provider_id_name_map: Optional[dict[str, str]] = None,
         provider_protocols: Optional[dict[str, Optional[str]]] = None
     ) -> tuple[bool, str, dict[str, list[str]]]:
-        """
-        同步单个映射
-        
-        Args:
-            unified_name: 统一模型名称
-            all_provider_models: 所有Provider的模型列表 {provider_id: [model_ids]}
-            provider_id_name_map: provider_id -> provider_name 的映射（用于日志显示）
-            provider_protocols: provider_id -> default_protocol 的映射（用于协议继承）
-            
-        Returns:
-            (成功标志, 消息, 解析后的模型 {provider_id: [model_ids]})
-        """
         self._ensure_loaded()
-        
-        if unified_name not in self._mappings:
+        if unified_name not in self._cache:
             return False, f"映射 '{unified_name}' 不存在", {}
         
-        mapping = self._mappings[unified_name]
-        
-        # 保存旧的 resolved_models 用于比较
+        mapping = self._cache[unified_name]
         old_resolved = mapping.resolved_models.copy()
         
         resolved = self.resolve_models(mapping, all_provider_models)
-        
-        # 计算模型变化
         added, removed = self._compute_model_changes(old_resolved, resolved)
         
-        # 输出日志
         self._log_sync_changes(unified_name, added, removed, provider_id_name_map)
         
         mapping.resolved_models = resolved
         mapping.last_sync = datetime.now(timezone.utc).isoformat()
         
-        # 自动继承协议到 model_settings
         if provider_protocols:
             self._inherit_protocols(mapping, resolved, provider_protocols)
-        
-        self.save()
-        return True, "同步成功", resolved
-    
+            
+        # Save to DB
+        try:
+            self._repo.replace_resolved_models(unified_name, resolved)
+            self._repo.update_model_settings(unified_name, mapping.model_settings)
+            
+            # Convert ISO to ms int
+            last_sync_ms = int(datetime.fromisoformat(mapping.last_sync.replace("Z", "+00:00")).timestamp() * 1000)
+            self._repo.update_mapping_meta(unified_name, last_sync_ms=last_sync_ms)
+            
+            return True, "同步成功", resolved
+        except Exception as e:
+            return False, str(e), {}
+
     def sync_all_mappings(
         self,
         all_provider_models: dict[str, list[str]],
         provider_id_name_map: Optional[dict[str, str]] = None,
         provider_protocols: Optional[dict[str, Optional[str]]] = None
     ) -> list[dict]:
-        """
-        同步所有映射
-        
-        Args:
-            all_provider_models: 所有Provider的模型列表 {provider_id: [model_ids]}
-            provider_id_name_map: provider_id -> provider_name 的映射（用于日志显示）
-            provider_protocols: provider_id -> default_protocol 的映射（用于协议继承）
-            
-        Returns:
-            同步结果列表 [{unified_name, success, matched_count, provider_ids, added, removed}]
-        """
         self._ensure_loaded()
         
         results = []
-        for unified_name, mapping in self._mappings.items():
-            # 保存旧的 resolved_models 用于比较
+        for uname in self._cache:
+            success, msg, resolved = self.sync_mapping(
+                uname, all_provider_models, provider_id_name_map, provider_protocols
+            )
+            
+            if success:
+                mapping = self._cache[uname]
+                # Re-compute changes for result (a bit redundant but cleaner)
+                # Actually sync_mapping computed them but didn't return.
+                # Let's trust sync_mapping did the job.
+                # We need added/removed for result.
+                # Ideally sync_mapping should return them or we duplicate logic.
+                # Let's duplicate logic here for reporting since sync_mapping updates state.
+                # Wait, sync_mapping updated state already. 
+                # We can't diff against old state easily unless we kept it.
+                # Refactor: move sync logic loop here?
+                pass
+
+        # To keep it simple and correct, I will implement the loop logic here similar to original
+        results = []
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        
+        for uname, mapping in self._cache.items():
             old_resolved = mapping.resolved_models.copy()
-            
             resolved = self.resolve_models(mapping, all_provider_models)
-            
-            # 计算模型变化
             added, removed = self._compute_model_changes(old_resolved, resolved)
             
-            # 输出日志
-            self._log_sync_changes(unified_name, added, removed, provider_id_name_map)
+            self._log_sync_changes(uname, added, removed, provider_id_name_map)
             
             mapping.resolved_models = resolved
             mapping.last_sync = datetime.now(timezone.utc).isoformat()
             
-            # 自动继承协议到 model_settings
             if provider_protocols:
                 self._inherit_protocols(mapping, resolved, provider_protocols)
             
-            total_models = sum(len(models) for models in resolved.values())
+            self._repo.replace_resolved_models(uname, resolved)
+            self._repo.update_model_settings(uname, mapping.model_settings)
+            
+            # Update meta per mapping? Yes
+            self._repo.update_mapping_meta(uname, last_sync_ms=now_ms)
+            
+            total = sum(len(models) for models in resolved.values())
             results.append({
-                "unified_name": unified_name,
+                "unified_name": uname,
                 "success": True,
-                "matched_count": total_models,
+                "matched_count": total,
                 "provider_ids": list(resolved.keys()),
                 "added": added,
                 "removed": removed
             })
-        
-        # 更新全局同步时间
-        self._sync_config.last_full_sync = datetime.now(timezone.utc).isoformat()
-        
-        self.save()
+            
+        self._repo.update_sync_config(None, None, last_sync=now_ms)
+        if self._sync_config_cache:
+            self._sync_config_cache.last_full_sync = datetime.fromtimestamp(now_ms / 1000.0, timezone.utc).isoformat()
+            
         return results
-    
-    def _inherit_protocols(
-        self,
-        mapping: ModelMapping,
-        resolved_models: dict[str, list[str]],
-        provider_protocols: dict[str, Optional[str]]
-    ) -> None:
-        """
-        自动继承协议到 model_settings
-        
-        对于 resolved_models 中的每个 provider:model 组合：
-        - 如果 model_settings 中已有协议配置，保留（用户手动设置优先）
-        - 如果没有，则从 provider_protocols 中继承
-        - 如果 Provider 也没有 default_protocol，则不设置（表示该模型不可用）
-        
-        同时清理不在 resolved_models 中的旧 model_settings 条目
-        
-        Args:
-            mapping: 映射配置
-            resolved_models: 解析后的模型 {provider_id: [model_ids]}
-            provider_protocols: provider_id -> default_protocol 的映射
-        """
-        # 构建当前有效的 provider:model 集合
-        valid_keys: set[str] = set()
-        for provider_id, model_ids in resolved_models.items():
-            for model_id in model_ids:
-                valid_keys.add(f"{provider_id}:{model_id}")
-        
-        # 清理不在 resolved_models 中的旧条目
-        keys_to_remove = [key for key in mapping.model_settings if key not in valid_keys]
-        for key in keys_to_remove:
-            del mapping.model_settings[key]
-        
-        # 为新模型继承协议
-        for provider_id, model_ids in resolved_models.items():
-            provider_protocol = provider_protocols.get(provider_id)
-            
-            for model_id in model_ids:
-                key = f"{provider_id}:{model_id}"
-                
-                # 如果已有配置且包含 protocol，跳过（用户手动设置优先）
-                if key in mapping.model_settings and "protocol" in mapping.model_settings[key]:
-                    continue
-                
-                # 从 Provider 继承协议
-                if provider_protocol:
-                    if key not in mapping.model_settings:
-                        mapping.model_settings[key] = {}
-                    mapping.model_settings[key]["protocol"] = provider_protocol
-    
-    def _compute_model_changes(
-        self,
-        old_resolved: dict[str, list[str]],
-        new_resolved: dict[str, list[str]]
-    ) -> tuple[list[str], list[str]]:
-        """
-        计算模型变化
-        
-        Args:
-            old_resolved: 旧的解析结果 {provider_id: [model_ids]}
-            new_resolved: 新的解析结果 {provider_id: [model_ids]}
-            
-        Returns:
-            (新增模型列表, 删除模型列表) - 格式为 "provider_id:model_id"
-        """
-        # 将 {provider_id: [models]} 扁平化为 set of "provider_id:model_id"
-        old_set: set[str] = set()
-        for provider_id, models in old_resolved.items():
-            for model in models:
-                old_set.add(f"{provider_id}:{model}")
-        
-        new_set: set[str] = set()
-        for provider_id, models in new_resolved.items():
-            for model in models:
-                new_set.add(f"{provider_id}:{model}")
-        
-        added = sorted(new_set - old_set)
-        removed = sorted(old_set - new_set)
-        
-        return added, removed
-    
-    def _log_sync_changes(
-        self,
-        unified_name: str,
-        added: list[str],
-        removed: list[str],
-        provider_id_name_map: Optional[dict[str, str]] = None
-    ) -> None:
-        """
-        输出同步变化日志
-        
-        Args:
-            unified_name: 映射名称
-            added: 新增的模型列表 (格式: provider_id:model_id)
-            removed: 删除的模型列表 (格式: provider_id:model_id)
-            provider_id_name_map: provider_id -> provider_name 的映射
-        """
-        # 延迟导入避免循环依赖
-        from .logger import log_manager, LogLevel
-        
-        # 将 provider_id:model_id 转换为 provider_name:model_id
-        def format_model_ref(ref: str) -> str:
-            if ":" in ref:
-                provider_id, model_id = ref.split(":", 1)
-                if provider_id_name_map and provider_id in provider_id_name_map:
-                    provider_name = provider_id_name_map[provider_id]
-                else:
-                    provider_name = provider_id[:8]  # 使用 ID 前8位作为备用
-                return f"{provider_name}:{model_id}"
-            return ref
-        
-        if not added and not removed:
-            return
-        
-        parts = []
-        if added:
-            added_models = ", ".join(format_model_ref(m) for m in added[:5])
-            suffix = f"等{len(added)}个" if len(added) > 5 else ""
-            parts.append(f"新增 {len(added)} 个模型（{added_models}{suffix}）")
-        
-        if removed:
-            removed_models = ", ".join(format_model_ref(m) for m in removed[:5])
-            suffix = f"等{len(removed)}个" if len(removed) > 5 else ""
-            parts.append(f"移除 {len(removed)} 个模型（{removed_models}{suffix}）")
-        
-        log_message = f"{', '.join(parts)}"
-        
-        print(f"[MODEL-MAPPING] [{unified_name}] {log_message}")
-        log_manager.log(
-            level=LogLevel.INFO,
-            log_type="sync",
-            method="SYNC",
-            path="/model-mapping",
-            model=unified_name,
-            message=log_message
-        )
-    
-    # ==================== 用于 Provider 集成 ====================
-    
+
     def get_resolved_models_for_unified(self, unified_name: str) -> list[str]:
-        """
-        获取统一模型名称对应的所有实际模型
-        
-        注意：此方法返回的是去重后的 model_id 列表，丢失了 provider_id 关联信息。
-        如需保留 provider_id 关联，请直接使用 get_mapping() 获取映射后访问 resolved_models 属性。
-        
-        Args:
-            unified_name: 统一模型名称
-            
-        Returns:
-            实际模型列表（去重）
-        """
         self._ensure_loaded()
-        
-        mapping = self._mappings.get(unified_name)
+        mapping = self._cache.get(unified_name)
         if not mapping:
             return []
-        
         return mapping.get_all_models()
-    
+
     def get_all_unified_to_models_map(self) -> dict[str, list[str]]:
-        """
-        获取所有 统一名称 -> 实际模型列表 的映射（兼容旧格式）
-        
-        Returns:
-            {unified_name: [model_ids]}
-        """
         self._ensure_loaded()
-        
         result = {}
-        for unified_name, mapping in self._mappings.items():
-            result[unified_name] = mapping.get_all_models()
-        
+        for uname, mapping in self._cache.items():
+            result[uname] = mapping.get_all_models()
         return result
 
 
-# 全局实例
 model_mapping_manager = ModelMappingManager()

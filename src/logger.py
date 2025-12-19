@@ -1,52 +1,35 @@
-"""
-日志记录模块
-
-负责记录和存储 API 请求日志，支持实时推送和历史查询
-"""
-
-import json
-import time
 import asyncio
-from pathlib import Path
-from typing import Optional, AsyncIterator
-from dataclasses import dataclass, asdict
-from datetime import datetime, timedelta, timezone
+import time
 from collections import deque
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
+from typing import Optional, AsyncIterator, Any
 
 from .constants import (
-    LOG_STORAGE_DIR,
-    LOG_MAX_MEMORY_ENTRIES,
-    LOG_MAX_FILE_SIZE_MB,
-    LOG_RETENTION_DAYS,
-    LOG_STATS_SAVE_INTERVAL,
-    LOG_SUBSCRIBE_QUEUE_SIZE,
-    LOG_RECENT_LIMIT_DEFAULT,
-    LOG_DATE_LIMIT_DEFAULT,
     DEFAULT_TIMEZONE_OFFSET,
+    LOG_MAX_MEMORY_ENTRIES,
+    LOG_RECENT_LIMIT_DEFAULT,
+    LOG_SUBSCRIBE_QUEUE_SIZE,
 )
+from .sqlite_repos import LogRepo
 
-# 统一时区：使用 UTC 偏移量（无需 tzdata 依赖）
 _TZ = timezone(timedelta(hours=DEFAULT_TIMEZONE_OFFSET))
 
 
 def get_current_time() -> datetime:
-    """获取当前时间（带时区）"""
     return datetime.now(_TZ)
 
 
 def get_today_str() -> str:
-    """获取今天的日期字符串 (YYYY-MM-DD)"""
     return get_current_time().strftime("%Y-%m-%d")
 
 
 def timestamp_to_datetime(ts: float) -> datetime:
-    """将 Unix 时间戳转换为带时区的 datetime"""
     return datetime.fromtimestamp(ts, _TZ)
 
 
 class LogLevel(Enum):
-    """日志级别"""
     DEBUG = "debug"
     INFO = "info"
     WARNING = "warning"
@@ -55,309 +38,82 @@ class LogLevel(Enum):
 
 @dataclass
 class RequestLog:
-    """请求日志"""
     id: str
     timestamp: float
     level: str
-    type: str  # request, response, error, system
+    type: str
     method: str
     path: str
-    model: Optional[str] = None  # 用户请求的模型名
-    provider: Optional[str] = None  # 实际使用的 Provider 名称
-    actual_model: Optional[str] = None  # 实际使用的模型名（Provider 实际调用的模型）
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    actual_model: Optional[str] = None
     status_code: Optional[int] = None
     duration_ms: Optional[float] = None
     message: Optional[str] = None
     error: Optional[str] = None
     client_ip: Optional[str] = None
     api_key_id: Optional[str] = None
-    api_key_name: Optional[str] = None  # API 密钥标签名
-    protocol: Optional[str] = None  # 使用的协议类型
+    api_key_name: Optional[str] = None
+    protocol: Optional[str] = None
     request_tokens: Optional[int] = None
     response_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
-    
+
+    provider_id: Optional[str] = None  # new: stable id for storage/join
+
     def to_dict(self) -> dict:
-        """转换为字典"""
         data = asdict(self)
         data["timestamp_str"] = timestamp_to_datetime(self.timestamp).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        # 添加格式化的实际模型信息（Provider:Model格式）
         if self.provider and self.actual_model:
             data["actual_model_full"] = f"{self.provider}:{self.actual_model}"
         return data
 
 
 class LogManager:
-    """日志管理器"""
-    
-    def __init__(self,
-                 storage_dir: str = LOG_STORAGE_DIR,
-                 max_memory_logs: int = LOG_MAX_MEMORY_ENTRIES,
-                 max_file_size_mb: int = LOG_MAX_FILE_SIZE_MB):
-        self.storage_dir = Path(storage_dir)
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
-        
+    def __init__(self, max_memory_logs: int = LOG_MAX_MEMORY_ENTRIES):
         self.max_memory_logs = max_memory_logs
-        self.max_file_size_mb = max_file_size_mb
-        
-        # 内存中的日志缓存（用于实时查看）
         self._logs: deque[RequestLog] = deque(maxlen=max_memory_logs)
-        
-        # SSE 订阅者
         self._subscribers: list[asyncio.Queue] = []
-        
-        # 日志计数器
         self._log_counter = 0
-        
-        # 统计数据变更标记（用于判断是否需要保存）
-        self._stats_dirty = False
-        
-        # 当前统计数据对应的日期（用于跨天检测）
-        self._stats_date: str = get_today_str()
-        
-        # 统计数据
-        self._stats = self._get_empty_stats()
-        
-        # 加载今天的统计数据
-        self._load_today_stats()
-        
-        # 加载今天的日志到内存
-        self._load_today_logs()
-    
-    def _get_empty_stats(self) -> dict:
-        """返回空的统计数据结构"""
-        return {
-            "total_requests": 0,
-            "successful_requests": 0,
-            "failed_requests": 0,
-            "total_tokens": 0,
-            "hourly_requests": {},
-            "model_usage": {},
-            "provider_usage": {},
-            "provider_stats": {},
-            "provider_model_stats": {},
-            "model_provider_stats": {},
-        }
-    
-    def _accumulate_log_entry(self, stats: dict, entry: dict) -> None:
-        """聚合单条日志到统计数据中 (Helper)"""
-        if entry.get("type") != "proxy":
-            return
-            
-        stats["total_requests"] += 1
-        
-        status_code = entry.get("status_code")
-        is_success = status_code and 200 <= status_code < 400
-        
-        if is_success:
-            stats["successful_requests"] += 1
-        else:
-            stats["failed_requests"] += 1
-            
-        # 小时统计
-        timestamp = entry.get("timestamp", 0)
-        hour = timestamp_to_datetime(timestamp).strftime("%H")
-        stats["hourly_requests"][hour] = stats["hourly_requests"].get(hour, 0) + 1
-        
-        model = entry.get("model")
-        provider = entry.get("provider")
-        actual_model = entry.get("actual_model")
-        
-        # 模型使用统计
-        if model:
-            stats["model_usage"][model] = stats["model_usage"].get(model, 0) + 1
-        
-        # 统一模型 -> Provider 统计
-        if model and provider:
-            mp_stats = stats.setdefault("model_provider_stats", {}).setdefault(model, {}).setdefault(provider, {
-                "total": 0, "successful": 0, "failed": 0
-            })
-            mp_stats["total"] += 1
-            if is_success:
-                mp_stats["successful"] += 1
-            else:
-                mp_stats["failed"] += 1
+        self._repo = LogRepo()
 
-        # Provider 使用统计
-        if provider:
-            stats["provider_usage"][provider] = stats["provider_usage"].get(provider, 0) + 1
-            
-            # Provider 详细统计
-            p_stats = stats.setdefault("provider_stats", {}).setdefault(provider, {
-                "total": 0, "successful": 0, "failed": 0
-            })
-            p_stats["total"] += 1
-            if is_success:
-                p_stats["successful"] += 1
-            else:
-                p_stats["failed"] += 1
-            
-            # Provider 模型级详细统计
-            model_key = actual_model or model or "unknown"
-            pm_stats = stats.setdefault("provider_model_stats", {}).setdefault(provider, {}).setdefault(model_key, {
-                "total": 0, "successful": 0, "failed": 0, "tokens": 0
-            })
-            
-            pm_stats["total"] += 1
-            if is_success:
-                pm_stats["successful"] += 1
-            else:
-                pm_stats["failed"] += 1
-            
-            # Token 统计
-            request_tokens = entry.get("request_tokens") or 0
-            response_tokens = entry.get("response_tokens") or 0
-            entry_total_tokens = entry.get("total_tokens") or 0
-            
-            current_tokens = max(request_tokens + response_tokens, entry_total_tokens)
-            pm_stats["tokens"] += current_tokens
-
-        # 全局 Token 统计
-        request_tokens = entry.get("request_tokens") or 0
-        response_tokens = entry.get("response_tokens") or 0
-        stats["total_tokens"] += (request_tokens + response_tokens)
-
-    def _check_day_change(self) -> None:
-        """检查是否跨天，如果跨天则保存旧数据并重置"""
-        today = get_today_str()
-        if today != self._stats_date:
-            # 保存旧日期的统计数据
-            if self._stats_dirty:
-                old_stats_file = self._get_stats_file_path(self._stats_date)
-                try:
-                    with open(old_stats_file, "w", encoding="utf-8") as f:
-                        json.dump(self._stats, f, indent=2, ensure_ascii=False)
-                    print(f"[LogManager] 跨天保存: {self._stats_date}")
-                except Exception as e:
-                    print(f"[LogManager] 跨天保存失败: {e}")
-            
-            # 重置为新的一天
-            self._stats_date = today
-            self._stats = self._get_empty_stats()
-            self._stats_dirty = False
-            
-            # 尝试加载新日期的统计（如果存在）
-            self._load_today_stats()
-    
-    def _get_log_file_path(self, date: Optional[str] = None) -> Path:
-        """获取日志文件路径"""
-        if date is None:
-            date = get_today_str()
-        return self.storage_dir / f"requests_{date}.jsonl"
-    
-    def _get_stats_file_path(self, date: Optional[str] = None) -> Path:
-        """获取统计文件路径"""
-        if date is None:
-            date = get_today_str()
-        return self.storage_dir / f"stats_{date}.json"
-    
-    def _load_today_stats(self) -> None:
-        """加载今天的统计数据"""
-        stats_file = self._get_stats_file_path()
-        if stats_file.exists():
-            try:
-                with open(stats_file, "r", encoding="utf-8") as f:
-                    self._stats = json.load(f)
-            except Exception:
-                pass
-    
-    def _load_today_logs(self) -> None:
-        """加载今天的日志到内存"""
-        log_file = self._get_log_file_path()
-        if log_file.exists():
-            try:
-                with open(log_file, "r", encoding="utf-8") as f:
-                    for line in f:
-                        if line.strip():
-                            data = json.loads(line)
-                            log_entry = RequestLog(
-                                id=data.get("id", ""),
-                                timestamp=data.get("timestamp", 0),
-                                level=data.get("level", "info"),
-                                type=data.get("type", ""),
-                                method=data.get("method", ""),
-                                path=data.get("path", ""),
-                                model=data.get("model"),
-                                provider=data.get("provider"),
-                                actual_model=data.get("actual_model"),
-                                status_code=data.get("status_code"),
-                                duration_ms=data.get("duration_ms"),
-                                message=data.get("message"),
-                                error=data.get("error"),
-                                client_ip=data.get("client_ip"),
-                                api_key_id=data.get("api_key_id"),
-                                api_key_name=data.get("api_key_name"),
-                                protocol=data.get("protocol"),
-                                request_tokens=data.get("request_tokens"),
-                                response_tokens=data.get("response_tokens"),
-                                total_tokens=data.get("total_tokens")
-                            )
-                            self._logs.append(log_entry)
-            except Exception as e:
-                print(f"[LogManager] 加载日志失败: {e}")
-    
-    def _save_stats(self, force: bool = False) -> None:
-        """保存统计数据
-        
-        Args:
-            force: 是否强制保存（忽略 dirty 标记）
-        """
-        if not force and not self._stats_dirty:
-            return
-            
-        stats_file = self._get_stats_file_path()
-        try:
-            with open(stats_file, "w", encoding="utf-8") as f:
-                json.dump(self._stats, f, indent=2, ensure_ascii=False)
-            self._stats_dirty = False
-        except Exception as e:
-            print(f"[LogManager] 保存统计数据失败: {e}")
-    
-    def flush_stats(self) -> None:
-        """强制保存统计数据到磁盘
-        
-        应在服务关闭时调用，确保所有统计数据被持久化
-        """
-        if self._stats_dirty:
-            self._save_stats(force=True)
-            print("[LogManager] 统计数据已保存")
-    
     def _generate_log_id(self) -> str:
-        """生成日志 ID"""
         self._log_counter += 1
         return f"log_{int(time.time() * 1000)}_{self._log_counter}"
-    
-    def log(self,
-            level: LogLevel,
-            log_type: str,
-            method: str,
-            path: str,
-            model: Optional[str] = None,
-            provider: Optional[str] = None,
-            actual_model: Optional[str] = None,
-            status_code: Optional[int] = None,
-            duration_ms: Optional[float] = None,
-            message: Optional[str] = None,
-            error: Optional[str] = None,
-            client_ip: Optional[str] = None,
-            api_key_id: Optional[str] = None,
-            api_key_name: Optional[str] = None,
-            protocol: Optional[str] = None,
-            request_tokens: Optional[int] = None,
-            response_tokens: Optional[int] = None,
-            total_tokens: Optional[int] = None) -> RequestLog:
-        """记录日志"""
-        # 检查是否跨天
-        self._check_day_change()
+
+    def log(
+        self,
+        level: LogLevel,
+        log_type: str,
+        method: str,
+        path: str,
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
+        provider_id: Optional[str] = None,
+        actual_model: Optional[str] = None,
+        status_code: Optional[int] = None,
+        duration_ms: Optional[float] = None,
+        message: Optional[str] = None,
+        error: Optional[str] = None,
+        client_ip: Optional[str] = None,
+        api_key_id: Optional[str] = None,
+        api_key_name: Optional[str] = None,
+        protocol: Optional[str] = None,
+        request_tokens: Optional[int] = None,
+        response_tokens: Optional[int] = None,
+        total_tokens: Optional[int] = None,
+    ) -> RequestLog:
+        ts = time.time()
         log_entry = RequestLog(
             id=self._generate_log_id(),
-            timestamp=time.time(),
+            timestamp=ts,
             level=level.value,
             type=log_type,
             method=method,
             path=path,
             model=model,
             provider=provider,
+            provider_id=provider_id,
             actual_model=actual_model,
             status_code=status_code,
             duration_ms=duration_ms,
@@ -369,319 +125,146 @@ class LogManager:
             protocol=protocol,
             request_tokens=request_tokens,
             response_tokens=response_tokens,
-            total_tokens=total_tokens
+            total_tokens=total_tokens,
         )
-        
-        # 添加到内存缓存
+
+        # memory
         self._logs.append(log_entry)
-        
-        # 写入文件
-        self._write_to_file(log_entry)
-        
-        # 更新统计
-        self._update_stats(log_entry)
-        
-        # 推送给订阅者
+
+        # persist to sqlite (logs.db)
+        self._repo.insert(
+            {
+                "id": log_entry.id,
+                "timestamp_ms": int(ts * 1000),
+                "level": log_entry.level,
+                "type": log_entry.type,
+                "method": log_entry.method,
+                "path": log_entry.path,
+                "protocol": log_entry.protocol,
+                "status_code": log_entry.status_code,
+                "duration_ms": log_entry.duration_ms,
+                "message": log_entry.message,
+                "error": log_entry.error,
+                "client_ip": log_entry.client_ip,
+                "api_key_id": log_entry.api_key_id,
+                "provider_id": log_entry.provider_id,
+                "unified_model": log_entry.model,
+                "actual_model": log_entry.actual_model,
+                "prompt_tokens": log_entry.request_tokens,
+                "completion_tokens": log_entry.response_tokens,
+                "total_tokens": log_entry.total_tokens,
+            }
+        )
+
         self._notify_subscribers(log_entry)
-        
         return log_entry
-    
-    def _write_to_file(self, log_entry: RequestLog) -> None:
-        """写入日志文件"""
-        try:
-            log_file = self._get_log_file_path()
-            with open(log_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(log_entry.to_dict(), ensure_ascii=False) + "\n")
-        except Exception as e:
-            print(f"[LogManager] 写入日志失败: {e}")
-    
-    def _update_stats(self, log_entry: RequestLog) -> None:
-        """更新统计数据"""
-        # 将 RequestLog 转换为 dict 以复用 _accumulate_log_entry
-        entry = log_entry.to_dict()
-        
-        # 记录变更前后的请求数，判断是否有更新
-        old_requests = self._stats["total_requests"]
-        self._accumulate_log_entry(self._stats, entry)
-        new_requests = self._stats["total_requests"]
-        
-        if new_requests > old_requests:
-            self._stats_dirty = True
-        
-        # 定期保存统计
-        if self._stats_dirty and self._stats["total_requests"] % LOG_STATS_SAVE_INTERVAL == 0:
-            self._save_stats()
-    
+
     def _notify_subscribers(self, log_entry: RequestLog) -> None:
-        """通知所有订阅者"""
-        dead_subscribers = []
-        for queue in self._subscribers:
+        dead = []
+        for q in self._subscribers:
             try:
-                queue.put_nowait(log_entry)
+                q.put_nowait(log_entry)
             except asyncio.QueueFull:
-                dead_subscribers.append(queue)
-        
-        # 清理死亡的订阅者
-        for queue in dead_subscribers:
-            self._subscribers.remove(queue)
-    
+                dead.append(q)
+        for q in dead:
+            if q in self._subscribers:
+                self._subscribers.remove(q)
+
     async def subscribe(self) -> AsyncIterator[RequestLog]:
-        """订阅日志流"""
-        queue: asyncio.Queue = asyncio.Queue(maxsize=LOG_SUBSCRIBE_QUEUE_SIZE)
-        self._subscribers.append(queue)
-        
+        q: asyncio.Queue = asyncio.Queue(maxsize=LOG_SUBSCRIBE_QUEUE_SIZE)
+        self._subscribers.append(q)
         try:
             while True:
-                log_entry = await queue.get()
-                yield log_entry
+                yield await q.get()
         finally:
-            if queue in self._subscribers:
-                self._subscribers.remove(queue)
-    
-    def get_recent_logs(self,
-                        limit: int = LOG_RECENT_LIMIT_DEFAULT,
-                        level: Optional[str] = None,
-                        log_type: Optional[str] = None,
-                        keyword: Optional[str] = None,
-                        provider: Optional[str] = None) -> list[dict]:
-        """获取最近的日志
+            if q in self._subscribers:
+                self._subscribers.remove(q)
+
+    def get_recent_logs(
+        self,
+        limit: int = LOG_RECENT_LIMIT_DEFAULT,
+        level: Optional[str] = None,
+        log_type: Optional[str] = None,
+        keyword: Optional[str] = None,
+        provider: Optional[str] = None,
+    ) -> list[dict]:
+        # Use DB for SSOT (and persistence across restarts)
+        logs = self._repo.get_recent(
+            limit=limit,
+            level=level,
+            log_type=log_type,
+            keyword=keyword,
+            provider=provider
+        )
         
-        Args:
-            limit: 返回日志数量限制
-            level: 日志级别过滤
-            log_type: 日志类型过滤
-            keyword: 关键词过滤，在 message、model、provider、actual_model、error、api_key_name 字段中搜索
-            provider: Provider 过滤
-        """
-        logs = list(self._logs)
+        # Application-side JOIN: Map IDs to Names
+        from .admin import admin_manager
+        from .api_keys import api_key_manager
         
-        # 过滤
-        if level:
-            logs = [l for l in logs if l.level == level]
-        if log_type:
-            logs = [l for l in logs if l.type == log_type]
-        if keyword:
-            # 关键词过滤：在多个字段中搜索
-            keyword_lower = keyword.lower()
-            filtered_logs = []
-            for l in logs:
-                # 收集所有可搜索的字段
-                searchable_fields = [
-                    l.message or "",
-                    l.model or "",
-                    l.provider or "",
-                    l.actual_model or "",
-                    l.error or "",
-                    l.api_key_name or ""
-                ]
-                combined_text = " ".join(searchable_fields).lower()
-                if keyword_lower in combined_text:
-                    filtered_logs.append(l)
-            logs = filtered_logs
-        if provider:
-            logs = [l for l in logs if l.provider == provider]
+        # Get ID->Name maps (cached or fresh)
+        # For performance, admin_manager has get_provider_id_name_map which queries DB.
+        # api_key_manager doesn't expose a map getter, but we can list keys.
+        # Let's optimize: fetch once per request.
+        provider_map = admin_manager.get_provider_id_name_map()
         
-        # 限制数量并按时间倒序
-        logs = sorted(logs, key=lambda x: x.timestamp, reverse=True)[:limit]
+        # API Keys map: {key_id: name}
+        # ApiKeyRepo has list(), but not a direct map getter. We can build it.
+        # Or we can accept that api_key_name might be missing if we don't query it.
+        # The repo insert() stored api_key_id.
+        # Let's fetch all keys to map.
+        all_keys = api_key_manager.list_keys()
+        api_key_map = {k["key_id"]: k["name"] for k in all_keys}
         
-        return [l.to_dict() for l in logs]
-    
-    def get_logs_by_date(self, date: str, limit: int = LOG_DATE_LIMIT_DEFAULT) -> list[dict]:
-        """获取指定日期的日志"""
-        log_file = self._get_log_file_path(date)
-        logs = []
-        
-        if log_file.exists():
-            try:
-                with open(log_file, "r", encoding="utf-8") as f:
-                    for line in f:
-                        if line.strip():
-                            logs.append(json.loads(line))
-                            if len(logs) >= limit:
-                                break
-            except Exception as e:
-                print(f"[LogManager] 读取日志失败: {e}")
+        # Enrich/Format logs
+        for l in logs:
+            ts = l["timestamp"]
+            l["timestamp_str"] = timestamp_to_datetime(ts).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            
+            # Map IDs to Names
+            pid = l.get("provider_id")
+            if pid:
+                l["provider"] = provider_map.get(pid, pid) # Fallback to ID if name not found
+            
+            ak_id = l.get("api_key_id")
+            if ak_id:
+                l["api_key_name"] = api_key_map.get(ak_id, "Unknown")
+            
+            # Reconstruct actual_model_full using names
+            if l.get("provider") and l.get("actual_model"):
+                l["actual_model_full"] = f"{l['provider']}:{l['actual_model']}"
         
         return logs
-    
-    def calculate_stats_from_logs(self, date: Optional[str], tag: str) -> dict:
-        """从日志文件计算指定标签的统计数据
+
+    def get_stats(self, date: Optional[str] = None, tag: Optional[str] = None) -> dict:
+        stats = self._repo.get_stats(date_str=date, tag=tag)
         
-        Args:
-            date: 日期字符串 (YYYY-MM-DD)，None 表示今天
-            tag: 标签名 (API 密钥名称)
-        """
-        stats = self._get_empty_stats()
-        log_file = self._get_log_file_path(date)
-        
-        if not log_file.exists():
-            # 如果是今天且文件不存在（可能还没写入），检查内存日志
-            if date is None or date == get_today_str():
-                 for log in self._logs:
-                    if log.api_key_name == tag:
-                        self._accumulate_log_entry(stats, log.to_dict())
-            return stats
+        # Map provider IDs to Names for provider_model_stats
+        # Frontend expects provider names as keys in provider_model_stats
+        if "provider_model_stats" in stats or "model_provider_stats" in stats:
+            from .admin import admin_manager
+            provider_map = admin_manager.get_provider_id_name_map()
             
-        try:
-            with open(log_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    try:
-                        data = json.loads(line)
-                        if data.get("api_key_name") == tag:
-                            self._accumulate_log_entry(stats, data)
-                    except:
-                        pass
-        except Exception as e:
-            print(f"[LogManager] 计算标签统计失败: {e}")
+            if "provider_model_stats" in stats:
+                new_stats = {}
+                for pid, model_stats in stats["provider_model_stats"].items():
+                    pname = provider_map.get(pid, pid)
+                    new_stats[pname] = model_stats
+                stats["provider_model_stats"] = new_stats
+                
+            if "model_provider_stats" in stats:
+                new_model_stats = {}
+                for model, providers in stats["model_provider_stats"].items():
+                    new_providers = {}
+                    for pid, p_stats in providers.items():
+                        pname = provider_map.get(pid, pid)
+                        new_providers[pname] = p_stats
+                    new_model_stats[model] = new_providers
+                stats["model_provider_stats"] = new_model_stats
             
         return stats
 
-    def get_stats(self, date: Optional[str] = None, tag: Optional[str] = None) -> dict:
-        """获取统计数据
-        
-        Args:
-            date: 日期，None 表示今天
-            tag: 标签过滤 (API Key Name)
-        """
-        # 如果指定了标签，必须从日志重新计算
-        if tag:
-            return self.calculate_stats_from_logs(date, tag)
-            
-        # 否则使用预计算的统计数据
-        if date is None:
-            return self._stats.copy()
-        
-        stats_file = self._get_stats_file_path(date)
-        if stats_file.exists():
-            try:
-                with open(stats_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-        
-        return {}
-    
-    def get_provider_stats(self, date: Optional[str] = None) -> dict:
-        """获取 Provider 级别的统计数据
-        
-        Args:
-            date: 指定日期 (YYYY-MM-DD)，None 表示今天
-            
-        Returns:
-            dict: Provider 统计数据
-            {
-                "provider_name": {
-                    "total": int,
-                    "successful": int,
-                    "failed": int
-                },
-                ...
-            }
-        """
-        stats = self.get_stats(date)
-        
-        # 优先使用新的 provider_stats 字段
-        if "provider_stats" in stats:
-            return stats["provider_stats"]
-        
-        # 向后兼容：如果只有 provider_usage，转换为新格式（只有 total）
-        if "provider_usage" in stats:
-            return {
-                provider: {
-                    "total": count,
-                    "successful": count,  # 旧数据没有区分，假设全部成功
-                    "failed": 0
-                }
-                for provider, count in stats["provider_usage"].items()
-            }
-        
-        return {}
-    
-    def get_provider_model_stats(self, date: Optional[str] = None) -> dict:
-        """获取 Provider 模型级别的详细统计数据
-        
-        Args:
-            date: 指定日期 (YYYY-MM-DD)，None 表示今天
-            
-        Returns:
-            dict: Provider 模型统计数据
-            {
-                "provider_name": {
-                    "model_name": {
-                        "total": int,
-                        "successful": int,
-                        "failed": int,
-                        "tokens": int
-                    },
-                    ...
-                },
-                ...
-            }
-        """
-        stats = self.get_stats(date)
-        return stats.get("provider_model_stats", {})
-
     def get_daily_stats(self, days: int = 7, tag: Optional[str] = None) -> list[dict]:
-        """获取最近N天的每日统计数据
-        
-        Args:
-            days: 天数，默认7天
-            tag: 标签过滤
-            
-        Returns:
-            list[dict]: 每日统计列表，按日期升序排列
-        """
-        results = []
-        now = get_current_time()
-        
-        # 遍历最近N天（包含今天）
-        # 注意：reversed让结果按日期升序排列
-        for i in reversed(range(days)):
-            date_str = (now - timedelta(days=i)).strftime("%Y-%m-%d")
-            
-            # 使用 get_stats 获取 (支持 tag 过滤)
-            stats = self.get_stats(date_str, tag=tag)
-            
-            if not stats:
-                # 否则返回空统计
-                stats = self._get_empty_stats()
-            
-            # 添加日期字段
-            daily_data = {
-                "date": date_str,
-                "total_requests": stats.get("total_requests", 0),
-                "successful_requests": stats.get("successful_requests", 0),
-                "failed_requests": stats.get("failed_requests", 0),
-                "total_tokens": stats.get("total_tokens", 0),
-                "model_usage": stats.get("model_usage", {}),
-                "provider_model_stats": stats.get("provider_model_stats", {}),
-                "model_provider_stats": stats.get("model_provider_stats", {})
-            }
-            results.append(daily_data)
-            
-        return results
-
-    def clear_old_logs(self, keep_days: int = LOG_RETENTION_DAYS) -> int:
-        """清理旧日志"""
-        cutoff = get_current_time() - timedelta(days=keep_days)
-        deleted = 0
-        
-        for file in self.storage_dir.glob("*.jsonl"):
-            try:
-                # 从文件名提取日期
-                date_str = file.stem.split("_")[-1]
-                file_date = datetime.strptime(date_str, "%Y-%m-%d")
-                
-                if file_date < cutoff:
-                    file.unlink()
-                    deleted += 1
-            except Exception:
-                pass
-        
-        return deleted
+        return self._repo.get_daily_stats(days=days, tag=tag)
 
 
-# 全局实例
 log_manager = LogManager()

@@ -252,13 +252,6 @@
                             </select>
                         </div>
                         <div class="filter-group">
-                            <label>标签</label>
-                            <select id="filter-tag" onchange="Logs.applyFilters()">
-                                <option value="">全部</option>
-                                <!-- 动态生成 -->
-                            </select>
-                        </div>
-                        <div class="filter-group">
                             <label>关键词</label>
                             <input type="text" id="filter-keyword" placeholder="输入关键词" onchange="Logs.applyFilters()">
                         </div>
@@ -281,7 +274,7 @@
                                 <tr>
                                     <th style="width: 180px;">时间</th>
                                     <th style="width: 80px;">级别</th>
-                                    <th style="width: 100px;">来源</th>
+                                    <th>来源</th>
                                     <th>模型 / 内容</th>
                                     <th style="width: 100px;">Tokens</th>
                                     <th style="width: 80px;">耗时</th>
