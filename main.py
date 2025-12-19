@@ -317,6 +317,10 @@ class SyncConfigRequest(BaseModel):
     auto_sync_interval_hours: Optional[int] = None
 
 
+class ReorderModelMappingsRequest(BaseModel):
+    ordered_names: list[str]
+
+
 class TestSingleModelRequest(BaseModel):
     provider_id: str
     model: str
@@ -893,6 +897,14 @@ async def sync_model_mappings(unified_name: Optional[str] = Query(None)):
             provider_protocols
         )
         return {"status": "success", "synced_count": len(results), "results": results}
+
+
+@app.post("/api/model-mappings/reorder")
+async def reorder_model_mappings(request: ReorderModelMappingsRequest):
+    success, message = model_mapping_manager.reorder_mappings(request.ordered_names)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    return {"status": "success", "message": message}
 
 
 @app.get("/api/model-mappings/sync-config")

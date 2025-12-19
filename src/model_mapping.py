@@ -47,6 +47,7 @@ class ModelMapping:
     resolved_models: dict[str, list[str]] = field(default_factory=dict)
     model_settings: dict[str, dict] = field(default_factory=dict)
     last_sync: Optional[str] = None
+    order_index: int = 0
     
     def to_dict(self) -> dict:
         return {
@@ -56,7 +57,8 @@ class ModelMapping:
             "excluded_providers": self.excluded_providers,
             "resolved_models": self.resolved_models,
             "model_settings": self.model_settings,
-            "last_sync": self.last_sync
+            "last_sync": self.last_sync,
+            "order_index": self.order_index
         }
     
     @classmethod
@@ -74,7 +76,8 @@ class ModelMapping:
             excluded_providers=data.get("excluded_providers", []),
             resolved_models=data.get("resolved_models", {}),
             model_settings=data.get("model_settings", {}),
-            last_sync=last_sync
+            last_sync=last_sync,
+            order_index=data.get("order_index", 0)
         )
     
     def get_all_models(self) -> list[str]:
@@ -637,6 +640,19 @@ class ModelMappingManager:
         for uname, mapping in self._cache.items():
             result[uname] = mapping.get_all_models()
         return result
+
+    def reorder_mappings(self, ordered_names: list[str]) -> tuple[bool, str]:
+        """Reorder mappings based on the provided list of unified names."""
+        self._ensure_loaded()
+        try:
+            updated = self._repo.update_orders(ordered_names)
+            # Update cache order_index
+            for idx, name in enumerate(ordered_names):
+                if name in self._cache:
+                    self._cache[name].order_index = idx
+            return True, f"已更新 {updated} 个映射的顺序"
+        except Exception as e:
+            return False, str(e)
 
 
 model_mapping_manager = ModelMappingManager()

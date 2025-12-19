@@ -776,28 +776,18 @@ class ModelMappingRepo:
 
     def list_mappings(self) -> dict[str, dict]:
         """
-        Returns full mapping dict structure:
-        {
-          unified_name: {
-            unified_name, description, last_sync,
-            rules: [],
-            manual_includes: [],
-            excluded_providers: [],
-            resolved_models: {provider_id: [models]},
-            model_settings: {key: settings}
-          }
-        }
-        This is a heavy query, optimized by fetching all tables and assembling in memory.
+        Returns full mapping dict structure ordered by order_index.
         """
         with get_db_cursor(self._paths.app_db_path) as cur:
-            # 1. Base mappings
-            cur.execute("SELECT unified_name, description, last_sync_ms FROM model_mappings")
+            # 1. Base mappings (ordered by order_index)
+            cur.execute("SELECT unified_name, description, last_sync_ms, order_index FROM model_mappings ORDER BY order_index ASC, unified_name ASC")
             mappings = {}
             for r in cur.fetchall():
                 mappings[r["unified_name"]] = {
                     "unified_name": r["unified_name"],
                     "description": r["description"],
-                    "last_sync": r["last_sync_ms"],  # Keep as int ms
+                    "last_sync": r["last_sync_ms"],
+                    "order_index": r["order_index"],
                     "rules": [],
                     "manual_includes": [],
                     "excluded_providers": [],
@@ -851,11 +841,26 @@ class ModelMappingRepo:
 
         return mappings
 
+    def update_orders(self, ordered_names: list[str]) -> int:
+        """Update order_index for all mappings based on the provided ordered list."""
+        with get_db_cursor(self._paths.app_db_path) as cur:
+            updated = 0
+            for idx, name in enumerate(ordered_names):
+                cur.execute(
+                    "UPDATE model_mappings SET order_index = ? WHERE unified_name = ?",
+                    (idx, name)
+                )
+                updated += cur.rowcount
+            return updated
+
     def create_mapping(self, unified_name: str, description: str) -> None:
         with get_db_cursor(self._paths.app_db_path) as cur:
+            # Get max order_index and add 1 for new mapping
+            cur.execute("SELECT COALESCE(MAX(order_index), -1) + 1 FROM model_mappings")
+            next_order = cur.fetchone()[0]
             cur.execute(
-                "INSERT INTO model_mappings (unified_name, description) VALUES (?, ?)",
-                (unified_name, description),
+                "INSERT INTO model_mappings (unified_name, description, order_index) VALUES (?, ?, ?)",
+                (unified_name, description, next_order),
             )
 
     def delete_mapping(self, unified_name: str) -> None:

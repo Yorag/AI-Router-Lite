@@ -1,7 +1,7 @@
 /**
  * 模型映射管理模块（增强型）
- * 
- * 支持规则匹配、手动包含/排除、自动同步
+ *
+ * 支持规则匹配、手动包含/排除、自动同步、拖拽排序
  */
 
 const ModelMap = {
@@ -19,6 +19,7 @@ const ModelMap = {
     runtimeStates: {},      // 运行时熔断状态缓存 {provider_id:model -> state}
     availableProtocols: [], // 可用协议类型缓存
     expandedMappings: new Set(), // 记录已展开的映射卡片 (unifiedName)
+    draggedItem: null,      // 当前拖拽的元素
 
     // 规则类型选项
     RULE_TYPES: [
@@ -150,6 +151,9 @@ const ModelMap = {
             return;
         }
 
+        // 按order_index 排序
+        entries.sort((a, b) => (a[1].order_index || 0) - (b[1].order_index || 0));
+
         container.innerHTML = entries.map(([unifiedName, mapping]) => {
             const rulesText = this.formatRules(mapping.rules || []);
             
@@ -184,10 +188,19 @@ const ModelMap = {
             }
             const sortedProtocols = Object.keys(protocolCounts).sort();
             
+            const escapedName = unifiedName.replace(/"/g, '"');
             return `
-                <div class="model-map-card">
+                <div class="model-map-card"
+                     data-unified-name="${escapedName}"
+                     ondragover="ModelMap.handleDragOver(event)"
+                     ondrop="ModelMap.handleDrop(event)">
                     <div class="card-header">
                         <div class="header-main">
+                            <span class="drag-handle"
+                                  title="拖拽排序"
+                                  draggable="true"
+                                  ondragstart="ModelMap.handleDragStart(event)"
+                                  ondragend="ModelMap.handleDragEnd(event)">⋮⋮</span>
                             <h4 class="unified-name" title="${unifiedName}">${unifiedName}</h4>
                         </div>
                         <div class="model-map-actions">
@@ -516,10 +529,10 @@ const ModelMap = {
     escapeHtml(text) {
         if (!text) return '';
         return text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
+            .replace(/&/g, '&')
+            .replace(/</g, '<')
+            .replace(/>/g, '>')
+            .replace(/"/g, '"')
             .replace(/'/g, '&#039;');
     },
 
@@ -1335,6 +1348,90 @@ const ModelMap = {
         
         // 重新加载以获取最新数据
         await this.load();
+    },
+
+    // ==================== 拖拽排序 ====================
+
+    handleDragStart(event) {
+        const card = event.target.closest('.model-map-card');
+        if (!card) return;
+        
+        this.draggedItem = card;
+        card.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', card.dataset.unifiedName);
+    },
+
+    handleDragEnd(event) {
+        const card = event.target.closest('.model-map-card');
+        if (card) {
+            card.classList.remove('dragging');
+        }
+        this.draggedItem = null;
+        
+        // 移除所有 drag-over 样式
+        document.querySelectorAll('.model-map-card.drag-over').forEach(el => {
+            el.classList.remove('drag-over');
+        });
+    },
+
+    handleDragOver(event) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        
+        const card = event.target.closest('.model-map-card');
+        if (!card || card === this.draggedItem) return;
+        
+        // 移除其他元素的 drag-over 样式
+        document.querySelectorAll('.model-map-card.drag-over').forEach(el => {
+            if (el !== card) el.classList.remove('drag-over');
+        });
+        
+        card.classList.add('drag-over');
+    },
+
+    handleDrop(event) {
+        event.preventDefault();
+        
+        const targetCard = event.target.closest('.model-map-card');
+        if (!targetCard || !this.draggedItem || targetCard === this.draggedItem) return;
+        
+        const container = document.getElementById('model-map-list');
+        const cards = Array.from(container.querySelectorAll('.model-map-card'));
+        const draggedIndex = cards.indexOf(this.draggedItem);
+        const targetIndex = cards.indexOf(targetCard);
+        
+        // 交换位置
+        if (draggedIndex < targetIndex) {
+            targetCard.parentNode.insertBefore(this.draggedItem, targetCard.nextSibling);
+        } else {
+            targetCard.parentNode.insertBefore(this.draggedItem, targetCard);
+        }
+        
+        targetCard.classList.remove('drag-over');
+        // 保存新顺序
+        this.saveOrder();
+    },
+
+    async saveOrder() {
+        const container = document.getElementById('model-map-list');
+        const cards = container.querySelectorAll('.model-map-card');
+        const orderedNames = Array.from(cards).map(card => card.dataset.unifiedName);
+        
+        try {
+            await API.reorderModelMappings(orderedNames);
+            // 更新本地缓存的order_index
+            orderedNames.forEach((name, idx) => {
+                if (this.mappings[name]) {
+                    this.mappings[name].order_index = idx;
+                }
+            });
+            Toast.success('排序已保存');
+        } catch (error) {
+            Toast.error('保存排序失败: ' + error.message);
+            // 失败时重新渲染恢复原顺序
+            this.render();
+        }
     }
 };
 

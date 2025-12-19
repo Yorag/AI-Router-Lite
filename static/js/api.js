@@ -252,6 +252,14 @@ const API = {
         return this.request('PUT', '/api/model-mappings/sync-config', data);
     },
 
+    /**
+     * 重新排序模型映射
+     * @param {Array<string>} orderedNames - 按顺序排列的统一模型名称列表
+     */
+    async reorderModelMappings(orderedNames) {
+        return this.request('POST', '/api/model-mappings/reorder', { ordered_names: orderedNames });
+    },
+
     // ==================== 协议配置 ====================
 
     /**
