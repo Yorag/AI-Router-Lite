@@ -59,6 +59,14 @@ const Logs = {
         container.innerHTML = this.logs.map(log => this.renderLogEntry(log)).join('');
     },
 
+    // 辅助函数：转义 HTML 特殊字符
+    escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    },
+
     renderLogEntry(log) {
         const levelClass = log.level || 'info';
         
@@ -69,14 +77,14 @@ const Logs = {
         const levelHtml = `<span class="log-level-badge ${levelClass}">${(log.level || 'INFO').toUpperCase()}</span>`;
         
         // Source/Type
-        const typeHtml = `<span class="log-type-text">${log.type}</span>`;
+        const typeHtml = `<span class="log-type-text">${this.escapeHtml(log.type)}</span>`;
         
         // Protocol
-        const protocolHtml = log.protocol ? `<span class="log-protocol-tag" title="协议类型">${log.protocol}</span>` : '';
+        const protocolHtml = log.protocol ? `<span class="log-protocol-tag" title="协议类型">${this.escapeHtml(log.protocol)}</span>` : '';
         
         // Content
         let contentHtml = '';
-        const keyLabel = log.api_key_name ? `<span class="log-key-tag" title="密钥: ${log.api_key_name}">${log.api_key_name}</span>` : '';
+        const keyLabel = log.api_key_name ? `<span class="log-key-tag" title="密钥: ${this.escapeHtml(log.api_key_name)}">${this.escapeHtml(log.api_key_name)}</span>` : '';
         
         // 统一处理代理相关日志（proxy类型，或带有路由信息的system类型）
         if (log.type === 'proxy' || (log.type === 'system' && (log.provider || log.actual_model))) {
@@ -101,17 +109,21 @@ const Logs = {
                  if (errorDisplay && errorDisplay.includes('<')) {
                      errorDisplay = errorDisplay.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
                  }
+                 
+                 // 转义 HTML 特殊字符
+                 const safeErrorDisplay = this.escapeHtml(errorDisplay);
+                 const safeErrorTitle = this.escapeHtml(log.error || '');
 
                  contentHtml = `
                     <div class="log-content-row">
                         ${keyLabel}
                         ${protocolHtml}
-                        <span class="log-model" title="请求模型">${log.model || ''}</span>
+                        <span class="log-model" title="请求模型">${this.escapeHtml(log.model || '')}</span>
                         <span class="log-arrow">⟹</span>
-                        <span class="log-provider" title="服务站">${log.provider || '?'}</span>
+                        <span class="log-provider" title="服务站">${this.escapeHtml(log.provider || '?')}</span>
                         <span class="log-divider">:</span>
-                        <span class="log-actual-model" title="实际模型">${log.actual_model || '?'}</span>
-                        ${errorDisplay ? `<span class="log-error-msg" title="${log.error ? log.error.replace(/"/g, '"') : ''}">${errorDisplay}</span>` : ''}
+                        <span class="log-actual-model" title="实际模型">${this.escapeHtml(log.actual_model || '?')}</span>
+                        ${safeErrorDisplay ? `<span class="log-error-msg" title="${safeErrorTitle}">${safeErrorDisplay}</span>` : ''}
                     </div>
                  `;
              } else {
@@ -124,8 +136,8 @@ const Logs = {
                  contentHtml = `
                     <div class="log-content-row">
                         ${keyLabel}
-                        <span class="log-model">${log.model || ''}</span>
-                        <span class="log-error-msg">${errorMsg}</span>
+                        <span class="log-model">${this.escapeHtml(log.model || '')}</span>
+                        <span class="log-error-msg">${this.escapeHtml(errorMsg)}</span>
                     </div>
                  `;
              }
@@ -139,8 +151,8 @@ const Logs = {
             contentHtml = `
                 <div class="log-content-row">
                     ${keyLabel}
-                    <span class="log-model">${log.model || ''}</span>
-                    <span class="${log.error ? 'log-error-msg' : 'log-msg'}">${msg}</span>
+                    <span class="log-model">${this.escapeHtml(log.model || '')}</span>
+                    <span class="${log.error ? 'log-error-msg' : 'log-msg'}">${this.escapeHtml(msg)}</span>
                 </div>
             `;
         } else if (log.type === 'breaker') {
@@ -149,30 +161,32 @@ const Logs = {
             // 匹配 [Provider] 或 [Provider:Model]
             messageText = messageText.replace(/^\[.*\]\s*/, '');
             
+            // 先转义 HTML，再添加高亮样式
+            let safeMessageText = this.escapeHtml(messageText);
             // 高亮 "原因: xxx" 部分
-            messageText = messageText.replace(/(原因[:：]\s*)(.*)/, '$1<span class="log-error-detail" style="color: #ef4444;">$2</span>');
+            safeMessageText = safeMessageText.replace(/(原因[:：]\s*)(.*)/, '$1<span class="log-error-detail" style="color: #ef4444;">$2</span>');
 
             contentHtml = `
                 <div class="log-content-row">
-                    <span class="log-provider" title="服务站">${log.provider || '?'}</span>
-                    ${log.actual_model ? `<span class="log-divider">:</span><span class="log-actual-model" title="模型">${log.actual_model}</span>` : ''}
-                    <span class="log-error-msg">${messageText}</span>
+                    <span class="log-provider" title="服务站">${this.escapeHtml(log.provider || '?')}</span>
+                    ${log.actual_model ? `<span class="log-divider">:</span><span class="log-actual-model" title="模型">${this.escapeHtml(log.actual_model)}</span>` : ''}
+                    <span class="log-error-msg">${safeMessageText}</span>
                 </div>
             `;
         } else if (log.type === 'sync') {
             // 同步日志：服务站更新显示provider，模型映射同步显示统一ID
             const syncLabel = log.path === '/provider-models' && log.provider
-                ? `<span class="log-provider" title="服务站">${log.provider}</span>`
+                ? `<span class="log-provider" title="服务站">${this.escapeHtml(log.provider)}</span>`
                 : log.path === '/model-mapping' && log.model
-                    ? `<span class="log-model" title="统一模型">${log.model}</span>`
+                    ? `<span class="log-model" title="统一模型">${this.escapeHtml(log.model)}</span>`
                     : '';
             
             // 尝试解析 message 中的 provider name (e.g. "Fengye 新增 ...")
             // 如果 message 以 provider name 开头，我们将其高亮
-            let messageHtml = log.message || '';
-            if (log.path === '/provider-models' && log.provider && messageHtml.startsWith(log.provider)) {
-                 const rest = messageHtml.slice(log.provider.length);
-                 messageHtml = `<span class="log-provider">${log.provider}</span>${rest}`;
+            let messageHtml = this.escapeHtml(log.message || '');
+            if (log.path === '/provider-models' && log.provider && (log.message || '').startsWith(log.provider)) {
+                 const rest = this.escapeHtml((log.message || '').slice(log.provider.length));
+                 messageHtml = `<span class="log-provider">${this.escapeHtml(log.provider)}</span>${rest}`;
             }
 
             contentHtml = `
@@ -186,14 +200,14 @@ const Logs = {
              if (msg && msg.includes('<')) {
                  msg = msg.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
              }
-             contentHtml = `<div class="log-message-text">${msg}</div>`;
+             contentHtml = `<div class="log-message-text">${this.escapeHtml(msg)}</div>`;
              
              if (log.error) {
                  let err = log.error;
                  if (err && err.includes('<')) {
                      err = err.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
                  }
-                 contentHtml += `<div class="log-error-detail">${err}</div>`;
+                 contentHtml += `<div class="log-error-detail">${this.escapeHtml(err)}</div>`;
              }
         }
 
