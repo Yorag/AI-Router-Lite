@@ -3,27 +3,5 @@
   "server_host": "0.0.0.0",
   "max_retries": 3,
   "request_timeout": 120,
-  "providers": [
-    {
-      "name": "Provider_A",
-      "base_url": "https://api.example-a.com/v1",
-      "api_key": "sk-your-api-key-here",
-      "weight": 10,
-      "timeout": 60
-    },
-    {
-      "name": "Provider_B",
-      "base_url": "https://api.example-b.com/v1",
-      "api_key": "sk-another-api-key",
-      "weight": 5,
-      "timeout": 90
-    },
-    {
-      "name": "Provider_C_Backup",
-      "base_url": "https://api.backup-site.com/v1",
-      "api_key": "sk-backup-key",
-      "weight": 1,
-      "timeout": 120
-    }
-  ]
+  "db_encryption_key": "请使用 python scripts/gen_fernet_key.py 生成密钥并粘贴到此处"
 }
