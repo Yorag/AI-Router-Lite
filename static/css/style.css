@@ -708,7 +708,7 @@ body {
     transform: translateX(-50%);
     margin-bottom: 6px;
     width: max-content;
-    max-width: 1000px;
+    max-width: min(500px, 90vw);
     min-width: 120px;
 }
 
