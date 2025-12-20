@@ -807,9 +807,13 @@ const ModelMap = {
                         
                         <div class="form-group">
                             <label>手动包含的模型</label>
-                            <textarea id="mapping-manual-includes" rows="2"
-                                placeholder="每行一个，格式: model_id 或 provider:model_id">${manualIncludes.join('\n')}</textarea>
-                            <div class="hint">不匹配规则也会被包含</div>
+                            <input type="hidden" id="mapping-manual-includes" value="${manualIncludes.join('\n')}">
+                            <div id="manual-includes-tags" class="tag-input-container">
+                                <div class="tag-input-tags">
+                                    ${this.renderManualIncludeTags(manualIncludes)}
+                                </div>
+                            </div>
+                            <div class="hint">点击右侧可选模型添加，点击标签上的 × 删除</div>
                         </div>
                     </div>
                     
@@ -942,7 +946,7 @@ const ModelMap = {
         }
         
         container.innerHTML = models.map(model => `
-            <span class="model-tag clickable" 
+            <span class="model-tag clickable"
                 onclick="ModelMap.addToManualInclude('${model}')"
                 data-tooltip="点击添加到手动包含">
                 ${model}
@@ -950,24 +954,79 @@ const ModelMap = {
         `).join('');
     },
 
-    addToManualInclude(model) {
-        const textarea = document.getElementById('mapping-manual-includes');
-        const currentModels = textarea.value.split('\n').map(m => m.trim()).filter(m => m);
-        
-        // 使用 provider_id 构建引用
-        const providerId = this.currentProviderId;
-        const providerName = this.providerIdNameMap[providerId] || providerId;
-        const fullRef = providerId ? `${providerId}:${model}` : model;
-        const displayRef = providerId ? `${providerName}:${model}` : model;
-        
-        if (!currentModels.includes(fullRef) && !currentModels.includes(model)) {
-            currentModels.push(fullRef);
-            textarea.value = currentModels.join('\n');
-            Toast.success(`已添加: ${displayRef}`);
-        } else {
-            Toast.info('该模型已在列表中');
+    /**
+     * 渲染手动包含的模型标签（复用 tag-input-tag 样式）
+     */
+    renderManualIncludeTags(manualIncludes) {
+        if (!manualIncludes || manualIncludes.length === 0) {
+            return '<div class="tag-input-empty">暂无手动包含的模型</div>';
         }
+        
+        return manualIncludes.map(item => {
+            const displayName = this.formatManualIncludeForDisplay(item);
+            const escapedItem = item.replace(/"/g, '&quot;');
+            return `
+                <span class="tag-input-tag" data-value="${escapedItem}">
+                    ${displayName}
+                    <button type="button" class="tag-remove" onclick="ModelMap.removeManualInclude('${escapedItem}')" title="移除">×</button>
+                </span>
+            `;
+        }).join('');
     },
+
+    /**
+     * 将 provider_id:model 格式转换为 provider_name:model 用于显示
+     */
+    formatManualIncludeForDisplay(item) {
+        if (!item.includes(':')) return item;
+        
+        const firstColonIndex = item.indexOf(':');
+        const providerId = item.substring(0, firstColonIndex);
+        const model = item.substring(firstColonIndex + 1);
+        
+        const providerName = this.providerIdNameMap[providerId];
+        if (providerName) {
+            return `${providerName}:${model}`;
+        }
+        return item;
+    },
+
+        /**
+         * 从手动包含列表中移除模型
+         */
+        removeManualInclude(item) {
+            const hiddenInput = document.getElementById('mapping-manual-includes');
+            const tagsContainer = document.getElementById('manual-includes-tags');
+            const tagsWrapper = tagsContainer.querySelector('.tag-input-tags');
+            
+            let currentModels = hiddenInput.value.split('\n').map(m => m.trim()).filter(m => m);
+            currentModels = currentModels.filter(m => m !== item);
+            
+            hiddenInput.value = currentModels.join('\n');
+            tagsWrapper.innerHTML = this.renderManualIncludeTags(currentModels);
+            Toast.success('已移除');
+        },
+    
+        addToManualInclude(model) {
+            const hiddenInput = document.getElementById('mapping-manual-includes');
+            const tagsContainer = document.getElementById('manual-includes-tags');
+            const tagsWrapper = tagsContainer.querySelector('.tag-input-tags');
+            const currentModels = hiddenInput.value.split('\n').map(m => m.trim()).filter(m => m);
+            
+            // 使用 provider_id 构建引用
+            const providerId = this.currentProviderId;
+            const providerName = this.providerIdNameMap[providerId] || providerId;
+            const fullRef = providerId ? `${providerId}:${model}` : model;
+            const displayRef = providerId ? `${providerName}:${model}` : model;
+            
+            if (!currentModels.includes(fullRef) && !currentModels.includes(model)) {
+                currentModels.push(fullRef);
+                hiddenInput.value = currentModels.join('\n');
+                tagsWrapper.innerHTML = this.renderManualIncludeTags(currentModels);Toast.success(`已添加: ${displayRef}`);
+            } else {
+                Toast.info('该模型已在列表中');
+            }
+        },
 
     // ==================== 预览功能 ====================
 
