@@ -22,10 +22,10 @@ const Toast = {
         toast.className = `toast ${type}`;
         
         const icons = {
-            success: '✅',
-            error: '❌',
-            warning: '⚠️',
-            info: 'ℹ️'
+            success: '<i class="ri-checkbox-circle-line"></i>',
+            error: '<i class="ri-close-circle-line"></i>',
+            warning: '<i class="ri-alert-line"></i>',
+            info: '<i class="ri-information-line"></i>'
         };
         
         toast.innerHTML = `

@@ -147,7 +147,7 @@ const Dashboard = {
         if (!baseData.providers || Object.keys(baseData.providers).length === 0) {
             container.innerHTML = `
                 <div class="empty-state">
-                    <div class="empty-state-icon">📡</div>
+                    <div class="empty-state-icon"><i class="ri-signal-tower-line"></i></div>
                     <div class="empty-state-text">暂无服务站</div>
                 </div>
             `;

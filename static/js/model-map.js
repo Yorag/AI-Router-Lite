@@ -143,7 +143,7 @@ const ModelMap = {
         if (entries.length === 0) {
             container.innerHTML = `
                 <div class="empty-state">
-                    <div class="empty-state-icon">🔄</div>
+                    <div class="empty-state-icon"><i class="ri-git-merge-line"></i></div>
                     <div class="empty-state-text">暂无模型映射</div>
                     <div class="empty-state-hint">点击"添加映射"按钮创建模型映射规则</div>
                 </div>
@@ -205,16 +205,16 @@ const ModelMap = {
                         </div>
                         <div class="model-map-actions">
                             <button class="btn-icon-mini" onclick="ModelMap.syncSingle('${unifiedName}')" title="同步">
-                                🔄
+                                <i class="ri-refresh-line"></i>
                             </button>
                             <button class="btn-icon-mini" onclick="ModelMap.testMappingHealth('${unifiedName}')" title="检测健康">
-                                🩺
+                                <i class="ri-stethoscope-line"></i>
                             </button>
                             <button class="btn-icon-mini" onclick="ModelMap.showEditModal('${unifiedName}')" title="编辑">
-                                ✏️
+                                <i class="ri-edit-line"></i>
                             </button>
                             <button class="btn-icon-mini danger" onclick="ModelMap.confirmDelete('${unifiedName}')" title="删除">
-                                🗑️
+                                <i class="ri-delete-bin-line"></i>
                             </button>
                         </div>
                     </div>
@@ -232,14 +232,11 @@ const ModelMap = {
                         </div>
                         
                         <div class="meta-row">
-                            <span class="meta-item" title="来源渠道数">📡 ${providerCount}</span>
-                            
+                            <span class="meta-item" title="来源渠道数"><i class="ri-signal-tower-line"></i> ${providerCount}</span>
                             ${excludedProviders.length > 0 ?
-                                `<span class="meta-item warning" title="排除渠道: ${excludedProviders.length} 个\n${excludedProviderNames.join(', ')}">🚫 ${excludedProviders.length}</span>` : ''}
-                            
+                                `<span class="meta-item warning" title="排除渠道: ${excludedProviders.length} 个\n${excludedProviderNames.join(', ')}"><i class="ri-forbid-line"></i> ${excludedProviders.length}</span>` : ''}
                             ${mapping.manual_includes && mapping.manual_includes.length > 0 ?
-                                `<span class="meta-item info" title="手动包含: ${mapping.manual_includes.length} 个\n${mapping.manual_includes.join('\n')}">📌 ${mapping.manual_includes.length}</span>` : ''}
-                            
+                                `<span class="meta-item info" title="手动包含: ${mapping.manual_includes.length} 个\n${mapping.manual_includes.join('\n')}"><i class="ri-pushpin-line"></i> ${mapping.manual_includes.length}</span>` : ''}
                             <span class="meta-spacer"></span>
                             <span class="meta-item time" title="上次同步时间">${lastSync}</span>
                         </div>
@@ -348,7 +345,7 @@ const ModelMap = {
         const isExpanded = unifiedName && this.expandedMappings.has(unifiedName);
         const collapsedClass = isExpanded ? '' : 'collapsed';
         const contentDisplay = isExpanded ? 'block' : 'none';
-        const toggleText = isExpanded ? '▼ 收起匹配详情' : '▶ 展开匹配详情';
+        const toggleText = isExpanded ? '<i class="ri-arrow-down-s-line"></i> 收起匹配详情' : '<i class="ri-arrow-right-s-line"></i> 展开匹配详情';
         
         return `
             <div class="resolved-models ${collapsedClass}">
@@ -508,7 +505,7 @@ const ModelMap = {
                 const badgeClass = protocolStatus.source === 'model' ? 'protocol-model' : 'protocol-provider';
                 protocolBadge = `<span class="protocol-badge ${badgeClass}" title="${protocolStatus.source === 'model' ? '模型级配置' : 'Provider 默认'}">${protocolStatus.protocol}</span>`;
             } else {
-                protocolBadge = `<span class="protocol-badge protocol-none" title="未配置协议，将被跳过">⚠️</span>`;
+                protocolBadge = `<span class="protocol-badge protocol-none" title="未配置协议，将被跳过"><i class="ri-alert-line"></i></span>`;
                 // 未配置协议的模型禁用左键点击健康检测
                 clickAction = '';
                 tooltipContent = '未配置协议，请右键配置后再检测';
@@ -575,7 +572,7 @@ const ModelMap = {
         if (isCollapsed) {
             container.classList.remove('collapsed');
             content.style.display = 'block';
-            el.querySelector('span').textContent = '▼ 收起匹配详情';
+            el.querySelector('span').innerHTML = '<i class="ri-arrow-down-s-line"></i> 收起匹配详情';
             // 记录展开状态
             if (unifiedName) {
                 this.expandedMappings.add(unifiedName);
@@ -583,7 +580,7 @@ const ModelMap = {
         } else {
             container.classList.add('collapsed');
             content.style.display = 'none';
-            el.querySelector('span').textContent = '▶ 展开匹配详情';
+            el.querySelector('span').innerHTML = '<i class="ri-arrow-right-s-line"></i> 展开匹配详情';
             // 移除展开状态
             if (unifiedName) {
                 this.expandedMappings.delete(unifiedName);

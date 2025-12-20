@@ -47,7 +47,7 @@ const Logs = {
                 <tr>
                     <td colspan="7" class="empty-state-cell">
                         <div class="empty-state">
-                            <div class="empty-state-icon">📜</div>
+                            <div class="empty-state-icon"><i class="ri-file-list-3-line"></i></div>
                             <div class="empty-state-text">暂无日志</div>
                         </div>
                     </td>

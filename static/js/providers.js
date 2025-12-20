@@ -113,7 +113,7 @@ const Providers = {
         if (this.providers.length === 0) {
             container.innerHTML = `
                 <div class="empty-state" style="grid-column: 1 / -1;">
-                    <div class="empty-state-icon">🌐</div>
+                    <div class="empty-state-icon"><i class="ri-server-line"></i></div>
                     <div class="empty-state-text">暂无服务站</div>
                     <div class="empty-state-hint">点击"添加服务站"按钮添加第一个服务站</div>
                 </div>
@@ -320,7 +320,7 @@ const Providers = {
                 
                 <div class="collapsible-section" id="advanced-settings-create">
                     <div class="collapsible-header" onclick="Providers.toggleAdvancedSettings('create')">
-                        <h4><span class="collapsible-icon">▶</span> 高级设置</h4>
+                        <h4><span class="collapsible-icon"><i class="ri-arrow-right-s-line"></i></span> 高级设置</h4>
                     </div>
                     <div class="collapsible-content">
                         <div class="collapsible-body">
@@ -543,7 +543,7 @@ const Providers = {
                 
                 <div class="collapsible-section" id="advanced-settings-edit">
                     <div class="collapsible-header" onclick="Providers.toggleAdvancedSettings('edit')">
-                        <h4><span class="collapsible-icon">▶</span> 高级设置</h4>
+                        <h4><span class="collapsible-icon"><i class="ri-arrow-right-s-line"></i></span> 高级设置</h4>
                     </div>
                     <div class="collapsible-content">
                         <div class="collapsible-body">

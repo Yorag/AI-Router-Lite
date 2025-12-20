@@ -62,7 +62,7 @@ const APIKeys = {
             tbody.innerHTML = `
                 <tr>
                     <td colspan="7" class="empty-state">
-                        <div class="empty-state-icon">🔑</div>
+                        <div class="empty-state-icon"><i class="ri-key-2-line"></i></div>
                         <div class="empty-state-text">暂无 API 密钥</div>
                         <div class="empty-state-hint">点击"创建密钥"按钮添加第一个密钥</div>
                     </td>
@@ -143,7 +143,7 @@ const APIKeys = {
     showKeyCreatedModal(keyPlain) {
         const content = `
             <div class="key-created-notice">
-                <p>⚠️ 请立即复制并妥善保存此密钥，关闭后将无法再次查看！</p>
+                <p><i class="ri-alert-line"></i> 请立即复制并妥善保存此密钥，关闭后将无法再次查看！</p>
             </div>
             <div class="form-group">
                 <label>API 密钥</label>
@@ -158,7 +158,7 @@ const APIKeys = {
                 </button>
             </div>
         `;
-        Modal.show('🔑 密钥创建成功', content);
+        Modal.show('<i class="ri-key-2-line"></i> 密钥创建成功', content);
     },
 
     copyCreatedKey(event) {
