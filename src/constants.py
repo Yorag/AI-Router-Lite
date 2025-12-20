@@ -34,8 +34,6 @@ DEFAULT_SERVER_PORT: int = 8000
 # 默认服务主机
 DEFAULT_SERVER_HOST: str = "0.0.0.0"
 
-# 配置文件路径
-CONFIG_FILE_PATH: str = "config.json"
 
 
 # ==================== 健康检测配置 ====================
@@ -68,20 +66,11 @@ COOLDOWN_PERMANENT: int = -1
 
 # ==================== 日志系统配置 ====================
 
-# 日志存储目录
-LOG_STORAGE_DIR: str = "data/logs"
-
 # 内存中保留的最大日志条数
 LOG_MAX_MEMORY_ENTRIES: int = 1000
 
-# 单个日志文件最大大小（MB）
-LOG_MAX_FILE_SIZE_MB: int = 1
-
 # 日志保留天数
 LOG_RETENTION_DAYS: int = 15
-
-# 统计数据保存间隔（每多少条请求保存一次）
-LOG_STATS_SAVE_INTERVAL: int = 10
 
 # SSE 订阅队列大小
 LOG_SUBSCRIBE_QUEUE_SIZE: int = 100
@@ -89,8 +78,6 @@ LOG_SUBSCRIBE_QUEUE_SIZE: int = 100
 # 最近日志查询默认限制
 LOG_RECENT_LIMIT_DEFAULT: int = 100
 
-# 日期日志查询默认限制
-LOG_DATE_LIMIT_DEFAULT: int = 1000
 
 # 小时统计默认天数
 LOG_HOURLY_STATS_DEFAULT_DAYS: int = 7
@@ -102,25 +89,7 @@ LOG_HOURLY_STATS_DEFAULT_DAYS: int = 7
 PROXY_ERROR_MESSAGE_MAX_LENGTH: int = 300
 
 
-# ==================== 模型健康检测配置 ====================
-
-# 模型健康检测结果存储路径
-MODEL_HEALTH_STORAGE_PATH: str = "data/model_health.json"
-MODEL_HEALTH_FILE: str = MODEL_HEALTH_STORAGE_PATH  # 别名
-
-
-# ==================== Provider 模型元信息配置 ====================
-
-# Provider 模型元信息存储路径
-PROVIDER_MODELS_STORAGE_PATH: str = "data/provider_models.json"
-PROVIDER_MODELS_FILE: str = PROVIDER_MODELS_STORAGE_PATH  # 别名
-
-
 # ==================== 模型映射配置 ====================
-
-# 模型映射存储路径
-MODEL_MAPPINGS_STORAGE_PATH: str = "data/model_mappings.json"
-MODEL_MAPPINGS_FILE: str = MODEL_MAPPINGS_STORAGE_PATH  # 别名
 
 # 自动同步检查间隔（秒）- 后台任务轮询检查是否需要同步的频率
 AUTO_SYNC_CHECK_INTERVAL_SECONDS: int = 60
@@ -128,8 +97,6 @@ AUTO_SYNC_CHECK_INTERVAL_SECONDS: int = 60
 
 # ==================== API 密钥配置 ====================
 
-# API 密钥存储路径
-API_KEYS_STORAGE_PATH: str = "data/api_keys.json"
 
 # API 密钥 ID 前缀
 API_KEY_PREFIX: str = "sk-"
@@ -153,22 +120,4 @@ HEALTH_TEST_MAX_TOKENS: int = 10
 HEALTH_TEST_MESSAGE: str = "hi"
 
 
-# ==================== 前端 Toast 通知时长配置（毫秒） ====================
 
-# 信息/成功通知显示时长
-TOAST_DURATION_DEFAULT: int = 2000
-
-# 警告通知显示时长
-TOAST_DURATION_WARNING: int = 4000
-
-# 错误通知显示时长
-TOAST_DURATION_ERROR: int = 5000
-
-
-# ==================== 持久化存储配置 ====================
-
-# 缓冲保存间隔（秒）- 高频统计数据的定时保存间隔
-STORAGE_BUFFER_INTERVAL_SECONDS: float = 300.0
-
-# 是否在关闭时强制刷盘
-STORAGE_FLUSH_ON_SHUTDOWN: bool = True

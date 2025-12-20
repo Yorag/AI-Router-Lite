@@ -8,7 +8,7 @@ from typing import Any, Optional, Dict, List, Generator
 from cryptography.fernet import InvalidToken
 
 from .db import connect_sqlite, get_db_paths, get_fernet
-from .constants import PROXY_ERROR_MESSAGE_MAX_LENGTH
+from .constants import LOG_RETENTION_DAYS, PROXY_ERROR_MESSAGE_MAX_LENGTH
 
 
 def _now_ms() -> int:
@@ -341,8 +341,6 @@ class LogRepo:
 
         LogRepo._last_cleanup_check_date = today
         
-        retention_days = 15
-
         with get_db_cursor(self._paths.logs_db_path) as cur:
             # Get all distinct log dates
             cur.execute(
@@ -354,7 +352,7 @@ class LogRepo:
             )
             days = [row[0] for row in cur.fetchall()]
 
-            if len(days) >= retention_days:
+            if len(days) >= LOG_RETENTION_DAYS:
                 # Delete logs from the oldest day
                 oldest_day = days[0]
                 cur.execute(
@@ -364,7 +362,7 @@ class LogRepo:
                     """,
                     (oldest_day,),
                 )
-                print(f"[LOG-CLEANUP] Deleted logs from {oldest_day} as retention period of {retention_days} days was met.")
+                print(f"[LOG-CLEANUP] Deleted logs from {oldest_day} as retention period of {LOG_RETENTION_DAYS} days was met.")
 
     def insert(self, entry: dict[str, Any]) -> None:
         self._perform_log_cleanup_if_needed()
