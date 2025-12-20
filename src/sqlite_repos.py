@@ -790,7 +790,7 @@ class ModelMappingRepo:
         """
         with get_db_cursor(self._paths.app_db_path) as cur:
             # 1. Base mappings (ordered by order_index)
-            cur.execute("SELECT unified_name, description, last_sync_ms, order_index FROM model_mappings ORDER BY order_index ASC, unified_name ASC")
+            cur.execute("SELECT unified_name, description, last_sync_ms, order_index, enabled FROM model_mappings ORDER BY order_index ASC, unified_name ASC")
             mappings = {}
             for r in cur.fetchall():
                 mappings[r["unified_name"]] = {
@@ -798,6 +798,7 @@ class ModelMappingRepo:
                     "description": r["description"],
                     "last_sync": r["last_sync_ms"],
                     "order_index": r["order_index"],
+                    "enabled": bool(r["enabled"]),
                     "rules": [],
                     "manual_includes": [],
                     "excluded_providers": [],
@@ -863,21 +864,21 @@ class ModelMappingRepo:
                 updated += cur.rowcount
             return updated
 
-    def create_mapping(self, unified_name: str, description: str) -> None:
+    def create_mapping(self, unified_name: str, description: str, enabled: bool = True) -> None:
         with get_db_cursor(self._paths.app_db_path) as cur:
             # Get max order_index and add 1 for new mapping
             cur.execute("SELECT COALESCE(MAX(order_index), -1) + 1 FROM model_mappings")
             next_order = cur.fetchone()[0]
             cur.execute(
-                "INSERT INTO model_mappings (unified_name, description, order_index) VALUES (?, ?, ?)",
-                (unified_name, description, next_order),
+                "INSERT INTO model_mappings (unified_name, description, order_index, enabled) VALUES (?, ?, ?, ?)",
+                (unified_name, description, next_order, 1 if enabled else 0),
             )
 
     def delete_mapping(self, unified_name: str) -> None:
         with get_db_cursor(self._paths.app_db_path) as cur:
             cur.execute("DELETE FROM model_mappings WHERE unified_name = ?", (unified_name,))
 
-    def update_mapping_meta(self, unified_name: str, description: Optional[str] = None, last_sync_ms: Optional[int] = None) -> None:
+    def update_mapping_meta(self, unified_name: str, description: Optional[str] = None, last_sync_ms: Optional[int] = None, enabled: Optional[bool] = None) -> None:
         updates = []
         params = []
         if description is not None:
@@ -886,6 +887,9 @@ class ModelMappingRepo:
         if last_sync_ms is not None:
             updates.append("last_sync_ms = ?")
             params.append(last_sync_ms)
+        if enabled is not None:
+            updates.append("enabled = ?")
+            params.append(1 if enabled else 0)
         
         if updates:
             with get_db_cursor(self._paths.app_db_path) as cur:

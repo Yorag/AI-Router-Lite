@@ -189,8 +189,10 @@ const ModelMap = {
             const sortedProtocols = Object.keys(protocolCounts).sort();
             
             const escapedName = unifiedName.replace(/"/g, '"');
+            const isEnabled = mapping.enabled !== false;  // 默认为启用
+            const disabledClass = isEnabled ? '' : 'mapping-disabled';
             return `
-                <div class="model-map-card"
+                <div class="model-map-card ${disabledClass}"
                      data-unified-name="${escapedName}"
                      ondragover="ModelMap.handleDragOver(event)"
                      ondrop="ModelMap.handleDrop(event)">
@@ -202,12 +204,18 @@ const ModelMap = {
                                   ondragstart="ModelMap.handleDragStart(event)"
                                   ondragend="ModelMap.handleDragEnd(event)">⋮⋮</span>
                             <h4 class="unified-name" title="${unifiedName}">${unifiedName}</h4>
+                            <label class="toggle-switch" title="${isEnabled ? '点击禁用此映射' : '点击启用此映射'}">
+                                <input type="checkbox"
+                                       ${isEnabled ? 'checked' : ''}
+                                       onchange="ModelMap.toggleEnabled('${escapedName}', this.checked)">
+                                <span class="toggle-slider"></span>
+                            </label>
                         </div>
                         <div class="model-map-actions">
-                            <button class="btn-icon-mini" onclick="ModelMap.syncSingle('${unifiedName}')" title="同步">
+                            <button class="btn-icon-mini" onclick="ModelMap.syncSingle('${unifiedName}')" title="同步" ${!isEnabled ? 'disabled' : ''}>
                                 <i class="ri-refresh-line"></i>
                             </button>
-                            <button class="btn-icon-mini" onclick="ModelMap.testMappingHealth('${unifiedName}')" title="检测健康">
+                            <button class="btn-icon-mini" onclick="ModelMap.testMappingHealth('${unifiedName}')" title="检测健康" ${!isEnabled ? 'disabled' : ''}>
                                 <i class="ri-stethoscope-line"></i>
                             </button>
                             <button class="btn-icon-mini" onclick="ModelMap.showEditModal('${unifiedName}')" title="编辑">
@@ -1117,6 +1125,28 @@ const ModelMap = {
             await this.load();
         } catch (error) {
             Toast.error('删除失败: ' + error.message);
+        }
+    },
+
+    // ==================== 启用/禁用映射 ====================
+
+    /**
+     * 切换模型映射的启用/禁用状态
+     */
+    async toggleEnabled(unifiedName, enabled) {
+        try {
+            await API.updateModelMapping(unifiedName, { enabled });
+            // 更新本地缓存
+            if (this.mappings[unifiedName]) {
+                this.mappings[unifiedName].enabled = enabled;
+            }
+            
+            Toast.success(enabled ? '映射已启用' : '映射已禁用');
+            this.render();
+        } catch (error) {
+            Toast.error('更新失败: ' + error.message);
+            // 失败时重新加载以恢复正确状态
+            await this.load();
         }
     },
 

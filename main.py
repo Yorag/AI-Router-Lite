@@ -353,6 +353,7 @@ class CreateModelMappingRequest(BaseModel):
     rules: list[dict] = []
     manual_includes: list[str] = []
     excluded_providers: list[str] = []
+    enabled: bool = True
 
 
 class UpdateModelMappingRequest(BaseModel):
@@ -361,6 +362,7 @@ class UpdateModelMappingRequest(BaseModel):
     rules: Optional[list[dict]] = None
     manual_includes: Optional[list[str]] = None
     excluded_providers: Optional[list[str]] = None
+    enabled: Optional[bool] = None
 
 
 class PreviewResolveRequest(BaseModel):
@@ -919,7 +921,8 @@ async def create_model_mapping(request: CreateModelMappingRequest):
         description=request.description,
         rules=request.rules,
         manual_includes=request.manual_includes,
-        excluded_providers=request.excluded_providers
+        excluded_providers=request.excluded_providers,
+        enabled=request.enabled
     )
     if not success:
         raise HTTPException(status_code=400, detail=message)
@@ -1015,7 +1018,8 @@ async def update_model_mapping(unified_name: str, request: UpdateModelMappingReq
         description=request.description,
         rules=request.rules,
         manual_includes=request.manual_includes,
-        excluded_providers=request.excluded_providers
+        excluded_providers=request.excluded_providers,
+        enabled=request.enabled
     )
     if not success:
         raise HTTPException(status_code=400, detail=message)

@@ -193,7 +193,6 @@ const Providers = {
 
         const isEnabled = provider.enabled !== false;
         const statusText = `权重: ${provider.weight}`;
-        const toggleBtnText = isEnabled ? '禁用' : '启用';
         const protocolText = provider.default_protocol || '混合';
         
         // 如果禁止更新模型，则不显示更新模型按钮（或者显示为禁用）
@@ -232,13 +231,14 @@ const Providers = {
                 </div>
                 
                 <div class="provider-card-actions">
-                    <button class="btn btn-sm btn-secondary" onclick="Providers.toggleEnabled('${providerUuid}', ${!isEnabled})">
-                        ${toggleBtnText}
-                    </button>
-                    ${updateModelBtn}
+                    <label class="toggle-switch" title="${isEnabled ? '点击禁用' : '点击启用'}">
+                        <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="Providers.toggleEnabled('${providerUuid}', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
                     <button class="btn btn-sm btn-secondary" onclick="Providers.showEditModal('${providerUuid}')">
                         编辑
                     </button>
+                    ${updateModelBtn}
                     <button class="btn btn-sm btn-secondary" onclick="Providers.reset('${providerUuid}')">
                         重置状态
                     </button>

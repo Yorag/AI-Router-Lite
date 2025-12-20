@@ -28,19 +28,19 @@ class ModelRouter:
         使用增强型模型映射，保留 provider_id 关联信息，确保请求只被路由到
         明确配置的 Provider + Model 组合。
         
-        如果没有匹配的映射，则返回空字典（表示该模型不可用）。
+        如果没有匹配的映射或映射已禁用，则返回空字典（表示该模型不可用）。
         
         Args:
             requested_model: 用户请求的模型名（统一模型名）
             
         Returns:
-            {provider_id: [model_ids]} 格式的映射，空字典表示该模型未配置映射（不可用）
+            {provider_id: [model_ids]} 格式的映射，空字典表示该模型未配置映射或已禁用（不可用）
         """
         mapping = model_mapping_manager.get_mapping(requested_model)
-        if mapping and mapping.resolved_models:
+        if mapping and mapping.enabled and mapping.resolved_models:
             return mapping.resolved_models.copy()
         
-        # 没有映射配置，返回空字典
+        # 没有映射配置或已禁用，返回空字典
         return {}
     
     def find_candidate_models(
@@ -133,16 +133,16 @@ class ModelRouter:
         """
         获取所有可用的模型列表
         
-        仅返回模型映射的统一名称。
+        仅返回已启用的模型映射的统一名称。
         实际请求时会在内部将统一名称映射到健康的真实模型。
         
         Returns:
-            模型映射的统一名称列表
+            已启用的模型映射的统一名称列表
         """
-        # 加载并返回模型映射的统一名称
+        # 加载并返回已启用的模型映射的统一名称
         model_mapping_manager.load()
         mappings = model_mapping_manager.get_all_mappings()
-        return sorted(mappings.keys())
+        return sorted(name for name, mapping in mappings.items() if mapping.enabled)
     
     @staticmethod
     def _log_info(message: str) -> None:

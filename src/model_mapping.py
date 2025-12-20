@@ -48,6 +48,7 @@ class ModelMapping:
     model_settings: dict[str, dict] = field(default_factory=dict)
     last_sync: Optional[str] = None
     order_index: int = 0
+    enabled: bool = True
     
     def to_dict(self) -> dict:
         return {
@@ -58,7 +59,8 @@ class ModelMapping:
             "resolved_models": self.resolved_models,
             "model_settings": self.model_settings,
             "last_sync": self.last_sync,
-            "order_index": self.order_index
+            "order_index": self.order_index,
+            "enabled": self.enabled
         }
     
     @classmethod
@@ -77,7 +79,8 @@ class ModelMapping:
             resolved_models=data.get("resolved_models", {}),
             model_settings=data.get("model_settings", {}),
             last_sync=last_sync,
-            order_index=data.get("order_index", 0)
+            order_index=data.get("order_index", 0),
+            enabled=data.get("enabled", True)
         )
     
     def get_all_models(self) -> list[str]:
@@ -202,7 +205,8 @@ class ModelMappingManager:
         description: str = "",
         rules: Optional[list[dict]] = None,
         manual_includes: Optional[list[str]] = None,
-        excluded_providers: Optional[list[str]] = None
+        excluded_providers: Optional[list[str]] = None,
+        enabled: bool = True
     ) -> tuple[bool, str]:
         self._ensure_loaded()
         
@@ -212,21 +216,22 @@ class ModelMappingManager:
             return False, "统一模型名称不能为空"
         
         try:
-            self._repo.create_mapping(unified_name, description)
+            self._repo.create_mapping(unified_name, description, enabled)
             # Create sub-tables
             self._repo.replace_rules(unified_name, rules or [])
             self._repo.replace_manual_includes(unified_name, manual_includes or [])
             self._repo.replace_excluded_providers(unified_name, excluded_providers or [])
             
             # Reload cache for this item (or full reload to be safe)
-            # Full reload is safer but slower. 
+            # Full reload is safer but slower.
             # Optimization: construct object locally.
             self._cache[unified_name] = ModelMapping(
                 unified_name=unified_name,
                 description=description,
                 rules=[MatchRule.from_dict(r) for r in (rules or [])],
                 manual_includes=manual_includes or [],
-                excluded_providers=excluded_providers or []
+                excluded_providers=excluded_providers or [],
+                enabled=enabled
             )
             return True, "创建成功"
         except Exception as e:
@@ -238,7 +243,8 @@ class ModelMappingManager:
         description: Optional[str] = None,
         rules: Optional[list[dict]] = None,
         manual_includes: Optional[list[str]] = None,
-        excluded_providers: Optional[list[str]] = None
+        excluded_providers: Optional[list[str]] = None,
+        enabled: Optional[bool] = None
     ) -> tuple[bool, str]:
         self._ensure_loaded()
         
@@ -251,6 +257,10 @@ class ModelMappingManager:
             if description is not None:
                 self._repo.update_mapping_meta(unified_name, description=description)
                 mapping.description = description
+            
+            if enabled is not None:
+                self._repo.update_mapping_meta(unified_name, enabled=enabled)
+                mapping.enabled = enabled
             
             if rules is not None:
                 self._repo.replace_rules(unified_name, rules)

@@ -147,7 +147,8 @@ def init_schema_app(conn: sqlite3.Connection) -> None:
           unified_name TEXT PRIMARY KEY,
           description TEXT,
           last_sync_ms INTEGER,
-          order_index INTEGER NOT NULL DEFAULT 0
+          order_index INTEGER NOT NULL DEFAULT 0,
+          enabled INTEGER NOT NULL DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS model_mapping_rules (
