@@ -770,6 +770,11 @@ async def add_provider(request: ProviderRequest):
     success, message, provider_id = admin_manager.add_provider(provider_data)
     if not success:
         raise HTTPException(status_code=400, detail=message)
+    
+    # 同步更新 provider_manager 内存状态
+    from src.config import ProviderConfig
+    provider_manager.register(ProviderConfig(**provider_data))
+    
     log_manager.log(
         level=LogLevel.INFO,
         log_type="admin",
@@ -1092,6 +1097,12 @@ async def update_provider(provider_id: str, request: UpdateProviderRequest):
     if not success:
         raise HTTPException(status_code=400, detail=message)
 
+    # 同步更新 provider_manager 内存状态
+    from src.config import ProviderConfig
+    provider_state = provider_manager.get(provider_id)
+    if provider_state:
+        provider_state.config = ProviderConfig(**provider)
+
     return {"status": "success", "message": message}
 
 
@@ -1102,6 +1113,10 @@ async def delete_provider(provider_id: str):
     success, message = admin_manager.delete_provider(provider_id)
     if not success:
         raise HTTPException(status_code=404, detail=message)
+
+    # 同步更新 provider_manager 内存状态
+    if provider_id in provider_manager._providers:
+        del provider_manager._providers[provider_id]
 
     provider_name = provider.get("name", provider_id) if provider else provider_id
     log_manager.log(
