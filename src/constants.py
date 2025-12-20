@@ -122,6 +122,9 @@ PROVIDER_MODELS_FILE: str = PROVIDER_MODELS_STORAGE_PATH  # 别名
 MODEL_MAPPINGS_STORAGE_PATH: str = "data/model_mappings.json"
 MODEL_MAPPINGS_FILE: str = MODEL_MAPPINGS_STORAGE_PATH  # 别名
 
+# 自动同步检查间隔（秒）- 后台任务轮询检查是否需要同步的频率
+AUTO_SYNC_CHECK_INTERVAL_SECONDS: int = 60
+
 
 # ==================== API 密钥配置 ====================
 

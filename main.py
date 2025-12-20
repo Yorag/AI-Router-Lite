@@ -9,6 +9,7 @@ import time
 import asyncio
 import json
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Optional, Dict
 
 import uvicorn
@@ -25,7 +26,7 @@ from src.constants import (
     APP_VERSION,
     APP_DESCRIPTION,
     DEFAULT_SERVER_HOST,
-    DEFAULT_SERVER_PORT,
+    DEFAULT_SERVER_PORT,AUTO_SYNC_CHECK_INTERVAL_SECONDS,
 )
 from src.models import (
     ErrorResponse,
@@ -186,30 +187,55 @@ async def sync_all_provider_models_logic() -> dict:
     }
 
 async def auto_sync_model_mappings_task():
+    """
+    轮询检查机制：定期检查是否需要同步
+    基于目标时间（上次同步时间 + 配置间隔）来判断
+    """
     while True:
         try:
+            await asyncio.sleep(AUTO_SYNC_CHECK_INTERVAL_SECONDS)
+            
             model_mapping_manager.load()
             sync_config = model_mapping_manager.get_sync_config()
 
             if not sync_config.auto_sync_enabled:
-                await asyncio.sleep(60)
                 continue
 
+            # 计算目标同步时间
             interval_seconds = sync_config.auto_sync_interval_hours * 3600
-            print(f"[AUTO-SYNC] 模型映射自动同步已启用，间隔: {sync_config.auto_sync_interval_hours} 小时")
-
-            await asyncio.sleep(interval_seconds)
-
-            print(f"[AUTO-SYNC] 开始自动同步...")
-            result = await sync_all_provider_models_logic()
-            print(f"[AUTO-SYNC] 完成: 同步了 {result['synced_count']} 个 Provider")
+            
+            # 如果从未同步过，立即同步
+            if not sync_config.last_full_sync:
+                print(f"[AUTO-SYNC] 首次同步，立即执行...")
+                result = await sync_all_provider_models_logic()
+                print(f"[AUTO-SYNC] 完成: 同步了 {result['synced_count']} 个 Provider")
+                continue
+            
+            # 解析上次同步时间
+            try:
+                last_sync_dt = datetime.fromisoformat(sync_config.last_full_sync.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                # 无法解析时间，执行同步
+                print(f"[AUTO-SYNC] 无法解析上次同步时间，立即执行同步...")
+                result = await sync_all_provider_models_logic()
+                print(f"[AUTO-SYNC] 完成: 同步了 {result['synced_count']} 个 Provider")
+                continue
+            
+            # 计算目标时间和当前时间
+            target_sync_time = last_sync_dt.timestamp() + interval_seconds
+            current_time = datetime.now(timezone.utc).timestamp()
+            
+            # 判断是否需要同步
+            if current_time >= target_sync_time:
+                print(f"[AUTO-SYNC] 已到达同步时间，开始自动同步...")
+                result = await sync_all_provider_models_logic()
+                print(f"[AUTO-SYNC] 完成: 同步了 {result['synced_count']} 个 Provider")
 
         except asyncio.CancelledError:
             print(f"[AUTO-SYNC] 任务已取消")
             break
         except Exception as e:
             print(f"[AUTO-SYNC] 出错: {e}")
-            await asyncio.sleep(60)
 
 
 @asynccontextmanager
