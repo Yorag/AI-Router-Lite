@@ -1,464 +1,158 @@
-#  AI-Router-Lite (轻量级 AI 聚合路由)
+<div align="center">
+  <br />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://readme-typing-svg.herokuapp.com?font=Fira+Code&size=32&pause=1000&color=00BFFF&center=true&vCenter=true&width=435&lines=AI-Router-Lite">
+    <img alt="Typing SVG" src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&size=32&pause=1000&color=00BFFF&center=true&vCenter=true&width=435&lines=AI-Router-Lite" />
+  </picture>
+  <br />
+  <p><strong>一个专为个人开发者设计的轻量级、高性能、一体化 AI 模型聚合路由。</strong></p>
+  <p>
+    <a href="https://python.org"><img alt="Python" src="https://img.shields.io/badge/Python-3.8+-blue?logo=python&logoColor=white"></a>
+    <a href="https://fastapi.tiangolo.com/"><img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.104+-05998b?logo=fastapi&logoColor=white"></a>
+    <a href="https://github.com/Aflydream/AI-Router-Lite/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/Aflydream/AI-Router-Lite?color=blue"></a>
+    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.7.0-brightgreen"></a>
+  </p>
+</div>
 
-> **告别"API 焦虑症"：自动检测、自动切换、统一接口。**
-> 一个专为个人开发者设计的轻量级 AI 模型中转聚合工具。
+---
 
+**AI-Router-Lite** 是一个专为个人开发者和小型团队设计的 AI 模型聚合网关。它致力于解决在使用多个（免费或付费）AI 模型中转服务时普遍存在的几大痛点：
+
+- **可用性时好时坏？** → 内置**双层熔断机制**和**自动故障转移**，无感自动绕过失效服务，确保您的请求始终在线。
+- **模型列表混乱且随时变动？** → 强大的**增强型模型映射**功能，支持**一键/定时从上游服务拉取最新模型列表**，并通过关键字、正则等规则，将杂乱的模型名统一为您自定义的规范名称（例如，将 `claude-opus-4-5`、`claude-opus-4.5`、`claude-opus-4-5-20251101` 全部统一为 `claude-opus-4-5`）。
+- **API 端点不统一？** → 项目会自动将请求**透传**至匹配的协议端点（如 `/v1/chat/completions`, `/v1/messages`），您无需关心底层具体路径。
+
+简而言之，AI-Router-Lite 为您屏蔽了底层渠道的复杂性和不稳定性，提供一个稳定、可靠、且始终保持更新的 AI 模型访问入口。
+
+## 🎨 管理面板预览
+
+一个强大且直观的 Web UI，让你对所有服务状态和配置了如指掌。
+
+<table>
+  <tr>
+    <td align="center"><b>📊 仪表板</b></td>
+    <td align="center"><b>🔑 密钥管理</b></td>
+  </tr>
+  <tr>
+    <td><img src="screenshot/dashboard.jpeg" alt="仪表板" width="400"/></td>
+    <td><img src="screenshot/api-keys.jpeg" alt="密钥管理" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>🌐 服务站管理</b></td>
+    <td align="center"><b>🔄 模型映射</b></td>
+  </tr>
+  <tr>
+    <td><img src="screenshot/providers.jpeg" alt="服务站管理" width="400"/></td>
+    <td><img src="screenshot/model-map.jpeg" alt="模型映射" width="400"/></td>
+  </tr>
+</table>
 
 ## ✨ 核心功能
 
-1. **多协议统一接入**：
-   * 对外同时支持多种 AI API 协议：**OpenAI**, **Anthropic**, **Gemini**
-   * 支持 OpenAI Chat Completions (`/v1/chat/completions`)
-   * 支持 OpenAI Responses API (`/v1/responses`) - Beta
-   * 支持 Anthropic Messages API (`/v1/messages`)
-   * 支持 Gemini API (`/v1beta/models/{model}:generateContent`)
-   * 完美兼容 Chatbox, NextChat, LobeChat, Cherry Studio 等客户端
+| 功能 | 描述 |
+| :--- | :--- |
+| 🌐 **多协议路由** | 支持 **OpenAI, Anthropic, Gemini** 等多种 API 协议的**原生透传**，自动将请求路由至正确的上游端点。 |
+| 🔄 **增强型模型映射** | 通过关键字、正则、前缀等多种规则灵活地将统一模型名映射到不同渠道的实际模型。 |
+| 🔌 **双层熔断机制** | **渠道级 + 模型级**双重保障。对 4xx/5xx/超时等错误进行智能分级冷却，最大化服务可用性。 |
+| 🩺 **智能健康检测** | 主动探测、被动记录，自动更新模型健康状态并与熔断系统联动，确保请求总是发往健康的节点。 |
+| 🔀 **智能故障转移** | 当首选渠道失败时，无感切换到备用渠道重试，按权重选择最佳路径，保证服务连续性。 |
+| 💾 **高性能存储** | 基于 **SQLite (WAL 模式)**，配置与日志分离存储。敏感数据（如 API Key）通过 **Fernet** 加密，安全可靠。 |
+| 🖥️ **可视化管理** | 提供功能完善的管理面板，轻松完成密钥、服务站、模型映射、健康检测和日志监控等所有配置。 |
 
-2. **增强型模型映射**：
-   * 支持多种匹配规则：**关键字匹配**、**正则表达式**、**前缀匹配**、**精确匹配**
-   * 支持**关键字排除规则** (`keyword_exclude`)：排除包含特定关键字的模型
-   * 手动包含/排除特定模型，优先级最高
-   * 自动同步：定时从各中转站拉取最新模型列表并更新映射
-   * 预览功能：在保存前预览规则匹配结果
-   * 支持排除特定渠道
-
-3. **双层协议配置**：
-   * **Provider 级**：设置整个服务站的默认协议
-   * **模型级**：为特定模型单独指定协议（覆盖默认设置）
-   * **协议自动继承**：同步时自动从 Provider 继承协议配置
-   * 支持混合类型 Provider（同一服务站支持多种协议）
-
-4. **流式响应支持**：完整支持 SSE 流式传输，实现真正的打字机效果，自动提取 Token 用量。
-
-5. **双层熔断机制**：
-   * **渠道级熔断**：整个 Provider 不可用时熔断
-   * **模型级熔断**：单个模型失败时仅熔断该模型，不影响同渠道其他模型
-   * **401/403 (Key 错误/余额不足)**：永久拉黑（渠道级）
-   * **404 (模型不存在)**：永久禁用（模型级）
-   * **429 (超频)**：暂时停用 3 分钟（模型级）
-   * **5xx (服务器崩)**：暂时停用 5 分钟（模型级）
-   * **Timeout (超时)**：暂时停用 2 分钟（渠道级）
-   * **Network (网络错误)**：暂时停用 20 秒（渠道级）
-
-6. **模型健康检测**：
-   * **主动检测**：单模型检测或批量检测，返回完整响应体
-   * **被动健康记录**：API 调用结果自动记录为健康状态
-   * 批量检测策略：同渠道内串行，跨渠道异步，高效检测
-   * 检测结果持久化存储，支持查询历史记录
-   * **熔断集成**：检测结果自动更新熔断系统状态
-
-7. **Provider 模型元信息管理**：
-   * 独立存储模型元信息（owned_by、supported_endpoint_types）
-   * 跟踪模型最后活动时间（API 调用 / 健康检测）
-   * 同步时自动增量更新（新增/更新/删除），并输出详细变化日志
-   * 支持并发同步所有渠道模型列表
-
-8. **智能故障转移 (Failover)**：
-   * 当首选渠道报错时，自动在后台切换到备用渠道重试
-   * 首次请求通过加权随机选择，失败后按权重顺序依次重试
-   * 用户端完全无感知
-
-9. **加权路由选择**：根据配置的权重值，优先选择高权重的 Provider。
-
-10. **Provider ID 体系**：每个 Provider 拥有唯一的 UUID 标识，支持修改显示名称而不影响内部引用。
-
-11. **可视化管理面板**：功能完善的 Web 管理界面，让你轻松管理所有配置。
-
-12. **高性能 SQLite 存储**：
-    * 采用 SQLite (WAL 模式) 作为底层存储，支持高并发读写。
-    * 数据分为 `app.db` (配置) 和 `logs.db` (日志)，互不干扰。
-    * **安全加固**：Provider API Key 在数据库中加密存储。
-    * **零配置**：无需安装 MySQL/PostgreSQL，开箱即用。
-
-13. **极简配置**：核心配置通过 `config.json` 管理（仅作为初始导入），运行时数据完全由数据库管理。
-
-## 🎨 管理面板
-
-![管理面板预览](https://via.placeholder.com/800x400?text=AI-Router-Lite+Admin+Panel)
-
-功能完善的 Web 管理面板，让你可以：
-
-### 📊 仪表板
-- 实时查看服务状态统计
-- 今日请求量和成功率
-- 请求趋势图（按小时统计）
-- 模型使用分布图
-- Provider 健康状态一览
-
-### 🔑 密钥管理
-- 创建和管理 API 密钥
-- 设置每分钟速率限制
-- 启用/禁用密钥
-- 查看密钥使用统计
-
-### 🌐 服务站管理
-- 添加/编辑/删除 Provider（每个 Provider 拥有唯一 ID）
-- 一键获取中转站实际支持的模型列表（含 owned_by 等元信息）
-- 模型列表增量同步：显示新增/更新/删除统计
-- 并发同步所有渠道模型列表
-- 测试 Provider 可用性
-- 设置 Provider 默认协议（支持 OpenAI/Anthropic/Gemini 等）
-
-### 🔄 增强型模型映射
-- 可视化配置模型映射规则（关键字/正则/前缀/精确匹配/**关键字排除**）
-- 手动包含或排除特定模型（支持 `model_id` 或 `provider_id:model_id` 格式）
-- 排除特定渠道（使用 provider_id）
-- 实时预览规则匹配结果
-- 一键同步：从所有中转站拉取最新模型列表并匹配
-- 自动同步：可配置定时自动同步间隔
-- **协议配置**：为特定模型配置请求协议（自动从 Provider 继承或手动指定）
-
-### 🩺 模型健康检测
-- **主动检测**：按映射批量检测或单模型检测
-- **被动健康记录**：API 调用结果自动记录
-- 查看检测结果和响应延迟
-- 返回完整响应体，便于验证模型真伪（如检测假 GPT-4）
-- 检测结果持久化存储
-- **熔断联动**：检测失败自动触发模型级熔断
-
-### 📜 日志监控
-- 实时日志流（SSE 推送）
-- 按级别/类型/模型/Provider 过滤
-- 查看请求详情和错误信息
-- 熔断事件记录与展示
-
-## 📦 项目结构
-
-```
-ai-router-lite/
-├── main.py                 # FastAPI 主应用入口
-├── config.json             # 配置文件（需要自行编辑）
-├── config.example.json     # 配置模板
-├── requirements.txt        # Python 依赖
-├── setup_venv.bat          # Windows 虚拟环境配置脚本
-├── .gitignore
-├── data/                   # 运行时数据目录（自动生成）
-│   ├── .gitkeep
-│   ├── app.db              # 核心数据库 (Providers, Keys, Mappings)
-│   └── logs.db             # 日志数据库 (Request Logs)
-├── src/
-│   ├── __init__.py
-│   ├── config.py           # 配置管理模块
-│   ├── constants.py        # 统一常量定义模块
-│   ├── db.py               # 数据库连接与初始化
-│   ├── sqlite_repos.py     # SQLite 数据访问层 (Repository)
-│   ├── models.py           # OpenAI 兼容数据模型
-│   ├── protocols.py        # 多协议适配器（OpenAI/Anthropic/Gemini）
-│   ├── provider.py         # Provider 管理和双层熔断逻辑
-│   ├── router.py           # 路由策略模块（支持模型级熔断检查）
-│   ├── proxy.py            # 请求代理（流式/非流式）
-│   ├── api_keys.py         # API 密钥管理模块
-│   ├── logger.py           # 日志记录模块
-│   ├── admin.py            # 管理功能模块
-│   ├── model_mapping.py    # 增强型模型映射模块
-│   ├── model_health.py     # 模型健康检测模块（含熔断集成）
-│   └── provider_models.py  # Provider 模型元信息管理模块
-└── static/                 # 前端静态文件
-    ├── index.html          # 管理面板主页
-    ├── css/
-    │   └── style.css       # 样式文件
-    └── js/
-        ├── api.js          # API 客户端
-        ├── app.js          # 主应用程序
-        ├── dashboard.js    # 仪表板模块
-        ├── api-keys.js     # 密钥管理模块
-        ├── providers.js    # Provider 管理模块
-        ├── model-map.js    # 模型映射模块
-        ├── logs.js         # 日志监控模块
-        ├── modal.js        # 模态框组件
-        └── toast.js        # Toast 通知组件
-```
-
-## 🛠️ 快速开始
+## 🚀 快速开始
 
 ### 1. 环境准备
-
-确保你的电脑安装了 [Python 3.8+](https://www.python.org/)。
+确保你的系统已安装 **Python 3.8+**。
 
 ### 2. 安装依赖
-
-**手动安装**
-
 ```bash
-# 创建虚拟环境
+# 创建并激活虚拟环境
 python -m venv venv
-
-# 激活虚拟环境
-# Windows:
+# Windows
 venv\Scripts\activate
-# Unix/Mac:
+# Unix/Mac
 source venv/bin/activate
 
 # 安装依赖
 pip install -r requirements.txt
 ```
 
-### 3. 配置文件 (`config.json`)
+### 3. 生成加密密钥
+运行脚本生成用于保护数据库敏感信息的密钥。
+```bash
+python scripts/gen_fernet_key.py
+```
+> 📋 将输出的密钥复制下来，下一步会用到。
 
-复制 `config.example.json` 为 `config.json`，然后配置：
-
-```json
+### 4. 创建配置文件
+复制配置模板，并填入上一步生成的密钥。
+```bash
+cp config.example.json config.json
+```
+```jsonc
+// config.json
 {
   "server_port": 8000,
   "server_host": "0.0.0.0",
   "max_retries": 3,
   "request_timeout": 120,
-  "db_encryption_key": "你的加密密钥"
+  // 将密钥粘贴到此处
+  "db_encryption_key": "bXlfc2VjcmV0X2tleV9oZXJlXzMyYnl0ZXM=" 
 }
 ```
+> ⚠️ **请务必妥善保管 `db_encryption_key`**，它是解密数据库中 API Key 的唯一凭证。
 
-> **重要**：`db_encryption_key` 用于加密数据库中的敏感数据（如 Provider API Key）。
-
-### 4. 生成加密密钥
-
-运行以下命令生成 Fernet 加密密钥：
-
-```bash
-python scripts/gen_fernet_key.py
-```
-
-将生成的密钥复制到 `config.json` 的 `db_encryption_key` 字段中。
-
-### 5. 初始化数据库与启动
-
-首次运行前，请初始化数据库：
-
+### 5. 初始化数据库
+首次运行前，执行以下命令创建数据库和表结构。
 ```bash
 python scripts/init_db.py
 ```
 
-> **注意**：Provider 配置通过管理面板添加和管理，不再需要在配置文件中维护。
-
-然后启动服务：
-
+### 6. 启动服务
 ```bash
 python main.py
 ```
+服务启动后，即可通过 `http://127.0.0.1:8000/admin` 访问管理面板。
 
-看到如下提示即启动成功：
+## 🛠️ 使用方法
 
-```
-╔══════════════════════════════════════════════════════════╗
-║                                                          ║
-║    AI-Router-Lite v0.7.0                              ║
-║   轻量级 AI 聚合路由 + 管理面板                          ║
-║                                                          ║
-╚══════════════════════════════════════════════════════════╝
+在支持 OpenAI 协议的客户端（如 NextChat, LobeChat 等）中，将 **API Host** 指向 `http://127.0.0.1:8000`，API Key 填写在管理面板中创建的密钥，即可开始使用。
 
-[CONFIG] 服务地址: http://0.0.0.0:8000
-[CONFIG] 管理面板: http://0.0.0.0:8000/admin
-[CONFIG] 最大重试次数: 3
-[CONFIG] 请求超时: 120s
-[CONFIG] 模型映射: 5 个
-[CONFIG] Provider 数量: 2 个
-  ├─ Site_A (权重: 10, 模型: 25 个)
-  ├─ Site_B (权重: 5, 模型: 18 个)
-[STARTUP] 服务启动完成，等待请求...
-```
-
-### 6. 访问管理面板
-
-打开浏览器访问 `http://127.0.0.1:8000/admin` 即可使用管理面板。
-
-### 7. 连接客户端
-
-打开 Chatbox 或 NextChat：
-
-* **API Host**: `http://127.0.0.1:8000`
-* **API Key**: `any` (随意填写，因为验证逻辑在 Router 内部处理)
-* **Model**: 输入你在映射里定义的名字，例如 `gpt-4`
-
-## 🔌 API 端点
-
-### 多协议 AI 接口
+### API 接口说明
 
 | 端点 | 方法 | 说明 |
-|------|------|------|
-| `/v1/chat/completions` | POST | OpenAI Chat Completions API |
-| `/v1/responses` | POST | OpenAI Responses API (Beta) |
-| `/v1/messages` | POST | Anthropic Messages API |
-| `/v1beta/models/{model}:generateContent` | POST | Gemini API (非流式) |
-| `/v1beta/models/{model}:streamGenerateContent` | POST | Gemini API (流式) |
-| `/v1/models` | GET | 获取可用模型列表 |
+| :--- | :--- | :--- |
+| `/v1/models` | GET | 获取可用模型列表（返回管理面板中配置的统一模型名） |
+| `/v1/chat/completions` | POST | OpenAI Chat Completions 协议 |
+| `/v1/responses` | POST | OpenAI Responses 协议 (Beta) |
+| `/v1/messages` | POST | Anthropic Messages 协议 |
+| `/v1beta/models/{model}:generateContent` | POST | Gemini 协议 |
 
-### 系统接口
+> 💡 **提示**：对话请求的端点取决于您在管理面板「模型映射」中为统一模型配置的协议类型。系统会根据配置自动将请求透传至对应的上游端点。
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/health` | GET | 健康检查 |
-| `/stats` | GET | 获取详细统计信息 |
+## 🔧 技术栈
 
-### API 密钥管理
+- **后端**: FastAPI, Uvicorn
+- **HTTP 客户端**: HTTPX
+- **数据库**: SQLite
+- **加密**: Cryptography (Fernet)
+- **前端**: Vanilla JS, HTML, CSS
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/keys` | GET/POST | API 密钥管理 |
-| `/api/keys/{id}` | GET/PUT/DELETE | 单个密钥操作 |
+## 🗺️ 路线图
 
-### 日志管理
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/logs` | GET | 获取日志列表 |
-| `/api/logs/stream` | GET | 日志实时流 (SSE) |
-| `/api/logs/stats` | GET | 日志统计 |
-| `/api/logs/hourly` | GET | 小时级统计数据 |
-
-### Provider 管理
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/providers` | GET/POST | Provider 管理 |
-| `/api/providers/{provider_id}` | GET/PUT/DELETE | 单个 Provider 操作（通过 ID） |
-| `/api/providers/{provider_id}/models` | GET | 获取中转站模型列表（自动保存到 provider_models.json） |
-| `/api/providers/all-models` | GET | 获取所有中转站的模型列表（含 owned_by 元信息，key 为 provider_id） |
-| `/api/providers/sync-all-models` | POST | 并发同步所有中转站的模型列表 |
-
-### 增强型模型映射
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/model-mappings` | GET/POST | 模型映射 CRUD |
-| `/api/model-mappings/{name}` | GET/PUT/DELETE | 单个映射操作 |
-| `/api/model-mappings/sync` | POST | 手动触发同步（可指定映射名） |
-| `/api/model-mappings/preview` | POST | 预览规则匹配结果（不保存） |
-| `/api/model-mappings/sync-config` | GET/PUT | 自动同步配置 |
-| `/api/model-mappings/{name}/model-settings` | GET/PUT | 模型协议配置 |
-
-### 协议配置
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/protocols` | GET | 获取所有可用的协议类型 |
-
-### 模型健康检测
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/model-health/results` | GET | 获取所有检测结果 |
-| `/api/model-health/results/{name}` | GET | 获取指定映射的检测结果 |
-| `/api/model-health/test/{name}` | POST | 批量检测映射下的所有模型 |
-| `/api/model-health/test-single` | POST | 检测单个模型 |
-
-### 系统管理
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/admin/reset/{provider_id}` | POST | 重置指定 Provider 状态（通过 ID） |
-| `/api/admin/reset-all` | POST | 重置所有 Provider 状态 |
-| `/api/admin/system-stats` | GET | 系统统计信息 |
-
-## 🧩 核心逻辑说明
-
-### 增强型模型映射
-
-映射规则支持五种匹配方式：
-
-**包含规则（取并集）：**
-
-| 规则类型 | 说明 | 示例 |
-|:---------|:-----|:-----|
-| **keyword** | 关键字包含 | `gpt-4` 匹配所有包含 "gpt-4" 的模型 |
-| **prefix** | 前缀匹配 | `claude-3` 匹配所有以 "claude-3" 开头的模型 |
-| **regex** | 正则表达式 | `gpt-4(-\d+)?$` 精确匹配 gpt-4 系列 |
-| **exact** | 精确匹配 | 仅匹配完全相同的模型名 |
-
-**排除规则（从匹配结果中移除）：**
-
-| 规则类型 | 说明 | 示例 |
-|:---------|:-----|:-----|
-| **keyword_exclude** | 关键字排除 | `preview` 排除所有包含 "preview" 的模型 |
-
-**规则执行顺序**：
-1. 先应用所有包含规则（keyword/prefix/regex/exact），取并集
-2. 再应用所有排除规则（keyword_exclude），从结果中移除
-
-**手动包含/排除**：优先级最高，可覆盖规则匹配结果
-- 格式：`model_id` 或 `provider_id:model_id`
-- 排除规则优先于包含规则
-- 手动包含的模型不受「排除渠道」限制（因为是用户明确指定的）
-
-**排除渠道**：可以排除特定 Provider 的所有模型参与映射（使用 provider_id）
-
-### 协议配置机制
-
-**协议继承优先级（从高到低）：**
-1. 模型级协议配置（`model_settings` 中指定）
-2. Provider 默认协议（`default_protocol` 字段）
-3. 如果都未指定，该模型视为不可用
-
-**同步时的协议继承**：
-- 新模型自动从 Provider 继承 `default_protocol`
-- 已手动设置协议的模型不会被覆盖
-- 不再属于映射的模型配置会被自动清理
-
-### 路由策略（双层熔断检查）
-
-当请求 `gpt-4` 进来时：
-
-1. 程序从增强型模型映射中解析 `gpt-4` 对应的所有实际模型（保留 provider_id 关联）。
-2. 根据请求的协议类型过滤候选模型（只返回协议匹配的组合）。
-3. 程序遍历 `providers`，寻找支持上述模型的**可用**渠道（渠道级检查）。
-4. 额外检查该 Provider + Model 组合是否可用（模型级检查）。
-5. **首次请求**：根据 `weight` (权重) 进行加权随机选择。
-6. **失败重试**：按权重顺序依次尝试其余候选，直到成功或耗尽。
-7. 如果请求失败，程序根据错误类型决定熔断级别：
-   - **404 模型不存在**：仅熔断该 Provider 的该模型，不影响其他模型。
-   - **401/403 鉴权失败**：熔断整个 Provider。
-   - **SSL EOF 错误**：不重试、不冷却，直接返回错误（系统级问题）。
-   - 其他错误：根据错误类型设置冷却时间。
-
-### 错误处理机制
-
-| 错误码 | 处理方式 | 冷却时间 | 熔断级别 |
-|:-------|:---------|:---------|:---------|
-| **401/403** | 鉴权失败/余额不足 | 🚫 **永久停用** | 渠道级 |
-| **404** | 模型不存在 | 🚫 **永久停用** | 模型级 |
-| **429** | 速率限制 | ⏳ **180 秒** | 模型级 |
-| **500/502/5xx** | 服务端错误 | ⏳ **300 秒** | 模型级 |
-| **Timeout** | 连接超时 | ⏳ **120 秒** | 渠道级 |
-| **Network** | 网络错误 | ⏳ **20 秒** | 渠道级 |
-| **SSL EOF** | SSL 连接中断 | ❌ **不冷却** | 直接返回错误 |
-| **健康检测失败** | 主动检测失败 | ⏳ **60 秒** | 模型级 |
-
-### 持久化存储策略 (SQLite)
-
-系统采用 SQLite (WAL 模式) 作为底层存储，确保数据一致性与高性能：
-
-| 数据库 | 用途 | 说明 |
-|:-------|:-----|:-----|
-| **app.db** | 核心配置 | 存储 Provider、API Key、模型映射、健康状态等低频读写数据。 |
-| **logs.db** | 日志数据 | 存储高频写入的请求日志。支持按时间、模型、Provider 快速检索。 |
-
-> **注意**：所有敏感数据（如 Provider API Key）均在数据库中加密存储。
-
-## 📚 依赖库说明
-
-| 库名 | 版本要求 | 作用说明 |
-|------|----------|----------|
-| **fastapi** | >=0.104.0 | 现代高性能 Web 框架，用于构建 RESTful API 服务，提供自动 API 文档生成、请求验证等功能 |
-| **uvicorn** | >=0.24.0 | ASGI 服务器，用于运行 FastAPI 应用，支持异步请求处理和高并发 |
-| **httpx** | >=0.25.0 | 异步 HTTP 客户端，用于向上游 Provider 转发请求，支持流式响应和连接池管理 |
-| **pydantic** | >=2.5.0 | 数据验证和序列化库，用于定义和验证 OpenAI 兼容的请求/响应数据结构 |
-| **pydantic-settings** | >=2.1.0 | Pydantic 配置管理扩展，用于加载和验证 config.json 配置文件 |
-| **filelock** | >=3.13.0 | 文件锁库，用于并发安全的数据持久化操作 |
-
-## 📅 开发计划 (Roadmap)
-
-- [x] **v0.1 (MVP)**: 基础的 JSON 配置读取，单次请求转发，简单的错误捕获。
-- [x] **v0.2 (Stability)**: 引入流式响应 (Streaming) 转发，实现真正的打字机效果。
-- [x] **v0.3 (Reliability)**: 完善重试机制 (Retry Loop) 和错误分级冷却系统。
-- [x] **v0.4 (Monitor)**: Web 管理面板，可视化管理 Provider、模型映射、API 密钥和日志。
-- [x] **v0.5 (Intelligence)**: 增强型模型映射（规则匹配、自动同步）、模型健康检测、双层熔断机制、Provider 模型元信息独立存储。
-- [x] **v0.6 (Refactor)**: Provider ID 体系重构，支持修改显示名称；并发同步所有渠道模型；优化熔断级别分类。
-- [x] **v0.7 (Protocol)**: 多协议适配支持（OpenAI, OpenAI-Response, Anthropic, Gemini），双层协议配置机制，统一持久化存储管理，关键字排除规则，被动健康记录。
-- [ ] **v0.8 (Enhancement)**: Token 用量统计面板，成本追踪，模型别名支持。
+- [x] **v0.1-v0.4**: 实现核心转发、流式响应、熔断及基础 Web UI。
+- [x] **v0.5 (Intelligence)**: 增强型模型映射、健康检测、双层熔断。
+- [x] **v0.6 (Refactor)**: 引入 Provider ID 体系，支持并发同步。
+- [x] **v0.7 (Protocol & Storage)**:
+  - 多协议**路由**支持（OpenAI, Anthropic, Gemini 等）
+  - 双层协议配置机制
+  - **SQLite 持久化存储**（替代 JSON 文件）
+  - **Fernet 加密**保护敏感数据
+  - 关键字排除规则
+  - 被动健康记录
+- [ ] **v0.8 (Protocol Conversion)**: 引入协议转换层，实现将多种 API 格式（如 Anthropic, Gemini）统一为 OpenAI Chat Completions 格式输出。
 - [ ] **v1.0**: 完整稳定版本，包含负载均衡优化、完善的文档和测试覆盖。
 
-## ⚠️ 免责声明
+## 📄 许可
 
-本项目仅供个人学习和技术研究使用，请勿用于商业用途。请遵守各 AI 模型提供商的服务条款。
-
----
-
-**Enjoy your hassle-free AI experience! 🎉**
+本项目采用 [MIT License](https://github.com/Aflydream/AI-Router-Lite/blob/main/LICENSE) 授权。
