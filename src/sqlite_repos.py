@@ -325,10 +325,49 @@ class ApiKeyRepo:
 
 
 class LogRepo:
+    _last_cleanup_check_date: Optional[str] = None
+
     def __init__(self):
         self._paths = get_db_paths()
 
+    def _perform_log_cleanup_if_needed(self) -> None:
+        """
+        Checks if log cleanup is needed and performs it.
+        This is triggered once per day on the first log write.
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+        if today == LogRepo._last_cleanup_check_date:
+            return
+
+        LogRepo._last_cleanup_check_date = today
+        
+        retention_days = 15
+
+        with get_db_cursor(self._paths.logs_db_path) as cur:
+            # Get all distinct log dates
+            cur.execute(
+                """
+                SELECT DISTINCT strftime('%Y-%m-%d', timestamp_ms / 1000, 'unixepoch', 'localtime') as day
+                FROM request_logs
+                ORDER BY day ASC
+                """
+            )
+            days = [row[0] for row in cur.fetchall()]
+
+            if len(days) >= retention_days:
+                # Delete logs from the oldest day
+                oldest_day = days[0]
+                cur.execute(
+                    """
+                    DELETE FROM request_logs
+                    WHERE strftime('%Y-%m-%d', timestamp_ms / 1000, 'unixepoch', 'localtime') = ?
+                    """,
+                    (oldest_day,),
+                )
+                print(f"[LOG-CLEANUP] Deleted logs from {oldest_day} as retention period of {retention_days} days was met.")
+
     def insert(self, entry: dict[str, Any]) -> None:
+        self._perform_log_cleanup_if_needed()
         with get_db_cursor(self._paths.logs_db_path) as cur:
             cur.execute(
                 """
