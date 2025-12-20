@@ -163,7 +163,7 @@ const ModelMap = {
             const totalCount = stats.total;
             const providerCount = Object.keys(mapping.resolved_models || {}).length;
             
-            const lastSync = mapping.last_sync ? new Date(mapping.last_sync).toLocaleString() : '未同步';
+            const lastSync = mapping.last_sync ? App.formatDateTime(new Date(mapping.last_sync)) : '未同步';
             const excludedProviders = mapping.excluded_providers || [];
             
             // 将 excluded_providers (provider_id) 转换为显示名称
@@ -289,7 +289,7 @@ const ModelMap = {
         if (!configContainer) return;
         
         const { auto_sync_enabled, auto_sync_interval_hours, last_full_sync } = this.syncConfig;
-        const lastSyncText = last_full_sync ? new Date(last_full_sync).toLocaleString() : '从未';
+        const lastSyncText = last_full_sync ? App.formatDateTime(new Date(last_full_sync)) : '从未';
         
         configContainer.innerHTML = `
             <div class="sync-config-bar">

@@ -140,13 +140,18 @@ async def fetch_remote_models(base_url: str, api_key: str, provider_id: str, pro
 async def sync_all_provider_models_logic() -> dict:
     """Shared logic for syncing all providers (used by task and API)"""
     providers = admin_manager.list_providers()
-    synced_count = 0
+    
+    from src.sqlite_repos import ProviderRepo
+    provider_repo = ProviderRepo()
 
     async def process_provider(p):
         pid = p["id"]
         pname = p["name"]
         api_key = p.get("api_key")
         base_url = p.get("base_url")
+
+        if not p.get("allow_model_update", True):
+            return False
         
         if not api_key or not base_url:
             return False
@@ -155,6 +160,7 @@ async def sync_all_provider_models_logic() -> dict:
         
         if remote_models is not None:
             provider_models_manager.update_models_from_remote(pid, remote_models, pname)
+            provider_repo.update_models_updated_at(pid)
             return True
         return False
 
@@ -894,42 +900,7 @@ async def create_model_mapping(request: CreateModelMappingRequest):
     return {"status": "success", "message": message}
 
 
-@app.get("/api/model-mappings/{unified_name}")
-async def get_model_mapping(unified_name: str):
-    mapping = model_mapping_manager.get_mapping(unified_name)
-    if not mapping:
-        raise HTTPException(status_code=404, detail="映射不存在")
-    return mapping.to_dict()
-
-
-@app.put("/api/model-mappings/{unified_name}")
-async def update_model_mapping(unified_name: str, request: UpdateModelMappingRequest):
-    if request.new_unified_name and request.new_unified_name != unified_name:
-        success, message = model_mapping_manager.rename_mapping(unified_name, request.new_unified_name)
-        if not success:
-            raise HTTPException(status_code=400, detail=message)
-        unified_name = request.new_unified_name
-
-    success, message = model_mapping_manager.update_mapping(
-        unified_name=unified_name,
-        description=request.description,
-        rules=request.rules,
-        manual_includes=request.manual_includes,
-        excluded_providers=request.excluded_providers
-    )
-    if not success:
-        raise HTTPException(status_code=400, detail=message)
-    return {"status": "success", "message": message, "unified_name": unified_name}
-
-
-@app.delete("/api/model-mappings/{unified_name}")
-async def delete_model_mapping(unified_name: str):
-    success, message = model_mapping_manager.delete_mapping(unified_name)
-    if not success:
-        raise HTTPException(status_code=404, detail=message)
-    return {"status": "success", "message": message}
-
-
+# 具体路径路由必须在通用路径参数路由之前定义
 @app.post("/api/model-mappings/preview")
 async def preview_model_mapping(request: PreviewResolveRequest):
     provider_models_map = provider_models_manager.get_all_provider_models_map()
@@ -993,6 +964,43 @@ async def update_sync_config(request: SyncConfigRequest):
     )
     if not success:
         raise HTTPException(status_code=400, detail=message)
+    return {"status": "success", "message": message}
+
+
+# 通用路径参数路由必须在具体路径路由之后定义
+@app.get("/api/model-mappings/{unified_name}")
+async def get_model_mapping(unified_name: str):
+    mapping = model_mapping_manager.get_mapping(unified_name)
+    if not mapping:
+        raise HTTPException(status_code=404, detail="映射不存在")
+    return mapping.to_dict()
+
+
+@app.put("/api/model-mappings/{unified_name}")
+async def update_model_mapping(unified_name: str, request: UpdateModelMappingRequest):
+    if request.new_unified_name and request.new_unified_name != unified_name:
+        success, message = model_mapping_manager.rename_mapping(unified_name, request.new_unified_name)
+        if not success:
+            raise HTTPException(status_code=400, detail=message)
+        unified_name = request.new_unified_name
+
+    success, message = model_mapping_manager.update_mapping(
+        unified_name=unified_name,
+        description=request.description,
+        rules=request.rules,
+        manual_includes=request.manual_includes,
+        excluded_providers=request.excluded_providers
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    return {"status": "success", "message": message, "unified_name": unified_name}
+
+
+@app.delete("/api/model-mappings/{unified_name}")
+async def delete_model_mapping(unified_name: str):
+    success, message = model_mapping_manager.delete_mapping(unified_name)
+    if not success:
+        raise HTTPException(status_code=404, detail=message)
     return {"status": "success", "message": message}
 
 

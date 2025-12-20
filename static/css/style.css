@@ -642,11 +642,30 @@ body {
     margin-top: 16px;
 }
 
+.provider-models-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.provider-models-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
 .provider-models h4 {
     font-size: 0.8125rem;
     color: var(--text-secondary);
     font-weight: 500;
-    margin-bottom: 8px;
+    margin-bottom: 0;
+}
+
+.last-updated {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
 }
 
 .model-tags {
