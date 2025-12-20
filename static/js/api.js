@@ -142,7 +142,7 @@ const API = {
      * @param {string} providerId - Provider ID (UUID) 或 name（兼容）
      */
     async fetchProviderModels(providerId) {
-        return this.request('GET', `/api/providers/${encodeURIComponent(providerId)}/models`);
+        return this.request('POST', `/api/providers/${encodeURIComponent(providerId)}/sync-models`);
     },
 
     async fetchAllProviderModels() {

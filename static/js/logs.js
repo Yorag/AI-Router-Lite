@@ -170,28 +170,24 @@ const Logs = {
                 <div class="log-content-row">
                     <span class="log-provider" title="服务站">${this.escapeHtml(log.provider || '?')}</span>
                     ${log.actual_model ? `<span class="log-divider">:</span><span class="log-actual-model" title="模型">${this.escapeHtml(log.actual_model)}</span>` : ''}
-                    <span class="log-error-msg">${safeMessageText}</span>
+                    <span class="log-msg">${safeMessageText}</span>
                 </div>
             `;
         } else if (log.type === 'sync') {
-            // 同步日志：服务站更新显示provider，模型映射同步显示统一ID
-            const syncLabel = log.path === '/provider-models' && log.provider
+            // 统一处理同步日志
+            const providerLabel = log.provider
                 ? `<span class="log-provider" title="服务站">${this.escapeHtml(log.provider)}</span>`
-                : log.path === '/model-mapping' && log.model
-                    ? `<span class="log-model" title="统一模型">${this.escapeHtml(log.model)}</span>`
-                    : '';
+                : '';
             
-            // 尝试解析 message 中的 provider name (e.g. "Fengye 新增 ...")
-            // 如果 message 以 provider name 开头，我们将其高亮
-            let messageHtml = this.escapeHtml(log.message || '');
-            if (log.path === '/provider-models' && log.provider && (log.message || '').startsWith(log.provider)) {
-                 const rest = this.escapeHtml((log.message || '').slice(log.provider.length));
-                 messageHtml = `<span class="log-provider">${this.escapeHtml(log.provider)}</span>${rest}`;
-            }
+            const modelLabel = log.model
+                ? `<span class="log-model" title="统一模型">${this.escapeHtml(log.model)}</span>`
+                : '';
+
+            const messageHtml = this.escapeHtml(log.message || '');
 
             contentHtml = `
                 <div class="log-content-row">
-                    ${syncLabel}
+                    ${providerLabel || modelLabel}
                     <span class="log-msg">${messageHtml}</span>
                 </div>
             `;

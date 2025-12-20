@@ -54,7 +54,8 @@ class ProviderRepo:
             cur.execute(
                 """
                 SELECT provider_id, name, base_url, api_key_enc, weight, timeout_ms,
-                       enabled, allow_health_check, allow_model_update, default_protocol
+                       enabled, allow_health_check, allow_model_update, default_protocol,
+                       models_updated_at_ms
                 FROM providers
                 ORDER BY name
                 """
@@ -79,6 +80,7 @@ class ProviderRepo:
                     "allow_health_check": bool(r["allow_health_check"]),
                     "allow_model_update": bool(r["allow_model_update"]),
                     "default_protocol": r["default_protocol"],
+                    "models_updated_at": r["models_updated_at_ms"],
                 }
             )
         return providers
@@ -89,7 +91,8 @@ class ProviderRepo:
             cur.execute(
                 """
                 SELECT provider_id, name, base_url, api_key_enc, weight, timeout_ms,
-                       enabled, allow_health_check, allow_model_update, default_protocol
+                       enabled, allow_health_check, allow_model_update, default_protocol,
+                       models_updated_at_ms
                 FROM providers
                 WHERE provider_id = ?
                 """,
@@ -114,6 +117,7 @@ class ProviderRepo:
             "allow_health_check": bool(r["allow_health_check"]),
             "allow_model_update": bool(r["allow_model_update"]),
             "default_protocol": r["default_protocol"],
+            "models_updated_at": r["models_updated_at_ms"],
         }
 
     def get_id_name_map(self) -> dict[str, str]:
@@ -160,8 +164,8 @@ class ProviderRepo:
                   provider_id, name, base_url, api_key_enc,
                   weight, timeout_ms, enabled,
                   allow_health_check, allow_model_update,
-                  default_protocol, updated_at_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  default_protocol, updated_at_ms, models_updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                 ON CONFLICT(provider_id) DO UPDATE SET
                   name=excluded.name,
                   base_url=excluded.base_url,
@@ -194,6 +198,13 @@ class ProviderRepo:
             cur.execute("DELETE FROM providers WHERE provider_id = ?", (provider_id,))
             deleted = cur.rowcount > 0
         return deleted
+
+    def update_models_updated_at(self, provider_id: str) -> None:
+        with get_db_cursor(self._paths.app_db_path) as cur:
+            cur.execute(
+                "UPDATE providers SET models_updated_at_ms = ? WHERE provider_id = ?",
+                (_now_ms(), provider_id),
+            )
 
 
 class ApiKeyRepo:
@@ -396,8 +407,12 @@ class LogRepo:
             rows = cur.fetchall()
             
             # Convert to dicts matching RequestLog structure
+            provider_repo = ProviderRepo()
+            id_name_map = provider_repo.get_id_name_map()
+            
             logs = []
             for r in rows:
+                pid = r["provider_id"]
                 logs.append({
                     "id": r["id"],
                     "timestamp": r["timestamp_ms"] / 1000.0,
@@ -412,18 +427,13 @@ class LogRepo:
                     "error": r["error"],
                     "client_ip": r["client_ip"],
                     "api_key_id": r["api_key_id"],
-                    "provider_id": r["provider_id"],
+                    "provider_id": pid,
                     "model": r["unified_model"],
                     "actual_model": r["actual_model"],
                     "request_tokens": r["prompt_tokens"],
                     "response_tokens": r["completion_tokens"],
                     "total_tokens": r["total_tokens"],
-                    # "provider": ??? We only stored ID. Frontend expects name?
-                    # We can fetch name map or return ID.
-                    # Ideally we join with app.db providers, but that's a different DB file.
-                    # We can't join across files easily in standard sqlite unless attached.
-                    # So we return ID as provider?
-                    "provider": r["provider_id"]
+                    "provider": id_name_map.get(pid, pid) if pid else None
                 })
             return logs
 

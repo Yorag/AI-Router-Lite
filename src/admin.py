@@ -34,12 +34,30 @@ class AdminManager:
     def get_provider_protocols(self) -> dict[str, Optional[str]]:
         return self._providers.get_protocols()
 
+    def _handle_manual_models(self, provider_id: str, provider_name: Optional[str], manual_models: Optional[list[str]]) -> None:
+        """处理手动输入的模型列表同步"""
+        if manual_models is not None:
+            provider_models_manager.update_models_from_manual_input(
+                provider_id=provider_id,
+                model_ids=manual_models,
+                provider_name=provider_name
+            )
+
     def add_provider(self, provider_data: dict) -> tuple[bool, str, Optional[str]]:
         try:
             provider_id = provider_data.get("id")
             if not provider_id:
                 return False, "Provider 缺少 id（SQLite 版本要求前端生成或显式传入）", None
+
+            # 提取 manual_models，但不立即处理
+            manual_models = provider_data.pop("manual_models", None)
+            
+            # 1. 先创建 Provider (满足外键约束)
             self._providers.upsert(provider_data)
+            
+            # 2. 再处理模型同步
+            self._handle_manual_models(provider_id, provider_data.get("name"), manual_models)
+
             return True, "添加成功", provider_id
         except Exception as e:
             return False, str(e), None
@@ -47,8 +65,17 @@ class AdminManager:
     def update_provider(self, provider_id: str, provider_data: dict) -> tuple[bool, str]:
         provider_data = dict(provider_data)
         provider_data["id"] = provider_id
+
+        # 从数据中弹出 manual_models
+        manual_models = provider_data.pop("manual_models", None)
+
         try:
+            # 1. 更新服务站自身的信息
             self._providers.upsert(provider_data)
+
+            # 2. 处理模型同步
+            self._handle_manual_models(provider_id, provider_data.get("name"), manual_models)
+
             return True, "更新成功"
         except Exception as e:
             return False, str(e)

@@ -222,7 +222,10 @@ const Providers = {
                 </div>
                 
                 <div class="provider-models">
-                    <h4>支持的模型 (${models.length})</h4>
+                    <div class="provider-models-header">
+                        <h4>支持的模型 (${models.length})</h4>
+                        ${provider.models_updated_at ? `<span class="last-updated" title="模型列表上次更新时间">${App.formatRelativeTime(provider.models_updated_at)}</span>` : ''}
+                    </div>
                     <div class="model-tags">
                         ${modelTagsHtml}
                     </div>
@@ -511,14 +514,6 @@ const Providers = {
         const allowModelUpdate = provider.allow_model_update !== false; // 默认为 true
         
         // 获取当前模型列表（如果有），用于手动编辑填充
-        let manualModelsText = '';
-        if (this.modelDetails[providerId]) {
-            const models = Object.keys(this.modelDetails[providerId]);
-            manualModelsText = models.join('\n');
-        } else if (provider.supported_models && provider.supported_models.length > 0) {
-            // 兼容性：如果 modelDetails 没有，尝试从 supported_models 获取
-            manualModelsText = provider.supported_models.join('\n');
-        }
 
         const content = `
             <form onsubmit="Providers.update(event, '${providerId}')">
@@ -595,7 +590,9 @@ const Providers = {
         Modal.show('编辑服务站', content);
         
         // 初始化编辑模式的标签
-        const existingModels = manualModelsText ? manualModelsText.split('\n').filter(m => m.trim()) : [];
+        // 当 `allow_model_update` 为 false 时，`supported_models` 包含手动输入的模型列表
+        // 直接使用该列表，并过滤掉可能的 null/undefined 值
+        const existingModels = provider.supported_models ? provider.supported_models.filter(m => m) : [];
         setTimeout(() => {
             this.initModelTags('edit', existingModels);
         }, 50);
@@ -715,21 +712,13 @@ const Providers = {
             const models = result.models || [];
             const syncStats = result.sync_stats || {};
             
-            if (models.length === 0) {
-                Toast.warning('未获取到任何模型');
-                return;
-            }
-            
             // 存储模型详细信息，使用 providerId 作为 key
             this.modelDetails[providerId] = {};
             models.forEach(m => {
                 this.modelDetails[providerId][m.id] = m;
             });
             
-            // 模型已自动保存到 provider_models.json，无需再调用 updateProvider
-            const statsMsg = syncStats.added !== undefined
-                ? `(新增: ${syncStats.added}, 更新: ${syncStats.updated}, 移除: ${syncStats.removed})`
-                : '';
+            const statsMsg = `(新增: ${syncStats.added}, 更新: ${syncStats.updated}, 移除: ${syncStats.removed})`;
             Toast.success(`已同步 ${models.length} 个模型 ${statsMsg}`);
             await this.load();
         } catch (error) {

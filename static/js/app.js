@@ -96,8 +96,12 @@ const App = {
     formatRelativeTime(timestamp) {
         if (!timestamp) return '-';
         
+        // 兼容秒和毫秒时间戳
+        const isMilliseconds = timestamp > 1000000000000;
+        const tsInSeconds = isMilliseconds ? timestamp / 1000 : timestamp;
+        
         const now = Date.now() / 1000;
-        const diff = now - timestamp;
+        const diff = now - tsInSeconds;
         
         if (diff < TIME_CONSTANTS.SECONDS_PER_MINUTE) return '刚刚';
         if (diff < TIME_CONSTANTS.SECONDS_PER_HOUR) return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_MINUTE)} 分钟前`;

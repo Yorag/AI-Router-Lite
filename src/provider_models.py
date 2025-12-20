@@ -226,26 +226,28 @@ class ProviderModelsManager:
             return
         
         parts = []
+        max_models_to_show = 5
         if added_models:
             sorted_added = sorted(added_models)
-            models_preview = ", ".join(sorted_added[:5])
-            suffix = f"等{len(added_models)}个" if len(added_models) > 5 else ""
-            parts.append(f"新增 {len(added_models)} 个模型（{models_preview}{suffix}）")
+            models_preview = ", ".join(sorted_added[:max_models_to_show])
+            suffix = f" 等" if len(added_models) > max_models_to_show else ""
+            parts.append(f"新增 {len(added_models)} 个 ({models_preview}{suffix})")
         
         if removed_models:
             sorted_removed = sorted(removed_models)
-            models_preview = ", ".join(sorted_removed[:5])
-            suffix = f"等{len(removed_models)}个" if len(removed_models) > 5 else ""
-            parts.append(f"移除 {len(removed_models)} 个模型（{models_preview}{suffix}）")
+            models_preview = ", ".join(sorted_removed[:max_models_to_show])
+            suffix = f" 等" if len(removed_models) > max_models_to_show else ""
+            parts.append(f"移除 {len(removed_models)} 个 ({models_preview}{suffix})")
         
-        log_message = f"{display_name} {', '.join(parts)}"
+        log_message = f"{', '.join(parts)}"
         print(f"[PROVIDER-MODELS] [{display_name}] {log_message}")
         log_manager.log(
             level=LogLevel.INFO,
             log_type="sync",
             method="SYNC",
-            path="/provider-models",
+            path="/providers/sync",
             provider=display_name,
+            provider_id=provider_id,
             message=log_message
         )
 

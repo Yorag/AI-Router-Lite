@@ -82,7 +82,7 @@ def print_config_summary():
         print(f"  ├─ {p['name']} (ID: {p['id'][:8]}..., 权重: {p['weight']}, 模型: {model_count} 个)")
 
 
-async def fetch_remote_models(base_url: str, api_key: str) -> list[dict]:
+async def fetch_remote_models(base_url: str, api_key: str, provider_id: str, provider_name: str) -> Optional[list[dict]]:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
@@ -100,45 +100,70 @@ async def fetch_remote_models(base_url: str, api_key: str) -> list[dict]:
                         }
                         for m in data["data"] if m.get("id")
                     ]
+                
+                log_manager.log(
+                    level=LogLevel.WARNING,
+                    log_type="sync",
+                    method="SYNC",
+                    path="/providers/sync",
+                    provider=provider_name,
+                    provider_id=provider_id,
+                    message="同步失败: 响应格式不正确",
+                    error=response.text[:500]
+                )
+                return None
+            else:
+                log_manager.log(
+                    level=LogLevel.WARNING,
+                    log_type="sync",
+                    method="SYNC",
+                    path="/providers/sync",
+                    provider=provider_name,
+                    provider_id=provider_id,
+                    message=f"同步失败: HTTP {response.status_code}",
+                    error=response.text[:500]
+                )
+                return None
     except Exception as e:
-        print(f"[FETCH] Error: {e}")
-    return []
+        log_manager.log(
+            level=LogLevel.WARNING,
+            log_type="sync",
+            method="SYNC",
+            path="/providers/sync",
+            provider=provider_name,
+            provider_id=provider_id,
+            message="同步失败: 网络错误",
+            error=str(e)
+        )
+        return None
 
 async def sync_all_provider_models_logic() -> dict:
     """Shared logic for syncing all providers (used by task and API)"""
     providers = admin_manager.list_providers()
-    provider_models_flat: dict[str, list[str]] = {}
     synced_count = 0
-    total_models = 0
-    
-    # Use asyncio.gather for concurrency
+
     async def process_provider(p):
-        if not p.get("enabled"):
-            return None
-            
         pid = p["id"]
         pname = p["name"]
         api_key = p.get("api_key")
         base_url = p.get("base_url")
         
         if not api_key or not base_url:
-            return None
+            return False
 
-        remote_models = await fetch_remote_models(base_url, api_key)
+        remote_models = await fetch_remote_models(base_url, api_key, pid, pname)
         
-        if remote_models:
+        if remote_models is not None:
             provider_models_manager.update_models_from_remote(pid, remote_models, pname)
-            return pid, [m["id"] for m in remote_models]
-        return None
+            return True
+        return False
 
     results = await asyncio.gather(*[process_provider(p) for p in providers])
     
-    for res in results:
-        if res:
-            pid, models = res
-            provider_models_flat[pid] = models
-            synced_count += 1
-            total_models += len(models)
+    synced_count = sum(1 for res in results if res)
+
+    provider_models_flat = provider_models_manager.get_all_provider_models_map()
+    total_models = sum(len(models) for models in provider_models_flat.values())
 
     # Sync mappings
     provider_id_name_map = admin_manager.get_provider_id_name_map()
@@ -729,9 +754,10 @@ async def get_all_provider_models():
     
     response_data = {}
     for pid, p in all_data.items():
-        p_dict = p.to_dict()
-        p_dict["provider_name"] = provider_name_map.get(pid, pid)
-        response_data[pid] = p_dict
+        response_data[pid] = {
+            "provider_name": provider_name_map.get(pid, pid),
+            "models": list(p.models.keys())
+        }
         
     return {"provider_models": response_data}
 
@@ -741,6 +767,53 @@ async def sync_all_models():
     """手动触发全量同步"""
     result = await sync_all_provider_models_logic()
     return result
+
+
+@app.post("/api/providers/{provider_id}/sync-models")
+async def sync_single_provider_models(provider_id: str):
+    provider = admin_manager.get_provider_by_id(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    if not provider.get("allow_model_update", True):
+        raise HTTPException(status_code=400, detail="该渠道已禁用模型更新")
+
+    pname = provider["name"]
+    api_key = provider.get("api_key")
+    base_url = provider.get("base_url")
+
+    if not api_key or not base_url:
+        raise HTTPException(status_code=400, detail="Provider is not configured with API key or base URL")
+
+    remote_models = await fetch_remote_models(base_url, api_key, provider_id, pname)
+
+    if remote_models is not None:
+        added, updated, removed, _, _ = provider_models_manager.update_models_from_remote(
+            provider_id, remote_models, pname
+        )
+        
+        # Update the timestamp
+        from src.sqlite_repos import ProviderRepo
+        ProviderRepo().update_models_updated_at(provider_id)
+        
+        updated_provider_models_info = provider_models_manager.get_provider(provider_id)
+        models_list = []
+        if updated_provider_models_info:
+            for m_info in updated_provider_models_info.models.values():
+                model_dict = m_info.to_dict()
+                model_dict['id'] = m_info.model_id
+                models_list.append(model_dict)
+
+        return {
+            "models": models_list,
+            "sync_stats": {
+                "added": added,
+                "updated": updated,
+                "removed": removed,
+            }
+        }
+    else:
+        raise HTTPException(status_code=500, detail="从远程服务站获取模型列表失败，请检查日志")
 
 
 @app.get("/api/providers/runtime-states")

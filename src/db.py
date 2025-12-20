@@ -111,7 +111,8 @@ def init_schema_app(conn: sqlite3.Connection) -> None:
           allow_health_check INTEGER NOT NULL DEFAULT 1,
           allow_model_update INTEGER NOT NULL DEFAULT 1,
           default_protocol TEXT,
-          updated_at_ms INTEGER NOT NULL
+          updated_at_ms INTEGER NOT NULL,
+          models_updated_at_ms INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS provider_models (

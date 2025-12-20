@@ -1426,7 +1426,6 @@ const ModelMap = {
                     this.mappings[name].order_index = idx;
                 }
             });
-            Toast.success('排序已保存');
         } catch (error) {
             Toast.error('保存排序失败: ' + error.message);
             // 失败时重新渲染恢复原顺序
