@@ -101,5 +101,18 @@ const Utils = {
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
         if (num >= 1000) return (num / 1000).toFixed(1) + 'k';
         return num.toString();
+    },
+
+    /**
+     * 生成协议标签的 HTML
+     * @param {string} protocol - 协议名称，例如 'openai', 'anthropic'。传入 null 或 undefined 将显示 'Empty'。
+     * @param {string} title - 标签的 title 属性
+     * @returns {string} - 生成的 HTML 字符串
+     */
+    renderProtocolTag(protocol, title = '默认协议') {
+        const isEmpty = !protocol;
+        const cssClass = isEmpty ? 'protocol-tag-mini empty' : 'protocol-tag-mini';
+        const text = isEmpty ? 'Empty' : protocol;
+        return `<span class="${cssClass}" title="${title}">${text}</span>`;
     }
 };

@@ -212,7 +212,6 @@ const Providers = {
 
         const isEnabled = provider.enabled !== false;
         const statusText = `权重: ${provider.weight}`;
-        const protocolText = provider.default_protocol || '混合';
         
         // 如果禁止更新模型，则不显示更新模型按钮（或者显示为禁用）
         // 这里选择不渲染该按钮，因为通过编辑窗口手动管理
@@ -235,7 +234,7 @@ const Providers = {
                     </div>
                     <div class="provider-badges">
                         <span class="status-badge info">${statusText}</span>
-                        <span class="status-badge info" title="默认协议">${protocolText}</span>
+                        ${Utils.renderProtocolTag(provider.default_protocol)}
                     </div>
                 </div>
                 
@@ -304,9 +303,9 @@ const Providers = {
             return `<option value="${p.value}" ${selected}>${p.label}</option>`;
         }).join('');
         
-        // 添加"混合类型"选项（空值）
+        // 添加"Empty"选项（空值）
         const mixedSelected = !selectedValue ? 'selected' : '';
-        return `<option value="" ${mixedSelected}>混合类型（未指定）</option>${options}`;
+        return `<option value="" ${mixedSelected}>Empty (Not Specified)</option>${options}`;
     },
 
     showCreateModal() {

@@ -373,7 +373,6 @@ const ModelMap = {
                         // 将 provider_id 转换为显示名称
                         const providerName = this.providerIdNameMap[providerId] || providerId;
                         const providerProtocol = this.providerDefaultProtocols[providerId];
-                        const protocolLabel = providerProtocol ? `[${providerProtocol}]` : '[混合]';
                         const weight = this.providerWeights[providerId] !== undefined ? this.providerWeights[providerId] : 0;
                         
                         // 检查渠道是否被禁用
@@ -384,7 +383,7 @@ const ModelMap = {
                                 <span class="provider-name">
                                     ${providerName}
                                     <span class="provider-weight" title="权重">(w:${weight})</span>
-                                    ${protocolLabel}:
+                                    ${Utils.renderProtocolTag(providerProtocol, '渠道默认协议')}:
                                 </span>
                                 <div class="model-tags" oncontextmenu="return ModelMap.showModelContextMenu(event, '${escapedUnifiedName}', '${providerId}')">
                                     ${models.map(model => this.renderModelTag(providerId, model, unifiedName)).join('')}
