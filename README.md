@@ -9,8 +9,8 @@
   <p>
     <a href="https://python.org"><img alt="Python" src="https://img.shields.io/badge/Python-3.8+-blue?logo=python&logoColor=white"></a>
     <a href="https://fastapi.tiangolo.com/"><img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.104+-05998b?logo=fastapi&logoColor=white"></a>
-    <a href="https://github.com/Aflydream/AI-Router-Lite/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/Aflydream/AI-Router-Lite?color=blue"></a>
-    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.7.0-brightgreen"></a>
+    <a href="https://github.com/Yorag/AI-Router-Lite/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/Yorag/AI-Router-Lite?color=blue"></a>
+    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.7.1-brightgreen"></a>
   </p>
 </div>
 
@@ -150,9 +150,13 @@ python main.py
   - **Fernet 加密**保护敏感数据
   - 关键字排除规则
   - 被动健康记录
+- [x] **v0.7.1 (Refactor & Stability)**:
+  - **架构重构**: 统一状态管理，解耦核心模块，修复循环依赖。
+  - **代码规范**: 引入 Pydantic 模型统一管理，优化数据库完整性。
+  - **注意**: 从旧版本升级需要运行 `python scripts/migrate_db_v1.py`。
 - [ ] **v0.8 (Protocol Conversion)**: 引入协议转换层，实现将多种 API 格式（如 Anthropic, Gemini）统一为 OpenAI Chat Completions 格式输出。
 - [ ] **v1.0**: 完整稳定版本，包含负载均衡优化、完善的文档和测试覆盖。
 
 ## 📄 许可
 
-本项目采用 [MIT License](https://github.com/Aflydream/AI-Router-Lite/blob/main/LICENSE) 授权。
+本项目采用 [MIT License](https://github.com/Yorag/AI-Router-Lite/blob/main/LICENSE) 授权。
