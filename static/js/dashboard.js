@@ -321,7 +321,7 @@ const Dashboard = {
 
         // 格式化每一行
         return statsList.map(m =>
-            `${m.name} 请求: ${m.total} 成功率: ${m.successRate} Tokens: ${App.formatNumber(m.tokens || 0)}`
+            `${m.name} 请求: ${m.total} 成功率: ${m.successRate} Tokens: ${Utils.formatNumber(m.tokens || 0)}`
         ).join('&#10;');
     },
 

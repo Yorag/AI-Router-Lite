@@ -1,0 +1,298 @@
+/* ==================== 日志监控页面样式 ==================== */
+
+.filters-card {
+    padding: 16px 24px;
+}
+
+.filters-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: flex-end;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.filter-group label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.filter-group select,
+.filter-group input {
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    color: var(--text-color);
+    font-size: 0.875rem;
+    min-width: 120px;
+    transition: var(--transition);
+}
+
+.filter-group select:focus,
+.filter-group input:focus {
+    outline: none;
+    border-color: var(--primary-light);
+}
+
+.realtime-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.realtime-toggle input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary-light);
+}
+
+.logs-card {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    margin-bottom: 0;
+}
+
+.table-responsive {
+    flex: 1;
+    overflow: auto;
+    min-height: 0;
+}
+
+.logs-table {
+    width: 100%;
+    /* min-width: 1000px; */
+    border-collapse: separate; /* 允许 sticky header */
+    border-spacing: 0;
+}
+
+.logs-table th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 10px 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.logs-table td {
+    padding: 8px 12px;
+    font-size: 0.8125rem;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+
+.log-row {
+    transition: background-color 0.15s ease;
+}
+
+.log-row:hover {
+    background-color: var(--bg-hover);
+}
+
+/* 级别颜色背景 */
+.log-row.level-error { background-color: rgba(239, 68, 68, 0.03); }
+.log-row.level-warning { background-color: rgba(245, 158, 11, 0.03); }
+
+/* 列样式 */
+.col-time {
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    white-space: nowrap;
+    font-size: 0.75rem;
+}
+
+.col-level {
+    text-align: center;
+    white-space: nowrap;
+}
+.col-type {
+    text-align: center;
+    white-space: nowrap;
+    width: 1px;
+}
+.col-content {
+    word-break: break-word;
+    overflow-wrap: break-word;
+    min-width: 150px;
+}
+.col-tokens {
+    text-align: right;
+    white-space: nowrap;
+}
+.col-latency {
+    text-align: right;
+    white-space: nowrap;
+}
+.col-status {
+    text-align: center;
+    white-space: nowrap;
+}
+
+/* 级别徽章 */
+.log-level-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.log-level-badge.info { background: rgba(59, 130, 246, 0.1); color: var(--info-color); }
+.log-level-badge.warning { background: rgba(245, 158, 11, 0.1); color: var(--warning-color); }
+.log-level-badge.error { background: rgba(239, 68, 68, 0.1); color: var(--danger-color); }
+
+/* 类型文本 */
+.log-type-text {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--bg-tertiary);
+    border-radius: 12px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+/* 内容区域 */
+.log-content-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.log-key-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    padding: 1px 4px;
+    border-radius: 3px;
+    border: 1px solid var(--border-color);
+}
+
+.log-protocol-tag {
+    font-size: 0.625rem;
+    font-weight: 500;
+    color: var(--info-color);
+    background: rgba(59, 130, 246, 0.1);
+    padding: 1px 4px;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.log-model {
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.log-arrow {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.log-provider {
+    color: var(--primary-light);
+}
+
+.log-divider {
+    color: var(--text-muted);
+}
+
+.log-actual-model {
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.log-error-msg {
+    color: var(--danger-color);
+}
+
+.log-msg {
+    color: var(--text-color);
+}
+
+.log-error-detail {
+    color: var(--danger-color);
+    font-size: 0.75rem;
+    margin-top: 2px;
+}
+
+/* Token 统计 */
+.token-stats {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1.2;
+}
+
+.token-total {
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.token-details {
+    display: flex;
+    gap: 4px;
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+}
+
+.token-up { color: var(--info-color); }
+.token-down { color: var(--success-color); }
+
+/* 耗时标签 */
+.latency-tag {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-secondary);
+}
+
+/* 状态码 */
+.log-status {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.status-success { background: rgba(34, 197, 94, 0.1); color: var(--success-color); }
+.status-error { background: rgba(239, 68, 68, 0.1); color: var(--danger-color); }
+.status-default { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+/* 空状态 */
+.empty-state-cell {
+    padding: 40px !important;
+    text-align: center;
+    background: transparent !important;
+}
+
+@keyframes highlight {
+    0% {
+        background-color: rgba(99, 102, 241, 0.3);
+    }
+    100% {
+        background-color: transparent;
+    }
+}

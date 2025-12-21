@@ -20,41 +20,6 @@ const APIKeys = {
         }
     },
 
-    /**
-     * 复制文本到剪贴板（带 fallback）
-     */
-    copyToClipboard(text) {
-        // 优先使用现代 Clipboard API
-        if (navigator.clipboard && window.isSecureContext) {
-            return navigator.clipboard.writeText(text);
-        }
-        
-        // Fallback: 使用传统方法
-        return new Promise((resolve, reject) => {
-            const textArea = document.createElement('textarea');
-            textArea.value = text;
-            textArea.style.position = 'fixed';
-            textArea.style.left = '-9999px';
-            textArea.style.top = '-9999px';
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            
-            try {
-                const successful = document.execCommand('copy');
-                document.body.removeChild(textArea);
-                if (successful) {
-                    resolve();
-                } else {
-                    reject(new Error('execCommand failed'));
-                }
-            } catch (err) {
-                document.body.removeChild(textArea);
-                reject(err);
-            }
-        });
-    },
-
     render() {
         const tbody = document.getElementById('api-keys-table');
         
@@ -167,7 +132,7 @@ const APIKeys = {
         }
 
         const keyValue = document.getElementById('created-key-value').textContent;
-        this.copyToClipboard(keyValue).then(() => {
+        Utils.copyToClipboard(keyValue).then(() => {
             Toast.success('密钥已复制到剪贴板');
         }).catch(() => {
             Toast.error('复制失败，请手动复制');

@@ -242,7 +242,7 @@ const Providers = {
                 <div class="provider-models">
                     <div class="provider-models-header">
                         <h4>支持的模型 (${models.length})</h4>
-                        ${provider.models_updated_at ? `<span class="last-updated" title="模型列表上次更新时间">${App.formatDateTime(new Date(provider.models_updated_at))}</span>` : ''}
+                        ${provider.models_updated_at ? `<span class="last-updated" title="模型列表上次更新时间">${Utils.formatDateTime(new Date(provider.models_updated_at))}</span>` : ''}
                     </div>
                     <div class="model-tags">
                         ${modelTagsHtml}
@@ -464,8 +464,8 @@ const Providers = {
         
         container.innerHTML = tags.map(tag => `
             <span class="tag-input-tag">
-                ${App.escapeHtml(tag)}
-                <button type="button" class="tag-remove" onclick="Providers.removeModelTag('${App.escapeHtml(tag)}', '${mode}')" title="删除">×</button>
+                ${Utils.escapeHtml(tag)}
+                <button type="button" class="tag-remove" onclick="Providers.removeModelTag('${Utils.escapeHtml(tag)}', '${mode}')" title="删除">×</button>
             </span>
         `).join('');
     },

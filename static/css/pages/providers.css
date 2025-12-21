@@ -1,0 +1,251 @@
+/* ==================== 服务站管理页面样式 ==================== */
+
+.providers-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 20px;
+}
+
+.provider-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 24px;
+    transition: var(--transition);
+    position: relative;
+}
+
+.provider-card:hover {
+    border-color: var(--primary-light);
+}
+
+.provider-card.disabled {
+    opacity: 0.6;
+    background: var(--bg-tertiary);
+}
+
+.provider-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 16px;
+}
+
+.provider-badges {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.provider-card-header h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0;
+}
+
+.provider-card-header .url {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    word-break: break-all;
+}
+
+.provider-models {
+    margin-top: 16px;
+}
+
+.provider-models-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.provider-models h4 {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+    margin-bottom: 0;
+}
+
+.last-updated {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.model-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.model-tags-visible {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+}
+
+.model-tags-hidden {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+    margin-top: 8px;
+}
+
+.model-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    cursor: default;
+    position: relative;
+    transition: var(--transition);
+}
+
+/* 已映射模型高亮样式 */
+.model-tag.mapped-model {
+    background: #fffbeb; /* amber-50 */
+    border-color: #fcd34d; /* amber-300 */
+    color: #b45309; /* amber-700 */
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(251, 191, 36, 0.1);
+}
+
+/* 通用 Tooltip 样式 (DRY) */
+.model-tag[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 6px;
+    padding: 8px 12px;
+    background: #1e293b;
+    border-radius: var(--border-radius-sm);
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    text-align: left;
+    color: #e2e8f0;
+    box-shadow: var(--shadow-md);
+    pointer-events: none;
+    z-index: 1000;
+    width: max-content;
+    max-width: min(500px, 90vw);
+    min-width: 120px;
+}
+
+.model-tag.model-more-btn,
+.model-tag.model-less-btn {
+    background: var(--primary-color);
+    color: #ffffff;
+    border-color: var(--primary-color);
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.model-tag.model-more-btn:hover,
+.model-tag.model-less-btn:hover {
+    background: var(--primary-hover);
+}
+
+.model-tag.model-less-btn {
+    background: var(--text-secondary);
+    border-color: var(--text-secondary);
+}
+
+.model-tag.model-less-btn:hover {
+    background: var(--text-muted);
+}
+
+.model-tag .latency {
+    margin-left: 6px;
+    color: var(--text-muted);
+}
+
+.provider-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Provider 名称行容器 */
+.provider-name-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* 健康状态圆点 */
+.provider-health-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    cursor: default;
+    position: relative;
+    align-self: center;
+}
+
+.provider-health-dot.healthy {
+    background-color: var(--success-color);
+    box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+}
+
+.provider-health-dot.cooling {
+    background-color: var(--warning-color);
+    box-shadow: 0 0 4px rgba(245, 158, 11, 0.4);
+}
+
+.provider-health-dot.permanently_disabled {
+    background-color: var(--danger-color);
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
+}
+
+.provider-health-dot.disabled {
+    background-color: var(--text-muted);
+    box-shadow: none;
+}
+
+.provider-health-dot[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 10px;
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: var(--border-radius-sm);
+    font-size: 0.75rem;
+    white-space: pre-line;
+    z-index: 100;
+    box-shadow: var(--shadow-md);
+    pointer-events: none;
+    text-align: left;
+    min-width: max-content;
+}
+
+/* 禁用渠道的整体容器 */
+.provider-models.provider-disabled {
+    opacity: 0.6;
+    background: rgba(100, 116, 139, 0.05);
+    padding: 8px;
+    border-radius: var(--border-radius-sm);
+    border: 1px dashed var(--border-color);
+}
+
+@media (max-width: 1024px) {
+    .providers-grid {
+        grid-template-columns: 1fr;
+    }
+}

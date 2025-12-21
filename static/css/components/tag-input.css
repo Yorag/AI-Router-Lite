@@ -1,0 +1,96 @@
+/* ==================== 标签输入框 (Tag Input) ==================== */
+
+.tag-input-container {
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    background: var(--bg-secondary);
+    padding: 8px;
+    min-height: 80px;
+    max-height: 200px;
+    overflow-y: auto;
+    transition: var(--transition);
+}
+
+.tag-input-container:focus-within {
+    border-color: var(--primary-light);
+}
+
+.tag-input-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.tag-input-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.8125rem;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-color);
+    animation: tagFadeIn 0.15s ease;
+}
+
+@keyframes tagFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.tag-input-tag .tag-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 50%;
+    font-size: 0.875rem;
+    line-height: 1;
+    transition: var(--transition);
+}
+
+.tag-input-tag .tag-remove:hover {
+    background: var(--danger-color);
+    color: #fff;
+}
+
+.tag-input-field {
+    width: 100%;
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 0.875rem;
+    color: var(--text-color);
+    padding: 4px 0;
+}
+
+.tag-input-field::placeholder {
+    color: var(--text-muted);
+}
+
+.tag-input-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 6px;
+}
+
+/* 空状态提示 */
+.tag-input-empty {
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    padding: 8px 0;
+}

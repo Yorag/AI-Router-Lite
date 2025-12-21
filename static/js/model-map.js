@@ -163,7 +163,7 @@ const ModelMap = {
             const totalCount = stats.total;
             const providerCount = Object.keys(mapping.resolved_models || {}).length;
             
-            const lastSync = mapping.last_sync ? App.formatDateTime(new Date(mapping.last_sync)) : '未同步';
+            const lastSync = mapping.last_sync ? Utils.formatDateTime(new Date(mapping.last_sync)) : '未同步';
             const excludedProviders = mapping.excluded_providers || [];
             
             // 将 excluded_providers (provider_id) 转换为显示名称
@@ -294,7 +294,7 @@ const ModelMap = {
         if (!configContainer) return;
         
         const { auto_sync_enabled, auto_sync_interval_hours, last_full_sync } = this.syncConfig;
-        const lastSyncText = last_full_sync ? App.formatDateTime(new Date(last_full_sync)) : '从未';
+        const lastSyncText = last_full_sync ? Utils.formatDateTime(new Date(last_full_sync)) : '从未';
         
         configContainer.innerHTML = `
             <div class="sync-config-bar">
@@ -525,20 +525,10 @@ const ModelMap = {
                 data-provider-id="${providerId}"
                 data-model="${model}"
                 ${clickAction ? `onclick="${clickAction}"` : ''}
-                ${tooltipContent ? `data-tooltip="${this.escapeHtml(tooltipContent)}"` : ''}>
+                ${tooltipContent ? `data-tooltip="${Utils.escapeHtml(tooltipContent)}"` : ''}>
                 ${model}${protocolBadge}
             </span>
         `;
-    },
-
-    escapeHtml(text) {
-        if (!text) return '';
-        return text
-            .replace(/&/g, '&')
-            .replace(/</g, '<')
-            .replace(/>/g, '>')
-            .replace(/"/g, '"')
-            .replace(/'/g, '&#039;');
     },
 
     // 静默检测单个模型（点击灰色/红色模型标签时触发）
@@ -947,9 +937,9 @@ const ModelMap = {
         
         container.innerHTML = models.map(model => `
             <span class="model-tag clickable"
-                onclick="ModelMap.addToManualInclude('${model}')"
+                onclick="ModelMap.addToManualInclude('${Utils.escapeHtml(model)}')"
                 data-tooltip="点击添加到手动包含">
-                ${model}
+                ${Utils.escapeHtml(model)}
             </span>
         `).join('');
     },
@@ -964,7 +954,17 @@ const ModelMap = {
         
         return manualIncludes.map(item => {
             const displayName = this.formatManualIncludeForDisplay(item);
-            const escapedItem = item.replace(/"/g, '&quot;');
+            const escapedItem = item.replace(/"/g, '"');
+            // 这里我们只需要确保 removeManualInclude 调用时的参数是转义过的
+            // 实际上 escapedItem 已经是简单的转义，但为了统一，我们可以使用 Utils
+            // 不过原代码使用了简单的替换，且作为 HTML 属性值和 JS 参数。
+            // 为了保持一致性，我们保持 escapedItem 的逻辑，或者用 Utils.escapeHtml
+            // 但 Utils.escapeHtml 会转义更多字符，可能影响 JS 字符串参数解析。
+            // 让我们先只替换 App.escapeHtml 如果有的话。
+            // 检查之前的文件内容，这里并没有 App.escapeHtml 调用。
+            // 原代码：onclick="ModelMap.removeManualInclude('${escapedItem}')"
+            // 看来这部分没有用到 escapeHtml 函数，而是手动 replace。
+            
             return `
                 <span class="tag-input-tag" data-value="${escapedItem}">
                     ${displayName}

@@ -1,0 +1,88 @@
+/* ==================== 可折叠高级设置 ==================== */
+
+.collapsible-section {
+    margin-top: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    overflow: hidden;
+}
+
+.collapsible-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--bg-tertiary);
+    cursor: pointer;
+    user-select: none;
+    transition: var(--transition);
+}
+
+.collapsible-header:hover {
+    background: var(--bg-hover);
+}
+
+.collapsible-header h4 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.collapsible-icon {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    transition: transform 0.2s ease;
+}
+
+.collapsible-section.expanded .collapsible-icon {
+    transform: rotate(90deg);
+}
+
+.collapsible-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.collapsible-section.expanded .collapsible-content {
+    max-height: 600px; /* 足够大的值 */
+}
+
+.collapsible-body {
+    padding: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* 高级设置内的表单组 */
+.collapsible-body .form-group {
+    margin-bottom: 16px;
+}
+
+.collapsible-body .form-group:last-child {
+    margin-bottom: 0;
+}
+
+/* 复选框组样式 */
+.checkbox-group {
+    margin-bottom: 12px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: var(--text-color);
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary-light);
+    cursor: pointer;
+}
