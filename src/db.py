@@ -158,7 +158,7 @@ def init_schema_app(conn: sqlite3.Connection) -> None:
           pattern TEXT NOT NULL,
           case_sensitive INTEGER NOT NULL DEFAULT 0,
           order_index INTEGER NOT NULL DEFAULT 0,
-          FOREIGN KEY (unified_name) REFERENCES model_mappings(unified_name) ON DELETE CASCADE
+          FOREIGN KEY (unified_name) REFERENCES model_mappings(unified_name) ON DELETE CASCADE ON UPDATE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_mapping_rules_unified
           ON model_mapping_rules(unified_name, order_index);
@@ -169,7 +169,7 @@ def init_schema_app(conn: sqlite3.Connection) -> None:
           provider_id TEXT,
           model_id TEXT NOT NULL,
           order_index INTEGER NOT NULL DEFAULT 0,
-          FOREIGN KEY (unified_name) REFERENCES model_mappings(unified_name) ON DELETE CASCADE
+          FOREIGN KEY (unified_name) REFERENCES model_mappings(unified_name) ON DELETE CASCADE ON UPDATE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_mapping_includes_unified
           ON model_mapping_manual_includes(unified_name, order_index);
@@ -178,7 +178,7 @@ def init_schema_app(conn: sqlite3.Connection) -> None:
           unified_name TEXT NOT NULL,
           provider_id TEXT NOT NULL,
           PRIMARY KEY (unified_name, provider_id),
-          FOREIGN KEY (unified_name) REFERENCES model_mappings(unified_name) ON DELETE CASCADE
+          FOREIGN KEY (unified_name) REFERENCES model_mappings(unified_name) ON DELETE CASCADE ON UPDATE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS model_mapping_resolved_models (
@@ -186,7 +186,7 @@ def init_schema_app(conn: sqlite3.Connection) -> None:
           provider_id TEXT NOT NULL,
           model_id TEXT NOT NULL,
           PRIMARY KEY (unified_name, provider_id, model_id),
-          FOREIGN KEY (unified_name) REFERENCES model_mappings(unified_name) ON DELETE CASCADE,
+          FOREIGN KEY (unified_name) REFERENCES model_mappings(unified_name) ON DELETE CASCADE ON UPDATE CASCADE,
           FOREIGN KEY (provider_id, model_id) REFERENCES provider_models(provider_id, model_id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_mapping_resolved_unified
@@ -199,7 +199,7 @@ def init_schema_app(conn: sqlite3.Connection) -> None:
           protocol TEXT,
           settings_json TEXT,
           PRIMARY KEY (unified_name, provider_id, model_id),
-          FOREIGN KEY (unified_name) REFERENCES model_mappings(unified_name) ON DELETE CASCADE,
+          FOREIGN KEY (unified_name) REFERENCES model_mappings(unified_name) ON DELETE CASCADE ON UPDATE CASCADE,
           FOREIGN KEY (provider_id, model_id) REFERENCES provider_models(provider_id, model_id) ON DELETE CASCADE
         );
 

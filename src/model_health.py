@@ -235,20 +235,6 @@ class ModelHealthManager:
         self._results[key] = result
         self._repo.upsert_result(result.to_dict())
         
-        # Integration
-        # provider_manager is not imported to avoid circular import if possible
-        # but original code imported it.
-        # We need to import provider_manager from somewhere.
-        # In main.py, provider_manager is from src.provider.
-        # Let's import inside method.
-        from .provider import provider_manager
-        provider_manager.update_model_health_from_test(
-            provider_name=provider_id,
-            model_name=model,
-            success=result.success,
-            error_message=result.error
-        )
-        
         provider_models_manager.update_activity(provider_id, model, "health_test")
         
         return result

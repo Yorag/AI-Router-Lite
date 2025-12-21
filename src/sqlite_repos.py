@@ -285,6 +285,35 @@ class ApiKeyRepo:
             "total_requests": int(r["total_requests"]),
         }
 
+    def create(self, key_id: str, key_hash: str, name: str) -> None:
+        now_ms = _now_ms()
+        with get_db_cursor(self._paths.app_db_path) as cur:
+            cur.execute(
+                """
+                INSERT INTO api_keys (
+                  key_id, key_hash, name, created_at_ms, enabled, last_used_ms, total_requests
+                ) VALUES (?, ?, ?, ?, 1, NULL, 0)
+                """,
+                (key_id, key_hash, name, now_ms),
+            )
+
+    def update(self, key_id: str, name: str, enabled: bool) -> bool:
+        with get_db_cursor(self._paths.app_db_path) as cur:
+            cur.execute(
+                """
+                UPDATE api_keys
+                SET name = ?, enabled = ?
+                WHERE key_id = ?
+                """,
+                (name, 1 if enabled else 0, key_id),
+            )
+            return cur.rowcount > 0
+
+    def delete(self, key_id: str) -> bool:
+        with get_db_cursor(self._paths.app_db_path) as cur:
+            cur.execute("DELETE FROM api_keys WHERE key_id = ?", (key_id,))
+            return cur.rowcount > 0
+
     def validate_and_touch(self, full_key: str) -> Optional[dict]:
         import hashlib
 

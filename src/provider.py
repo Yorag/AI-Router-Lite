@@ -189,6 +189,13 @@ class ProviderManager:
         """批量注册 Provider"""
         for config in configs:
             self.register(config)
+
+    def deregister(self, provider_id: str) -> bool:
+        """注销一个 Provider"""
+        if provider_id in self._providers:
+            del self._providers[provider_id]
+            return True
+        return False
     
     def get(self, provider_id: str) -> Optional[ProviderState]:
         """通过 ID 获取指定 Provider 的状态"""
@@ -273,18 +280,10 @@ class ProviderManager:
         threshold_seconds = threshold_hours * 3600
         return (time.time() - last_activity) < threshold_seconds
     
-    def update_model_health_from_test(self, provider_name: str, model_name: str,
-                                       success: bool, error_message: Optional[str] = None) -> None:
+    def update_model_health_from_test(self, provider_id: str, model_name: str, success: bool, error_message: Optional[str] = None) -> None:
         """
         根据健康测试结果更新模型状态（统一健康标记）
-        
-        Args:
-            provider_name: Provider 的 ID（参数名保留兼容但含义为 ID）
-            model_name: 模型名称
-            success: 测试是否成功
-            error_message: 错误消息（如果失败）
         """
-        provider_id = provider_name  # 实际上是 provider_id
         model_state = self.get_model_state(provider_id, model_name)
         model_state.last_activity_time = time.time()
         
@@ -301,7 +300,7 @@ class ProviderManager:
             model_state.last_error_time = time.time()
             # 触发模型级熔断
             self._apply_model_cooldown(model_state, CooldownReason.HEALTH_CHECK_FAILED)
-    
+
     def mark_success(self, provider_id: str, model_name: Optional[str] = None, tokens: int = 0) -> None:
         """
         标记请求成功

@@ -222,6 +222,100 @@ class RequestProxy:
         
         return result
     
+    async def _execute_with_retry(
+        self,
+        request_body: Dict[str, Any],
+        protocol_handler: BaseProtocol,
+        original_model: str,
+        is_stream: bool,
+        required_protocol: Optional[str] = None,
+        api_key_name: Optional[str] = None,
+        api_key_id: Optional[str] = None,
+        stream_context: Optional[StreamContext] = None
+    ) -> AsyncIterator[Any]:
+        """统一的重试执行逻辑 (作为异步生成器)"""
+        last_error: Optional[ProxyError] = None
+        req_protocol = required_protocol or protocol_handler.protocol_type
+        
+        all_candidates = self.router.find_candidate_models(original_model, required_protocol=req_protocol)
+        
+        if not all_candidates:
+            raise RoutingError(f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider")
+        
+        ordered_candidates = self._reorder_candidates_with_weighted_first(all_candidates)
+        max_attempts = len(ordered_candidates)
+        
+        for attempt, (provider, actual_model) in enumerate(ordered_candidates, 1):
+            if stream_context:
+                stream_context.provider_id = provider.config.id
+                stream_context.provider_name = provider.config.name
+                stream_context.actual_model = actual_model
+
+            self._log_info(
+                f"[{'流式' if is_stream else ''}尝试 {attempt}/{max_attempts}] "
+                f"Provider: {provider.config.name}, 模型: {actual_model}, 协议: {req_protocol}"
+            )
+            
+            try:
+                if is_stream:
+                    async for chunk in self._do_stream_request(provider, request_body, protocol_handler, actual_model, original_model, stream_context):
+                        yield chunk
+                    
+                    # 成功完成流式传输
+                    total_tokens = 0
+                    if stream_context:
+                        if stream_context.total_tokens:
+                            total_tokens = stream_context.total_tokens
+                        elif stream_context.request_tokens or stream_context.response_tokens:
+                            total_tokens = (stream_context.request_tokens or 0) + (stream_context.response_tokens or 0)
+                    
+                    self.provider_manager.mark_success(provider.config.id, model_name=actual_model, tokens=total_tokens)
+                    model_health_manager.record_passive_result(provider.config.id, actual_model, success=True)
+                    provider_models_manager.update_activity(provider.config.id, actual_model, "call")
+                    return  # 成功，结束生成器
+
+                else: # not is_stream
+                    _, protocol_resp = await self._do_request(provider, request_body, protocol_handler, actual_model, original_model)
+                    
+                    self.provider_manager.mark_success(provider.config.id, model_name=actual_model, tokens=protocol_resp.total_tokens or 0)
+                    model_health_manager.record_passive_result(provider.config.id, actual_model, success=True)
+                    provider_models_manager.update_activity(provider.config.id, actual_model, "call")
+                    
+                    yield ProxyResult(
+                        response=protocol_resp.response,
+                        provider_id=provider.config.id,
+                        provider_name=provider.config.name,
+                        actual_model=actual_model,
+                        request_tokens=protocol_resp.request_tokens,
+                        response_tokens=protocol_resp.response_tokens,
+                        total_tokens=protocol_resp.total_tokens
+                    )
+                    return # 成功，结束生成器
+
+            except ProxyError as e:
+                last_error = e
+                last_error.actual_model = actual_model
+                
+                if e.skip_retry:
+                    raise e
+                
+                self.provider_manager.mark_failure(provider.config.id, model_name=actual_model, status_code=e.status_code, error_message=e.message)
+                
+                self._log_proxy_error(
+                    provider.config.name, original_model, actual_model,
+                    e.status_code, e.message, is_stream=is_stream,
+                    api_key_name=api_key_name, api_key_id=api_key_id,
+                    provider_id=provider.config.id, log_type=e.log_type, protocol=req_protocol
+                )
+                
+                model_health_manager.record_passive_result(provider.config.id, actual_model, success=False, error=e.message, response_body=e.response_body)
+                continue
+        
+        if last_error:
+            raise last_error
+        
+        raise ProxyError(f"为模型 '{original_model}' 尝试所有候选后{'流式' if is_stream else ''}请求失败", status_code=500)
+
     async def forward_request(
         self,
         request_body: Dict[str, Any],
@@ -231,112 +325,19 @@ class RequestProxy:
         api_key_name: Optional[str] = None,
         api_key_id: Optional[str] = None
     ) -> ProxyResult:
-        """
-        转发非流式请求（带模型级重试机制）
-        
-        首次请求通过加权随机选择，失败后按权重顺序依次重试。
-        
-        Args:
-            request_body: 原始请求体 (dict)
-            protocol_handler: 协议处理器实例
-            original_model: 用户请求的原始模型名
-            required_protocol: 要求的协议类型
-            
-        Returns:
-            ProxyResult 对象
-        """
-        last_error: Optional[ProxyError] = None
-        
-        # 如果未指定 required_protocol，使用 handler 的类型
-        req_protocol = required_protocol or protocol_handler.protocol_type
-        
-        # 一次性获取所有候选 (Provider, Model) 组合（已按权重排序）
-        all_candidates = self.router.find_candidate_models(original_model, required_protocol=req_protocol)
-        
-        if not all_candidates:
-            raise RoutingError(f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider")
-        
-        # 重排列表：首个加权随机，其余按原顺序
-        ordered_candidates = self._reorder_candidates_with_weighted_first(all_candidates)
-        max_attempts = len(ordered_candidates)
-        
-        # 遍历所有候选组合进行模型级重试
-        for attempt, (provider, actual_model) in enumerate(ordered_candidates, 1):
-            self._log_info(
-                f"[尝试 {attempt}/{max_attempts}] "
-                f"Provider: {provider.config.name}, 模型: {actual_model}, 协议: {req_protocol}"
-            )
-            
-            try:
-                response, protocol_resp = await self._do_request(
-                    provider, request_body, protocol_handler, actual_model, original_model
-                )
-                
-                # 记录成功
-                self.provider_manager.mark_success(
-                    provider.config.id,
-                    model_name=actual_model,
-                    tokens=protocol_resp.total_tokens or 0
-                )
-                
-                # 记录被动健康状态（缓冲落盘）
-                model_health_manager.record_passive_result(
-                    provider.config.id, actual_model, success=True
-                )
-                
-                provider_models_manager.update_activity(
-                    provider.config.id, actual_model, "call"
-                )
-                
-                return ProxyResult(
-                    response=protocol_resp.response,
-                    provider_id=provider.config.id,
-                    provider_name=provider.config.name,
-                    actual_model=actual_model,
-                    request_tokens=protocol_resp.request_tokens,
-                    response_tokens=protocol_resp.response_tokens,
-                    total_tokens=protocol_resp.total_tokens
-                )
-                
-            except ProxyError as e:
-                last_error = e
-                last_error.actual_model = actual_model
-                
-                # SSL EOF 等系统错误：不重试、不冷却，直接抛出
-                if e.skip_retry:
-                    raise e
-                
-                self.provider_manager.mark_failure(
-                    provider.config.id,
-                    model_name=actual_model,
-                    status_code=e.status_code,
-                    error_message=e.message
-                )
-                
-                # 记录错误日志（用于统计）
-                self._log_proxy_error(
-                    provider.config.name, original_model, actual_model,
-                    e.status_code, e.message, is_stream=False,
-                    api_key_name=api_key_name,
-                    api_key_id=api_key_id,
-                    provider_id=provider.config.id,
-                    log_type=e.log_type,
-                    protocol=req_protocol
-                )
-                
-                # 记录被动健康状态（缓冲落盘）
-                model_health_manager.record_passive_result(
-                    provider.config.id, actual_model, success=False, error=e.message,
-                    response_body=e.response_body
-                )
-                continue
-        
-        # 所有候选都失败，直接抛出最后一个错误
-        if last_error:
-            raise last_error
-        
-        raise ProxyError(f"为模型 '{original_model}' 尝试所有候选后请求失败", status_code=500)
-    
+        async for result in self._execute_with_retry(
+            request_body=request_body,
+            protocol_handler=protocol_handler,
+            original_model=original_model,
+            is_stream=False,
+            required_protocol=required_protocol,
+            api_key_name=api_key_name,
+            api_key_id=api_key_id
+        ):
+            return result
+        # This part should not be reached if logic is correct
+        raise ProxyError("Request forwarding failed unexpectedly.")
+
     async def forward_stream(
         self,
         request_body: Dict[str, Any],
@@ -347,110 +348,44 @@ class RequestProxy:
         api_key_name: Optional[str] = None,
         api_key_id: Optional[str] = None
     ) -> AsyncIterator[str]:
-        """
-        转发流式请求（带模型级重试机制）
-        
-        首次请求通过加权随机选择，失败后按权重顺序依次重试。
-        """
-        last_error: Optional[ProxyError] = None
-        
-        req_protocol = required_protocol or protocol_handler.protocol_type
-        
-        # 一次性获取所有候选 (Provider, Model) 组合（已按权重排序）
-        all_candidates = self.router.find_candidate_models(original_model, required_protocol=req_protocol)
-        
-        if not all_candidates:
-            raise RoutingError(f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider")
-        
-        # 重排列表：首个加权随机，其余按原顺序
-        ordered_candidates = self._reorder_candidates_with_weighted_first(all_candidates)
-        max_attempts = len(ordered_candidates)
-        
-        # 遍历所有候选组合进行模型级重试
-        for attempt, (provider, actual_model) in enumerate(ordered_candidates, 1):
-            if stream_context is not None:
-                stream_context.provider_id = provider.config.id
-                stream_context.provider_name = provider.config.name
-                stream_context.actual_model = actual_model
-            
-            self._log_info(
-                f"[流式尝试 {attempt}/{max_attempts}] "
-                f"Provider: {provider.config.name}, 模型: {actual_model}, 协议: {req_protocol}"
-            )
-            
-            try:
-                async for chunk in self._do_stream_request(
-                    provider, request_body, protocol_handler, actual_model, original_model, stream_context
-                ):
-                    yield chunk
-                
-                # 成功完成
-                total_tokens = 0
-                if stream_context:
-                    if stream_context.total_tokens:
-                        total_tokens = stream_context.total_tokens
-                    elif stream_context.request_tokens or stream_context.response_tokens:
-                        total_tokens = (stream_context.request_tokens or 0) + (stream_context.response_tokens or 0)
-                
-                self.provider_manager.mark_success(
-                    provider.config.id,
-                    model_name=actual_model,
-                    tokens=total_tokens
-                )
-                
-                # 记录被动健康状态（缓冲落盘）
-                model_health_manager.record_passive_result(
-                    provider.config.id, actual_model, success=True
-                )
-                
-                provider_models_manager.update_activity(
-                    provider.config.id, actual_model, "call"
-                )
-                
-                return
-                
-            except ProxyError as e:
-                last_error = e
-                last_error.actual_model = actual_model
-                
-                # SSL EOF 等系统错误：不重试、不冷却，直接抛出
-                if e.skip_retry:
-                    raise e
-                
-                self.provider_manager.mark_failure(
-                    provider.config.id,
-                    model_name=actual_model,
-                    status_code=e.status_code,
-                    error_message=e.message
-                )
-                
-                # 记录错误日志（用于统计）
-                self._log_proxy_error(
-                    provider.config.name, original_model, actual_model,
-                    e.status_code, e.message, is_stream=True,
-                    api_key_name=api_key_name,
-                    api_key_id=api_key_id,
-                    provider_id=provider.config.id,
-                    log_type=e.log_type,
-                    protocol=req_protocol
-                )
-                
-                # 记录被动健康状态（缓冲落盘）
-                model_health_manager.record_passive_result(
-                    provider.config.id, actual_model, success=False, error=e.message,
-                    response_body=e.response_body
-                )
-                continue
-        
-        # 所有候选都失败，直接抛出最后一个错误
-        if last_error:
-            raise last_error
-        
-        raise ProxyError(f"为模型 '{original_model}' 尝试所有候选后流式请求失败", status_code=500)
+        async for chunk in self._execute_with_retry(
+            request_body=request_body,
+            protocol_handler=protocol_handler,
+            original_model=original_model,
+            is_stream=True,
+            required_protocol=required_protocol,
+            api_key_name=api_key_name,
+            api_key_id=api_key_id,
+            stream_context=stream_context
+        ):
+            yield chunk
     
     def _get_timeout(self, provider: ProviderState) -> float:
         return provider.config.timeout if provider.config.timeout is not None else self.config.request_timeout
     
+    async def _create_http_error(self, response: httpx.Response, provider: ProviderState, actual_model: str) -> ProxyError:
+        """创建 HTTP 错误异常"""
+        error_body_bytes = await response.aread()
+        error_body_text = error_body_bytes.decode(errors='replace')
+        
+        error_body_oneline = error_body_text.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
+        if len(error_body_oneline) > PROXY_ERROR_MESSAGE_MAX_LENGTH:
+            error_body_oneline = error_body_oneline[:PROXY_ERROR_MESSAGE_MAX_LENGTH] + "..."
+            
+        try:
+            error_response_body = json.loads(error_body_text)
+        except Exception:
+            error_response_body = {"raw_text": error_body_text[:500]}
+            
+        return ProxyError(
+            f"HTTP {response.status_code}: {error_body_oneline}",
+            status_code=response.status_code,
+            provider_name=provider.config.name,
+            actual_model=actual_model,
+            response_body=error_response_body,
+            provider_id=provider.config.id
+        )
+
     async def _do_request(
         self,
         provider: ProviderState,
@@ -463,7 +398,6 @@ class RequestProxy:
         client = await self.get_client()
         base_url = provider.config.base_url
         
-        # 使用协议处理器构建请求
         protocol_request = protocol_handler.build_request(
             base_url,
             provider.config.api_key,
@@ -480,29 +414,11 @@ class RequestProxy:
             )
             
             if response.status_code != 200:
-                error_body = response.text
-                # 保留原始响应体，压缩换行符到一行
-                error_body_oneline = error_body.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
-                # 截断过长的错误消息
-                if len(error_body_oneline) > PROXY_ERROR_MESSAGE_MAX_LENGTH:
-                    error_body_oneline = error_body_oneline[:PROXY_ERROR_MESSAGE_MAX_LENGTH] + "..."
-                # 尝试解析 JSON 响应体用于健康检测记录
-                try:
-                    error_response_body = response.json()
-                except Exception:
-                    error_response_body = {"raw_text": error_body[:500]}
-                raise ProxyError(
-                    f"HTTP {response.status_code}: {error_body_oneline}",
-                    status_code=response.status_code,
-                    provider_name=provider.config.name,
-                    response_body=error_response_body,
-                    provider_id=provider.config.id
-                )
+                raise await self._create_http_error(response, provider, actual_model)
             
             try:
                 raw_response = response.json()
             except Exception:
-                # 捕获 JSON 解析错误 (如返回 HTML 或空字符串)
                 error_body = response.text
                 error_msg = error_body.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
                 if len(error_msg) > PROXY_ERROR_MESSAGE_MAX_LENGTH:
@@ -517,9 +433,7 @@ class RequestProxy:
                     provider_id=provider.config.id
                 )
             
-            # 使用协议处理器转换响应
             protocol_response = protocol_handler.transform_response(raw_response, original_model)
-            
             return raw_response, protocol_response
             
         except (httpx.TimeoutException, ssl.SSLError, ConnectionResetError, BrokenPipeError, httpx.RequestError) as e:
@@ -554,26 +468,7 @@ class RequestProxy:
                 timeout=self._get_timeout(provider)
             ) as response:
                 if response.status_code != 200:
-                    error_body = await response.aread()
-                    # 保留原始响应体，压缩换行符到一行
-                    error_body_text = error_body.decode()
-                    error_body_oneline = error_body_text.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
-                    # 截断过长的错误消息
-                    if len(error_body_oneline) > PROXY_ERROR_MESSAGE_MAX_LENGTH:
-                        error_body_oneline = error_body_oneline[:PROXY_ERROR_MESSAGE_MAX_LENGTH] + "..."
-                    # 尝试解析 JSON 响应体用于健康检测记录
-                    try:
-                        error_response_body = json.loads(error_body_text)
-                    except Exception:
-                        error_response_body = {"raw_text": error_body_text[:500]}
-                    raise ProxyError(
-                        f"HTTP {response.status_code}: {error_body_oneline}",
-                        status_code=response.status_code,
-                        provider_name=provider.config.name,
-                        actual_model=actual_model,
-                        response_body=error_response_body,
-                        provider_id=provider.config.id
-                    )
+                    raise await self._create_http_error(response, provider, actual_model)
                 
                 async for line in response.aiter_lines():
                     if not line:

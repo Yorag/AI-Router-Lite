@@ -18,7 +18,6 @@ from fastapi import FastAPI, HTTPException, Request, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
 from src.config import config_manager, get_config
 from src.constants import (
@@ -26,13 +25,27 @@ from src.constants import (
     APP_VERSION,
     APP_DESCRIPTION,
     DEFAULT_SERVER_HOST,
-    DEFAULT_SERVER_PORT,AUTO_SYNC_CHECK_INTERVAL_SECONDS,
+    DEFAULT_SERVER_PORT,
+    AUTO_SYNC_CHECK_INTERVAL_SECONDS,
+    HEALTH_TEST_FAILURE_COOLDOWN_SECONDS
 )
-from src.models import (
+from src.provider import ModelStatus, CooldownReason
+from src.schemas import (
     ErrorResponse,
     ErrorDetail,
     ModelListResponse,
     ModelInfo,
+    CreateAPIKeyRequest,
+    UpdateAPIKeyRequest,
+    ProviderRequest,
+    UpdateProviderRequest,
+    CreateModelMappingRequest,
+    UpdateModelMappingRequest,
+    PreviewResolveRequest,
+    SyncConfigRequest,
+    ReorderModelMappingsRequest,
+    TestSingleModelRequest,
+    UpdateModelProtocolRequest
 )
 from src.provider import provider_manager
 from src.router import ModelRouter
@@ -266,9 +279,6 @@ async def lifespan(app: FastAPI):
     router = ModelRouter(config, provider_manager)
     proxy = RequestProxy(config, provider_manager, router)
 
-    # Persistence manager removed (SQLite handles persistence)
-    # persistence_manager.start(interval=STORAGE_BUFFER_INTERVAL_SECONDS)
-
     _auto_sync_task = asyncio.create_task(auto_sync_model_mappings_task())
 
     print_config_summary()
@@ -294,8 +304,6 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
 
-    # persistence_manager.shutdown()
-
     await proxy.close()
     print(f"[SHUTDOWN] 服务已关闭")
 
@@ -314,81 +322,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-class CreateAPIKeyRequest(BaseModel):
-    name: str
-
-
-class UpdateAPIKeyRequest(BaseModel):
-    name: Optional[str] = None
-    enabled: Optional[bool] = None
-
-
-class ProviderRequest(BaseModel):
-    name: str
-    base_url: str
-    api_key: str
-    weight: int = 1
-    timeout: Optional[float] = None
-    default_protocol: Optional[str] = None
-
-
-class UpdateProviderRequest(BaseModel):
-    name: Optional[str] = None
-    base_url: Optional[str] = None
-    api_key: Optional[str] = None
-    weight: Optional[int] = None
-    timeout: Optional[float] = None
-    enabled: Optional[bool] = None
-    default_protocol: Optional[str] = None
-    allow_health_check: Optional[bool] = None
-    allow_model_update: Optional[bool] = None
-    manual_models: Optional[list[str]] = None
-
-
-class CreateModelMappingRequest(BaseModel):
-    unified_name: str
-    description: str = ""
-    rules: list[dict] = []
-    manual_includes: list[str] = []
-    excluded_providers: list[str] = []
-    enabled: bool = True
-
-
-class UpdateModelMappingRequest(BaseModel):
-    new_unified_name: Optional[str] = None
-    description: Optional[str] = None
-    rules: Optional[list[dict]] = None
-    manual_includes: Optional[list[str]] = None
-    excluded_providers: Optional[list[str]] = None
-    enabled: Optional[bool] = None
-
-
-class PreviewResolveRequest(BaseModel):
-    rules: list[dict]
-    manual_includes: list[str] = []
-    excluded_providers: list[str] = []
-
-
-class SyncConfigRequest(BaseModel):
-    auto_sync_enabled: Optional[bool] = None
-    auto_sync_interval_hours: Optional[int] = None
-
-
-class ReorderModelMappingsRequest(BaseModel):
-    ordered_names: list[str]
-
-
-class TestSingleModelRequest(BaseModel):
-    provider_id: str
-    model: str
-
-
-class UpdateModelProtocolRequest(BaseModel):
-    provider_id: str
-    model_id: str
-    protocol: Optional[str] = None
 
 
 @app.get("/")
@@ -771,10 +704,6 @@ async def add_provider(request: ProviderRequest):
     if not success:
         raise HTTPException(status_code=400, detail=message)
     
-    # 同步更新 provider_manager 内存状态
-    from src.config import ProviderConfig
-    provider_manager.register(ProviderConfig(**provider_data))
-    
     log_manager.log(
         level=LogLevel.INFO,
         log_type="admin",
@@ -886,6 +815,11 @@ async def test_mapping_health(unified_name: str):
         raise HTTPException(status_code=404, detail="映射不存在")
     
     results = await model_health_manager.test_mapping_models(mapping.resolved_models)
+    
+    # 更新 Provider 状态
+    for res in results:
+        provider_manager.update_model_health_from_test(res.provider, res.model, res.success, res.error)
+
     success_count = sum(1 for r in results if r.success)
     
     return {
@@ -900,6 +834,10 @@ async def test_mapping_health(unified_name: str):
 async def test_single_model_health(request: TestSingleModelRequest):
     """检测单个模型"""
     result = await model_health_manager.test_single_model(request.provider_id, request.model)
+    
+    # 更新 Provider 状态
+    provider_manager.update_model_health_from_test(result.provider, result.model, result.success, result.error)
+    
     return result.to_dict()
 
 
@@ -1097,12 +1035,6 @@ async def update_provider(provider_id: str, request: UpdateProviderRequest):
     if not success:
         raise HTTPException(status_code=400, detail=message)
 
-    # 同步更新 provider_manager 内存状态
-    from src.config import ProviderConfig
-    provider_state = provider_manager.get(provider_id)
-    if provider_state:
-        provider_state.config = ProviderConfig(**provider)
-
     return {"status": "success", "message": message}
 
 
@@ -1113,10 +1045,6 @@ async def delete_provider(provider_id: str):
     success, message = admin_manager.delete_provider(provider_id)
     if not success:
         raise HTTPException(status_code=404, detail=message)
-
-    # 同步更新 provider_manager 内存状态
-    if provider_id in provider_manager._providers:
-        del provider_manager._providers[provider_id]
 
     provider_name = provider.get("name", provider_id) if provider else provider_id
     log_manager.log(

@@ -2,6 +2,8 @@ from typing import Optional
 
 from .sqlite_repos import ProviderRepo
 from .provider_models import provider_models_manager
+from .provider import provider_manager
+from .config import ProviderConfig
 
 
 class AdminManager:
@@ -58,6 +60,9 @@ class AdminManager:
             # 2. 再处理模型同步
             self._handle_manual_models(provider_id, provider_data.get("name"), manual_models)
 
+            # 3. 同步更新内存状态
+            provider_manager.register(ProviderConfig(**provider_data))
+
             return True, "添加成功", provider_id
         except Exception as e:
             return False, str(e), None
@@ -76,6 +81,14 @@ class AdminManager:
             # 2. 处理模型同步
             self._handle_manual_models(provider_id, provider_data.get("name"), manual_models)
 
+            # 3. 同步更新内存状态
+            provider_state = provider_manager.get(provider_id)
+            if provider_state:
+                # 获取完整数据以确保配置完整性
+                full_provider_data = self._providers.get_by_id(provider_id)
+                if full_provider_data:
+                    provider_state.config = ProviderConfig(**full_provider_data)
+
             return True, "更新成功"
         except Exception as e:
             return False, str(e)
@@ -87,6 +100,10 @@ class AdminManager:
                 return False, f"Provider ID '{provider_id}' 不存在"
             
             # Note: Provider models cleanup should be handled by foreign key cascade in SQLite
+            
+            # 同步更新内存状态
+            provider_manager.deregister(provider_id)
+
             return True, "删除成功"
         except Exception as e:
             return False, str(e)

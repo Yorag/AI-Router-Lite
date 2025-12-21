@@ -90,7 +90,6 @@ class ConfigManager:
         if self._config is None:
             return self.load()
         return self._config
-        return self._config
 
 
 config_manager = ConfigManager()
