@@ -852,7 +852,7 @@ async def sync_single_provider_models(provider_id: str):
             }
         }
     else:
-        raise HTTPException(status_code=500, detail="从远程服务站获取模型列表失败，请检查日志")
+        raise HTTPException(status_code=500, detail="从远程服务站获取模型列表失败")
 
 
 @app.get("/api/providers/runtime-states")

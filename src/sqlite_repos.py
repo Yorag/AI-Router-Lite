@@ -8,7 +8,7 @@ from typing import Any, Optional, Dict, List, Generator
 from cryptography.fernet import InvalidToken
 
 from .db import connect_sqlite, get_db_paths, get_fernet
-from .constants import LOG_RETENTION_DAYS, PROXY_ERROR_MESSAGE_MAX_LENGTH
+from .constants import LOG_RETENTION_DAYS, PROXY_ERROR_MESSAGE_MAX_LENGTH, DEFAULT_TIMEZONE_OFFSET
 
 
 def _now_ms() -> int:
@@ -477,75 +477,41 @@ class LogRepo:
     def get_stats(self, date_str: Optional[str] = None, tag: Optional[str] = None) -> dict:
         """
         Get aggregated stats from logs.db
+        Refactored to use efficient aggregation (similar to get_daily_stats)
         """
+        # 1. Build Filter Conditions
+        where_clauses = ["type = 'proxy'"]
+        params = []
+        
+        if date_str:
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                start_ms = int(dt.timestamp() * 1000)
+                end_ms = int((dt + timedelta(days=1)).timestamp() * 1000)
+                where_clauses.append("timestamp_ms >= ? AND timestamp_ms < ?")
+                params.extend([start_ms, end_ms])
+            except ValueError:
+                pass
+        
+        if tag:
+            key_id = None
+            with get_db_cursor(self._paths.app_db_path) as app_cur:
+                app_cur.execute("SELECT key_id FROM api_keys WHERE name = ?", (tag,))
+                row = app_cur.fetchone()
+                if row:
+                    key_id = row["key_id"]
+            
+            if key_id:
+                where_clauses.append("api_key_id = ?")
+                params.append(key_id)
+            else:
+                where_clauses.append("1=0")
+        
+        where_sql = " AND ".join(where_clauses)
+        
         with get_db_cursor(self._paths.logs_db_path) as cur:
-            where_clauses = ["type = 'proxy'"]
-            params = []
-            
-            if date_str:
-                try:
-                    dt = datetime.strptime(date_str, "%Y-%m-%d")
-                    start_ms = int(dt.timestamp() * 1000)
-                    end_ms = int((dt + timedelta(days=1)).timestamp() * 1000)
-                    where_clauses.append("timestamp_ms >= ? AND timestamp_ms < ?")
-                    params.extend([start_ms, end_ms])
-                except ValueError:
-                    pass
-            
-            # Tag filtering logic
-            if tag:
-                # Need to look up key_id from tag (name) in app.db
-                # This is cross-DB, so we do it in two steps.
-                key_id = None
-                with get_db_cursor(self._paths.app_db_path) as app_cur:
-                    app_cur.execute("SELECT key_id FROM api_keys WHERE name = ?", (tag,))
-                    row = app_cur.fetchone()
-                    if row:
-                        key_id = row["key_id"]
-                
-                if key_id:
-                    where_clauses.append("api_key_id = ?")
-                    params.append(key_id)
-                else:
-                    # Tag not found, so no logs match
-                    where_clauses.append("1=0")
-            
-            where_sql = " AND ".join(where_clauses)
-            
-            # Total requests
-            cur.execute(f"SELECT COUNT(*) FROM request_logs WHERE {where_sql}", params)
-            total_requests = cur.fetchone()[0]
-            
-            # Total tokens
-            cur.execute(f"SELECT SUM(total_tokens) FROM request_logs WHERE {where_sql}", params)
-            total_tokens = cur.fetchone()[0] or 0
-            
-            # Success rate
-            cur.execute(f"SELECT COUNT(*) FROM request_logs WHERE {where_sql} AND status_code = 200", params)
-            successful_requests = cur.fetchone()[0]
-            
-            # Provider usage
-            cur.execute(f"SELECT provider_id, COUNT(*) FROM request_logs WHERE {where_sql} GROUP BY provider_id", params)
-            provider_usage = {r[0]: r[1] for r in cur.fetchall() if r[0]}
-            
-            # Model usage
-            cur.execute(f"SELECT unified_model, COUNT(*) FROM request_logs WHERE {where_sql} GROUP BY unified_model", params)
-            model_usage = {r[0]: r[1] for r in cur.fetchall() if r[0]}
-
-            # Hourly requests (for trend chart)
-            # SQLite strftime %H returns 00-23
-            hourly_requests = {}
-            if date_str:
-                # If filtering by specific date, group by hour
-                cur.execute(
-                    f"SELECT strftime('%H', timestamp_ms / 1000, 'unixepoch', 'localtime') as hour, COUNT(*) FROM request_logs WHERE {where_sql} GROUP BY hour",
-                    params
-                )
-                for r in cur.fetchall():
-                    hourly_requests[r[0]] = r[1]
-            
-            # Provider-Model stats (for provider status list)
-            # provider_id -> model -> {total, successful, failed, tokens}
+            # 2. Main Aggregation Query (Provider & Model stats)
+            # This single query replaces 5 separate queries (Total, Tokens, Success, Provider Usage, Model Usage, Provider-Model Stats)
             cur.execute(
                 f"""
                 SELECT provider_id, unified_model,
@@ -558,37 +524,65 @@ class LogRepo:
                 """,
                 params
             )
-            
+            rows = cur.fetchall()
+
+            # 3. Process Main Aggregation Results
+            total_requests = 0
+            total_tokens = 0
+            successful_requests = 0
+            provider_usage = {}
+            model_usage = {}
             provider_model_stats = {}
             model_provider_stats = {}
 
-            for r in cur.fetchall():
+            for r in rows:
                 pid = r["provider_id"]
                 model = r["unified_model"]
+                total = r["total"]
+                success = r["success"]
+                tokens = r["tokens"] or 0
+
+                # Global Aggregation
+                total_requests += total
+                successful_requests += success
+                total_tokens += tokens
+
+                # Skip invalid rows for detailed stats
                 if not pid or not model:
                     continue
+
+                # Provider Usage
+                provider_usage[pid] = provider_usage.get(pid, 0) + total
                 
-                # provider -> model -> stats
+                # Model Usage
+                model_usage[model] = model_usage.get(model, 0) + total
+
+                # Detailed Stats Construction
                 if pid not in provider_model_stats:
                     provider_model_stats[pid] = {}
-                
-                # model -> provider -> stats
                 if model not in model_provider_stats:
                     model_provider_stats[model] = {}
 
-                total = r["total"]
-                success = r["success"]
-                
                 stats_obj = {
                     "total": total,
                     "successful": success,
                     "failed": total - success,
-                    "tokens": r["tokens"] or 0
+                    "tokens": tokens
                 }
                 
                 provider_model_stats[pid][model] = stats_obj
                 model_provider_stats[model][pid] = stats_obj
-            
+
+            # 4. Hourly Trends Query (Only if date filter is active)
+            hourly_requests = {}
+            if date_str:
+                cur.execute(
+                    f"SELECT strftime('%H', timestamp_ms / 1000, 'unixepoch', 'localtime') as hour, COUNT(*) FROM request_logs WHERE {where_sql} GROUP BY hour",
+                    params
+                )
+                for r in cur.fetchall():
+                    hourly_requests[r[0]] = r[1]
+
             return {
                 "total_requests": total_requests,
                 "total_tokens": total_tokens,
@@ -602,15 +596,21 @@ class LogRepo:
             }
 
     def get_daily_stats(self, days: int = 7, tag: Optional[str] = None) -> list[dict]:
-        end_dt = datetime.now()
-        start_dt = end_dt - timedelta(days=days)
-        start_ms = int(start_dt.timestamp() * 1000)
+        # 1. Determine date range
+        _TZ = timezone(timedelta(hours=DEFAULT_TIMEZONE_OFFSET))
         
-        params = [start_ms]
+        end_dt = datetime.now(_TZ)
+        # We want to include the full current day, so we go back `days-1` full days,
+        # and then to the start of that day.
+        start_dt = end_dt - timedelta(days=days - 1)
+        start_dt = start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_ms = int(start_dt.timestamp() * 1000)
+
+        # 2. Handle tag filtering
+        params: list[Any] = [start_ms]
         where_sql = "type = 'proxy' AND timestamp_ms >= ?"
         
         if tag:
-             # Look up key_id from tag (name) in app.db
             key_id = None
             with get_db_cursor(self._paths.app_db_path) as app_cur:
                 app_cur.execute("SELECT key_id FROM api_keys WHERE name = ?", (tag,))
@@ -622,32 +622,89 @@ class LogRepo:
                 where_sql += " AND api_key_id = ?"
                 params.append(key_id)
             else:
+                # If tag is specified but not found, return no results
                 where_sql += " AND 1=0"
 
+        # 3. Comprehensive SQL query
         with get_db_cursor(self._paths.logs_db_path) as cur:
             sql = f"""
                 SELECT
                     strftime('%Y-%m-%d', timestamp_ms / 1000, 'unixepoch', 'localtime') as day,
-                    COUNT(*) as count,
-                    SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) as success,
+                    provider_id,
+                    unified_model,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) as successful,
                     SUM(total_tokens) as tokens
                 FROM request_logs
-                WHERE {where_sql}
-                GROUP BY day
+                WHERE {where_sql} AND provider_id IS NOT NULL AND unified_model IS NOT NULL
+                GROUP BY day, provider_id, unified_model
                 ORDER BY day
             """
             cur.execute(sql, params)
             rows = cur.fetchall()
-            
-            return [
-                {
-                    "date": r[0],
-                    "requests": r[1],
-                    "success": r[2],
-                    "tokens": r[3] or 0
+
+        # 4. Process results in Python
+        provider_repo = ProviderRepo()
+        provider_map = provider_repo.get_id_name_map()
+        daily_aggregated_data = {}
+
+        for r in rows:
+            day_str = r["day"]
+            provider_id = r["provider_id"]
+            model = r["unified_model"]
+            provider_name = provider_map.get(provider_id, provider_id)
+
+            if day_str not in daily_aggregated_data:
+                daily_aggregated_data[day_str] = {
+                    "date": day_str,
+                    "total_requests": 0,
+                    "successful_requests": 0,
+                    "total_tokens": 0,
+                    "model_usage": {},
+                    "provider_model_stats": {},
+                    "model_provider_stats": {},
                 }
-                for r in rows
-            ]
+
+            day_data = daily_aggregated_data[day_str]
+            
+            total = r["total"]
+            successful = r["successful"]
+            tokens = r["tokens"] or 0
+
+            day_data["total_requests"] += total
+            day_data["successful_requests"] += successful
+            day_data["total_tokens"] += tokens
+            day_data["model_usage"][model] = day_data["model_usage"].get(model, 0) + total
+
+            if provider_name not in day_data["provider_model_stats"]:
+                day_data["provider_model_stats"][provider_name] = {}
+            if model not in day_data["model_provider_stats"]:
+                day_data["model_provider_stats"][model] = {}
+
+            stats_obj = {"total": total, "successful": successful, "failed": total - successful, "tokens": tokens}
+            day_data["provider_model_stats"][provider_name][model] = stats_obj
+            day_data["model_provider_stats"][model][provider_name] = stats_obj
+
+        # 5. Generate final list, filling in missing days
+        result = []
+        for i in range(days):
+            current_dt = end_dt - timedelta(days=i)
+            date_str = current_dt.strftime("%Y-%m-%d")
+            
+            if date_str in daily_aggregated_data:
+                result.append(daily_aggregated_data[date_str])
+            else:
+                result.append({
+                    "date": date_str,
+                    "total_requests": 0,
+                    "successful_requests": 0,
+                    "total_tokens": 0,
+                    "model_usage": {},
+                    "provider_model_stats": {},
+                    "model_provider_stats": {},
+                })
+                
+        return result[::-1]
 
 
 class ProviderModelsRepo:
