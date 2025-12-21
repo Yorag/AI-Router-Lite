@@ -482,25 +482,8 @@ const ModelMap = {
                 } else {
                     tooltipContent = '';
                 }
-            } else if (healthResult && !healthResult.success) {
-                // 健康检测失败
-                healthClass = 'health-error';
-                // healthResult.error 已包含完整错误信息（如 "HTTP 403: {...}"），无需重复添加 response_body
-                if (healthResult.error) {
-                    tooltipContent = `${healthResult.error}`;
-                } else if (healthResult.response_body) {
-                    // 仅当没有 error 字段时才显示 response_body
-                    try {
-                        tooltipContent = JSON.stringify(healthResult.response_body);
-                    } catch (e) {
-                        tooltipContent = '检测失败';
-                    }
-                } else {
-                    tooltipContent = '检测失败';
-                }
-                // 失败的模型点击可以重新检测
-                clickAction = `ModelMap.testSingleModelSilent(this, '${providerId}', '${model}')`;
             }
+            // 注：健康检测失败会触发熔断，显示为 cooling 状态（橙色），不再单独显示红色
         }
         
         // 获取协议配置状态

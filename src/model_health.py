@@ -11,6 +11,7 @@ from .sqlite_repos import ModelHealthRepo
 from .provider_models import provider_models_manager
 from .model_mapping import model_mapping_manager
 from .protocols import get_protocol
+from .provider import provider_manager
 
 
 @dataclass
@@ -236,6 +237,11 @@ class ModelHealthManager:
         self._repo.upsert_result(result.to_dict())
         
         provider_models_manager.update_activity(provider_id, model, "health_test")
+        
+        # 健康检测失败时触发模型级熔断（与被动检测行为一致）
+        provider_manager.update_model_health_from_test(
+            provider_id, model, result.success, result.error
+        )
         
         return result
 

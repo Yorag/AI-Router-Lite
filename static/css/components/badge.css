@@ -42,12 +42,7 @@
     color: var(--success-color);
 }
 
-/* 异常状态 - 红色 */
-.model-tag.health-error {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: var(--danger-color);
-    color: var(--danger-color);
-}
+/* 注：健康检测失败会触发熔断，显示为 cooling 状态（橙色），不再使用红色状态 */
 
 /* 未知状态 - 灰色 (默认可点击检测) */
 .model-tag.health-unknown {
@@ -112,12 +107,7 @@
     border-color: var(--success-color);
 }
 
-/* 异常状态下的协议徽章 */
-.model-tag.health-error .protocol-badge {
-    background: rgba(239, 68, 68, 0.2);
-    color: var(--danger-color);
-    border-color: var(--danger-color);
-}
+/* 注：health-error 已移除，健康检测失败触发熔断显示 cooling */
 
 /* 未知状态下的协议徽章 */
 .model-tag.health-unknown .protocol-badge {
