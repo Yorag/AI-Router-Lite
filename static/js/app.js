@@ -8,6 +8,9 @@ const App = {
     async init() {
         // 初始化导航
         this.initNavigation();
+
+        // 初始化 UI 组件
+        Tooltip.init();
         
         // 初始化所有模块 (一次性)
         if (typeof Dashboard.init === 'function') await Dashboard.init();

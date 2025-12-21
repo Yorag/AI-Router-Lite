@@ -138,7 +138,6 @@
     z-index: 1000;
     width: max-content;
     max-width: min(500px, 90vw);
-    min-width: 120px;
 }
 
 .model-tag.model-more-btn,

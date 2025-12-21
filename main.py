@@ -718,14 +718,25 @@ async def add_provider(request: ProviderRequest):
 async def get_all_provider_models():
     """获取所有 Provider 的模型列表 (DB SSOT)"""
     all_providers = admin_manager.list_providers()
-    all_models_map = provider_models_manager.get_all_provider_models_map()
+    # Get full provider models info (including owned_by, endpoints, etc.)
+    all_providers_models = provider_models_manager.get_all_providers()
     
     response_data = {}
     for p in all_providers:
         pid = p["id"]
+        provider_models = all_providers_models.get(pid)
+        
+        models_list = []
+        if provider_models:
+            # Convert ModelInfo objects to dicts
+            for m_info in provider_models.models.values():
+                model_dict = m_info.to_dict()
+                model_dict['id'] = m_info.model_id
+                models_list.append(model_dict)
+        
         response_data[pid] = {
             "provider_name": p["name"],
-            "models": all_models_map.get(pid, [])
+            "models": models_list
         }
         
     return {"provider_models": response_data}

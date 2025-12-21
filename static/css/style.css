@@ -15,6 +15,7 @@
 @import 'components/toggle.css';
 @import 'components/tag-input.css';
 @import 'components/collapsible.css';
+@import 'components/tooltip.css';
 
 /* ==================== 页面特定样式 ==================== */
 @import 'pages/dashboard.css';

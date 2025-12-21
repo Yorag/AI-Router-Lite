@@ -181,8 +181,8 @@ const Dashboard = {
             const providerModelsStats = rangeStats[providerName];
             const currentStats = providerRangeStats[providerName] || { total: 0, successful: 0 };
             
-            const tooltip = this.getProviderStatsTooltip(providerModelsStats);
-            const tooltipAttr = tooltip ? `data-tooltip="${tooltip}"` : '';
+            const tooltipContent = this.getProviderStatsTooltip(providerModelsStats);
+            const tooltipAttr = tooltipContent ? `data-tooltip-content="${tooltipContent}"` : '';
             
             // 生成健康状态圆点
             const healthDotHtml = ProviderHealth.renderDot(info);
@@ -211,37 +211,6 @@ const Dashboard = {
                 </div>
             </div>
         `}).join('');
-    },
-
-    /**
-     * 渲染健康状态圆点 (Dashboard 专用版本)
-     * @param {Object} info - Provider 统计信息对象
-     * @returns {string} HTML 字符串
-     */
-    renderHealthDot(info) {
-        const isEnabled = info.enabled !== false; // 默认为 true
-        const status = info.status;
-        
-        // 手动禁用优先级最高
-        if (!isEnabled) {
-            return `<span class="provider-health-dot disabled" data-tooltip="已禁用"></span>`;
-        }
-        
-        // 检查运行时状态
-        if (status === 'permanently_disabled') {
-            const reason = this.formatCooldownReason(info.cooldown_reason);
-            const error = info.last_error ? `&#10;错误: ${info.last_error}` : '';
-            return `<span class="provider-health-dot permanently_disabled" data-tooltip="已熔断: ${reason}${error}"></span>`;
-        }
-        
-        if (status === 'cooling') {
-            const reason = this.formatCooldownReason(info.cooldown_reason);
-            const remaining = info.cooldown_remaining || '0s';
-            return `<span class="provider-health-dot cooling" data-tooltip="冷却中: ${reason} (${remaining})"></span>`;
-        }
-        
-        // 健康状态
-        return `<span class="provider-health-dot healthy" data-tooltip="运行正常"></span>`;
     },
 
     /**
@@ -321,9 +290,9 @@ const Dashboard = {
 
         // 格式化每一行
         return statsList.map(m =>
-            `${m.name} 请求: ${m.total} 成功率: ${m.successRate} Tokens: ${Utils.formatNumber(m.tokens || 0)}`
-        ).join('&#10;');
-    },
+           `<div><span class='mono'>${m.name}: ${m.total} req, ${m.successRate}, ${Utils.formatNumber(m.tokens || 0)}</span></div>`
+       ).join('');
+   },
 
     initCharts() {
         // 请求趋势图
@@ -407,67 +376,37 @@ const Dashboard = {
                         },
                         // 使用外部 Tooltip
                         tooltip: {
-                            enabled: false,
-                            external: function(context) {
-                                // Tooltip Element
-                                let tooltipEl = document.getElementById('chartjs-tooltip');
-
-                                // Create element on first render
-                                if (!tooltipEl) {
-                                    tooltipEl = document.createElement('div');
-                                    tooltipEl.id = 'chartjs-tooltip';
-                                    tooltipEl.classList.add('custom-tooltip');
-                                    document.body.appendChild(tooltipEl);
-                                }
-
-                                // Hide if no tooltip
-                                const tooltipModel = context.tooltip;
-                                if (tooltipModel.opacity === 0) {
-                                    tooltipEl.style.opacity = 0;
-                                    return;
-                                }
-
-                                // Set Text
-                                if (tooltipModel.body) {
-                                    const titleLines = tooltipModel.title || [];
-                                    const bodyLines = tooltipModel.body.map(b => b.lines);
-
-                                    let innerHtml = '';
-
-                                    titleLines.forEach(function(title) {
-                                        innerHtml += '<div style="font-weight: 600; margin-bottom: 4px;">' + title + '</div>';
-                                    });
-
-                                    bodyLines.forEach(function(body, i) {
-                                        // Chart.js may return body as an array of strings if callbacks.label returns an array
-                                        // But here callbacks.label returns an array of strings (one per provider),
-                                        // so bodyLines is an array of arrays if we have multiple datasets, or just an array of strings.
-                                        // Let's handle it safely.
-                                        // Handle potential string or array, and split by our custom separator
-                                        const rawLines = Array.isArray(body) ? body : [body];
-                                        const lines = rawLines.flatMap(l => l.split('|||'));
-                                        
-                                        lines.forEach(line => {
-                                            if (line.trim()) {
-                                                innerHtml += '<div>' + line + '</div>';
-                                            }
-                                        });
-                                    });
-
-                                    tooltipEl.innerHTML = innerHtml;
-                                }
-
-                                const position = context.chart.canvas.getBoundingClientRect();
-
-                                // Display, position, and set styles for font
-                                tooltipEl.style.opacity = 1;
-                                tooltipEl.style.position = 'absolute';
-                                tooltipEl.style.left = position.left + window.pageXOffset + tooltipModel.caretX + 'px';
-                                tooltipEl.style.top = position.top + window.pageYOffset + tooltipModel.caretY + 'px';
-                                tooltipEl.style.pointerEvents = 'none';
-                            },
+                            enabled: false, // Disable native tooltips
+                            external: Tooltip.externalTooltipHandler, // Use our custom handler
                             callbacks: {
-                                label: () => ''
+                                // This callback generates the content that externalTooltipHandler will receive
+                                title: (context) => {
+                                    const first = context && context.length ? context[0] : null;
+                                    const modelName = first ? first.label : '';
+                                    const total = first ? first.raw : 0;
+                                    return modelName ? `${modelName} (Total: ${total})` : '';
+                                },
+                                label: (context) => {
+                                    const modelName = context.label;
+                                    const total = context.raw;
+                                    // The modelProviderStats data needs to be accessible here.
+                                    // We'll retrieve it from the chart object itself.
+                                    const modelProviderStats = context.chart.options.plugins.tooltip.modelProviderStats || {};
+                                    const providers = modelProviderStats[modelName] || {};
+                                    
+                                    const providerList = Object.entries(providers)
+                                        .sort((a, b) => b[1].total - a[1].total);
+                                    
+                                    if (providerList.length === 0) {
+                                        return 'No provider data for this model.';
+                                    }
+
+                                    return providerList.map(([providerName, stats]) => {
+                                        const percentage = total > 0 ? ((stats.total / total) * 100).toFixed(1) : '0.0';
+                                        const successRate = stats.total > 0 ? ((stats.successful / stats.total) * 100).toFixed(1) : '0.0';
+                                        return `- ${providerName}: ${stats.total} (${percentage}%, Success: ${successRate}%)`;
+                                    }).join('\n'); // Use newline, external handler will format it
+                                }
                             }
                         }
                     }
@@ -568,28 +507,8 @@ const Dashboard = {
             this.modelUsageChart.data.datasets[0].data = counts;
         }
         
-        // 更新 Tooltip 回调所需的数据
-        this.modelUsageChart.options.plugins.tooltip.displayColors = false;
-        this.modelUsageChart.options.plugins.tooltip.callbacks.title = (context) => {
-            const first = context && context.length ? context[0] : null;
-            const modelName = first ? first.label : '';
-            const total = first ? first.raw : 0;
-            return modelName ? [`${modelName} (Total: ${total})`] : [];
-        };
-        this.modelUsageChart.options.plugins.tooltip.callbacks.label = (context) => {
-            const modelName = context.label;
-            const total = context.raw;
-            const providers = modelProviderStats[modelName] || {};
-            
-            const providerList = Object.entries(providers)
-                .sort((a, b) => b[1].total - a[1].total); // 按调用量降序
-            
-            return providerList.map(([providerName, stats]) => {
-                const percentage = total > 0 ? ((stats.total / total) * 100).toFixed(1) : '0.0';
-                const successRate = stats.total > 0 ? ((stats.successful / stats.total) * 100).toFixed(1) : '0.0';
-                return `- ${providerName}: ${stats.total} (${percentage}%, Success: ${successRate}%)`;
-            }).join('|||'); // Join with special separator to ensure single string passed to external tooltip, then split there
-        };
+        // 将 modelProviderStats 附加到图表选项中，以便回调可以访问它
+        this.modelUsageChart.options.plugins.tooltip.modelProviderStats = modelProviderStats;
         
         this.modelUsageChart.update();
     }

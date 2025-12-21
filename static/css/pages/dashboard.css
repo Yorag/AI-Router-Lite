@@ -153,42 +153,6 @@
     text-align: right;
 }
 
-/* Provider 统计信息 Tooltip */
-.provider-status-item[data-tooltip] {
-    position: relative;
-}
-
-.provider-status-item[data-tooltip]:hover::after {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 8px 12px;
-    background: #1e293b;
-    color: #cbd5e1;
-    border-radius: var(--border-radius-sm);
-    font-size: 0.75rem;
-    font-family: 'JetBrains Mono', monospace;
-    white-space: pre-wrap;
-    z-index: 1000;
-    margin-bottom: 8px;
-    box-shadow: var(--shadow-md);
-    pointer-events: none;
-    text-align: left;
-    min-width: max-content;
-}
-
-/* Chart.js External Tooltip */
-#chartjs-tooltip {
-    opacity: 0;
-    position: absolute;
-    transition: all 0.1s ease;
-    transform: translate(-50%, 0);
-    pointer-events: none;
-}
-
-/* 通用 Tooltip 样式 (DRY) - 用于 Chart.js tooltip 内部 */
 /* ==================== 统计范围控制 ==================== */
 
 .stats-range-control {
@@ -215,19 +179,6 @@
     border-color: var(--primary-light);
 }
 
-.custom-tooltip {
-    padding: 8px 12px;
-    background: #1e293b;
-    border-radius: var(--border-radius-sm);
-    font-size: 0.75rem;
-    white-space: pre-wrap;
-    word-break: break-word;
-    text-align: left;
-    color: #e2e8f0;
-    box-shadow: var(--shadow-md);
-    pointer-events: none;
-    z-index: 1000;
-}
 
 @media (max-width: 1200px) {
     .stats-grid {

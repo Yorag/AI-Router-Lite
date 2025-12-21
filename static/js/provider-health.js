@@ -59,20 +59,20 @@ const ProviderHealth = {
         var n = this.normalize(input);
 
         if (!n.enabled) {
-            return '<span class="provider-health-dot disabled" data-tooltip="' + this.escapeAttr(disabledTooltip) + '"></span>';
+            return `<span class="provider-health-dot disabled" data-tooltip-content="${this.escapeAttr(disabledTooltip)}"></span>`;
         }
         if (n.status === 'permanently_disabled') {
-            var reason = this.formatCooldownReason(n.cooldown_reason);
-            var error = n.last_error ? '\n错误: ' + this.escapeAttr(n.last_error) : '';
-            return '<span class="provider-health-dot permanently_disabled" data-tooltip="已熔断: ' + this.escapeAttr(reason) + error + '"></span>';
+            const reason = this.formatCooldownReason(n.cooldown_reason);
+            const error = n.last_error ? `<br>错误: ${this.escapeAttr(n.last_error)}` : '';
+            return `<span class="provider-health-dot permanently_disabled" data-tooltip-content="已熔断: ${this.escapeAttr(reason)}${error}"></span>`;
         }
         if (n.status === 'cooling') {
-            var reason2 = this.formatCooldownReason(n.cooldown_reason);
-            var remaining = n.cooldown_remaining || '0s';
-            return '<span class="provider-health-dot cooling" data-tooltip="冷却中: ' + this.escapeAttr(reason2) + ' (' + this.escapeAttr(remaining) + ')"></span>';
+            const reason2 = this.formatCooldownReason(n.cooldown_reason);
+            const remaining = n.cooldown_remaining || '0s';
+            return `<span class="provider-health-dot cooling" data-tooltip-content="冷却中: ${this.escapeAttr(reason2)} (${this.escapeAttr(remaining)})"></span>`;
         }
         if (showHealthyTooltip) {
-            return '<span class="provider-health-dot healthy" data-tooltip="' + this.escapeAttr(healthyTooltip) + '"></span>';
+            return `<span class="provider-health-dot healthy" data-tooltip-content="${this.escapeAttr(healthyTooltip)}"></span>`;
         }
         return '<span class="provider-health-dot healthy"></span>';
     }

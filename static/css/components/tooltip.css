@@ -1,0 +1,28 @@
+/* ==================== Tooltip Component ==================== */
+
+.tooltip-box {
+    position: absolute;
+    padding: 8px 12px;
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: var(--border-radius-sm);
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+    z-index: 1000;
+    box-shadow: var(--shadow-md);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    text-align: left;
+    max-width: 600px;
+    word-break: break-word;
+}
+
+.tooltip-box.visible {
+    opacity: 1;
+}
+
+/* For monospaced content inside the tooltip */
+.tooltip-box .mono {
+    font-family: 'JetBrains Mono', monospace;
+}
