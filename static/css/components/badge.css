@@ -33,6 +33,61 @@
     color: var(--info-color);
 }
 
+/* ==================== 模型标签健康状态样式 ==================== */
+
+/* 健康状态 - 绿色 */
+.model-tag.health-success {
+    background: rgba(34, 197, 94, 0.1);
+    border-color: var(--success-color);
+    color: var(--success-color);
+}
+
+/* 异常状态 - 红色 */
+.model-tag.health-error {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: var(--danger-color);
+    color: var(--danger-color);
+}
+
+/* 未知状态 - 灰色 (默认可点击检测) */
+.model-tag.health-unknown {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.model-tag.health-unknown:hover {
+    border-color: var(--primary-light);
+    background: rgba(59, 130, 246, 0.05);
+}
+
+/* 冷却状态 - 橙色 */
+.model-tag.health-cooling {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: var(--warning-color);
+    color: var(--warning-color);
+}
+
+/* 永久禁用状态 - 深灰色 */
+.model-tag.health-disabled {
+    background: rgba(100, 116, 139, 0.1);
+    border-color: #64748b;
+    color: #64748b;
+    cursor: not-allowed;
+}
+
+/* Provider 被禁用时的模型标签 */
+.model-tag.provider-disabled-model {
+    background: rgba(100, 116, 139, 0.05);
+    border-color: var(--border-color);
+    color: var(--text-muted);
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* ==================== 协议徽章样式 ==================== */
+
 /* 协议徽章（模型标签上的小标签）- 颜色随父模型标签健康状态变化 */
 .protocol-badge {
     display: inline-flex;

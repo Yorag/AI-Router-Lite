@@ -382,8 +382,7 @@ const ModelMap = {
                             <div class="provider-models ${providerDisabledClass}">
                                 <span class="provider-name">
                                     ${providerName}
-                                    <span class="provider-weight" title="权重">(w:${weight})</span>
-                                    ${Utils.renderProtocolTag(providerProtocol, '渠道默认协议')}:
+                                    <span class="provider-weight" title="权重">(w:${weight})</span>:
                                 </span>
                                 <div class="model-tags" oncontextmenu="return ModelMap.showModelContextMenu(event, '${escapedUnifiedName}', '${providerId}')">
                                     ${models.map(model => this.renderModelTag(providerId, model, unifiedName)).join('')}
@@ -452,7 +451,7 @@ const ModelMap = {
                                    runtimeState.cooldown_reason === 'health_check_failed' ? '健康检测失败' : '熔断';
                 tooltipContent = `${reasonText}，冷却中 (${remainingSec}s)`;
                 if (runtimeState.last_error) {
-                    tooltipContent += ` | 错误: ${runtimeState.last_error}`;
+                    tooltipContent += ` | ${runtimeState.last_error}`;
                 }
                 // 熔断中的模型仍可点击重新检测
                 clickAction = `ModelMap.testSingleModelSilent(this, '${providerId}', '${model}')`;
@@ -488,7 +487,7 @@ const ModelMap = {
                 healthClass = 'health-error';
                 // healthResult.error 已包含完整错误信息（如 "HTTP 403: {...}"），无需重复添加 response_body
                 if (healthResult.error) {
-                    tooltipContent = `错误: ${healthResult.error}`;
+                    tooltipContent = `${healthResult.error}`;
                 } else if (healthResult.response_body) {
                     // 仅当没有 error 字段时才显示 response_body
                     try {

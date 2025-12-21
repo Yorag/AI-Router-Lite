@@ -63,7 +63,7 @@ const ProviderHealth = {
         }
         if (n.status === 'permanently_disabled') {
             const reason = this.formatCooldownReason(n.cooldown_reason);
-            const error = n.last_error ? `<br>错误: ${this.escapeAttr(n.last_error)}` : '';
+            const error = n.last_error ? `<br>${this.escapeAttr(n.last_error)}` : '';
             return `<span class="provider-health-dot permanently_disabled" data-tooltip-content="已熔断: ${this.escapeAttr(reason)}${error}"></span>`;
         }
         if (n.status === 'cooling') {
