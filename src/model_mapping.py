@@ -651,6 +651,18 @@ class ModelMappingManager:
             result[uname] = mapping.get_all_models()
         return result
 
+    def get_all_mapped_model_keys(self) -> set[str]:
+        """获取所有被映射规则使用的模型键 (provider_id:model_id)"""
+        self._ensure_loaded()
+        mapped_keys = set()
+        for mapping in self._cache.values():
+            if not mapping.enabled:
+                continue
+            for provider_id, models in mapping.resolved_models.items():
+                for model_id in models:
+                    mapped_keys.add(f"{provider_id}:{model_id}")
+        return mapped_keys
+
     def reorder_mappings(self, ordered_names: list[str]) -> tuple[bool, str]:
         """Reorder mappings based on the provided list of unified names."""
         self._ensure_loaded()

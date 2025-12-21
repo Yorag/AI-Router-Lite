@@ -150,17 +150,36 @@ const Providers = {
     MODEL_DISPLAY_LIMIT: 5,
 
     renderProviderCard(provider) {
-        const models = provider.supported_models || [];
+        const supportedModels = provider.supported_models || [];
+        const mappedSet = new Set(provider.mapped_models || []);
+        
+        // 构造模型对象列表用于排序和渲染
+        const models = supportedModels.map(id => ({
+            id: id,
+            is_mapped: mappedSet.has(id)
+        }));
+
+        // 排序：已映射的模型排在前面，然后按字母顺序排序
+        models.sort((a, b) => {
+            if (a.is_mapped && !b.is_mapped) return -1;
+            if (!a.is_mapped && b.is_mapped) return 1;
+            return a.id.localeCompare(b.id);
+        });
+
         const providerName = provider.name;
         const providerUuid = provider.id;  // UUID 用于 API 调用
         const providerDomId = this.escapeId(providerUuid);  // DOM ID 使用转义后的 UUID
         const allowModelUpdate = provider.allow_model_update !== false;
         
         // 创建模型标签（带能力提示）
-        const createModelTag = (model) => {
-            const tooltip = this.getModelTooltip(providerUuid, model);
+        const createModelTag = (modelObj) => {
+            const modelId = modelObj.id;
+            const isMapped = modelObj.is_mapped;
+            const tooltip = this.getModelTooltip(providerUuid, modelId);
             const tooltipAttr = tooltip ? `data-tooltip="${tooltip}"` : '';
-            return `<span class="model-tag" ${tooltipAttr}>${model}</span>`;
+            const mappedClass = isMapped ? 'mapped-model' : '';
+            
+            return `<span class="model-tag ${mappedClass}" ${tooltipAttr}>${modelId}</span>`;
         };
 
         let modelTagsHtml = '';

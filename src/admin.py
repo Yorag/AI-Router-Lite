@@ -3,6 +3,7 @@ from typing import Optional
 from .sqlite_repos import ProviderRepo
 from .provider_models import provider_models_manager
 from .provider import provider_manager
+from .model_mapping import model_mapping_manager
 from .config import ProviderConfig
 
 
@@ -17,8 +18,21 @@ class AdminManager:
         # Populate supported_models from provider_models table (DB-driven, no HTTP)
         # This is required for frontend compatibility (providers.js)
         provider_models_map = provider_models_manager.get_all_provider_models_map()
+        
+        # Get all mapped model keys for highlighting
+        mapped_keys = model_mapping_manager.get_all_mapped_model_keys()
+        
         for p in providers:
-            p["supported_models"] = provider_models_map.get(p["id"], [])
+            provider_id = p["id"]
+            models = provider_models_map.get(provider_id, [])
+            p["supported_models"] = models
+            
+            # Add mapped_models field for highlighting
+            # Contains list of model IDs that are used in any enabled mapping
+            p["mapped_models"] = [
+                m for m in models
+                if f"{provider_id}:{m}" in mapped_keys
+            ]
         return providers
 
     def get_provider_by_id(self, provider_id: str) -> Optional[dict]:
