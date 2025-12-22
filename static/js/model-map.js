@@ -1258,7 +1258,7 @@ const ModelMap = {
             </form>
         `;
         
-        Modal.show('配置模型协议', content, { width: '500px' });
+        Modal.show('配置模型协议', content, { width: '420px' });
     },
 
     /**
@@ -1360,7 +1360,7 @@ const ModelMap = {
             </form>
         `;
         
-        Modal.show('批量配置模型协议', content, { width: '500px' });
+        Modal.show('批量配置模型协议', content, { width: '420px' });
     },
 
     /**

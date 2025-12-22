@@ -225,6 +225,15 @@
     color: var(--primary-color);
 }
 
+.protocol-config-hint {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
 .resolved-content {
     margin-top: 8px;
 }

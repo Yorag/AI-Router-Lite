@@ -164,6 +164,10 @@ async def sync_all_provider_models_logic() -> dict:
         api_key = p.get("api_key")
         base_url = p.get("base_url")
 
+        # 跳过被禁用的服务站
+        if p.get("enabled") is False:
+            return False
+
         if not p.get("allow_model_update", True):
             return False
         

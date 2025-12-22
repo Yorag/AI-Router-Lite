@@ -30,7 +30,7 @@
     background: var(--bg-secondary);
     border-radius: var(--radius-lg);
     width: 90%;
-    max-width: 480px;
+    max-width: 420px;
     max-height: 80vh;
     overflow: auto;
     box-shadow: var(--shadow-popup);
