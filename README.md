@@ -10,7 +10,7 @@
     <a href="https://python.org"><img alt="Python" src="https://img.shields.io/badge/Python-3.8+-blue?logo=python&logoColor=white"></a>
     <a href="https://fastapi.tiangolo.com/"><img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.104+-05998b?logo=fastapi&logoColor=white"></a>
     <a href="https://github.com/Yorag/AI-Router-Lite/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/Yorag/AI-Router-Lite?color=blue"></a>
-    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.7.1-brightgreen"></a>
+    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.8.0-brightgreen"></a>
   </p>
 </div>
 
@@ -154,7 +154,11 @@ python main.py
   - **架构重构**: 统一状态管理，解耦核心模块，修复循环依赖。
   - **代码规范**: 引入 Pydantic 模型统一管理，优化数据库完整性。
   - **注意**: 从旧版本升级需要运行 `python scripts/migrate_db_v1.py`。
-- [ ] **v0.8 (Protocol Conversion)**: 引入协议转换层，实现将多种 API 格式（如 Anthropic, Gemini）统一为 OpenAI Chat Completions 格式输出。
+- [x] **v0.8 (UI Overhaul)**:
+  - **UI 重构**: 采用 Notion 风格设计系统，全面优化视觉体验。
+  - **Tooltip 系统**: 引入集中式 Tooltip，展示丰富的模型健康数据。
+  - **前端模块化**: 重构前端资源结构，统一工具函数和组件渲染。
+- [ ] **v0.9 (Protocol Conversion)**: 引入协议转换层，实现将多种 API 格式（如 Anthropic, Gemini）统一为 OpenAI Chat Completions 格式输出。
 - [ ] **v1.0**: 完整稳定版本，包含负载均衡优化、完善的文档和测试覆盖。
 
 ## 📄 许可
