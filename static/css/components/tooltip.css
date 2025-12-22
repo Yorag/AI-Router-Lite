@@ -1,28 +1,53 @@
-/* ==================== Tooltip Component ==================== */
+/* ==================== Notion 风格 Tooltip ==================== */
 
 .tooltip-box {
     position: absolute;
-    padding: 8px 12px;
-    background: #1e293b;
-    color: #e2e8f0;
-    border-radius: var(--border-radius-sm);
-    font-size: 0.75rem;
+    padding: 6px 10px;
+    background: var(--notion-default);
+    color: #FFFFFF;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
     white-space: pre-wrap;
-    z-index: 1000;
-    box-shadow: var(--shadow-md);
+    z-index: var(--z-tooltip);
+    box-shadow: var(--shadow-popup);
     pointer-events: none;
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity 0.1s ease;
     text-align: left;
-    max-width: 600px;
+    max-width: 400px;
     word-break: break-word;
+    line-height: var(--leading-normal);
 }
 
 .tooltip-box.visible {
     opacity: 1;
 }
 
-/* For monospaced content inside the tooltip */
 .tooltip-box .mono {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
+}
+
+/* 全局 data-tooltip 属性支持 */
+[data-tooltip] {
+    position: relative;
+}
+
+[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 6px;
+    padding: 6px 10px;
+    background: var(--notion-default);
+    color: #FFFFFF;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
+    white-space: pre-wrap;
+    z-index: var(--z-tooltip);
+    box-shadow: var(--shadow-popup);
+    pointer-events: none;
+    max-width: 300px;
+    word-break: break-word;
 }

@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI-Router-Lite 管理面板</title>
-    <!-- Inter 字体 -->
+    <!-- Notion 风格字体 -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Lora:wght@400;500;600;700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -17,7 +17,7 @@
         <!-- 侧边栏 -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h1> AI-Router</h1>
+                <h1>AI-Router</h1>
                 <!-- 注意：此版本号需与 src/constants.py 中的 APP_VERSION 保持同步 -->
                 <span class="version" id="app-version">v0.7.0</span>
             </div>
@@ -85,29 +85,29 @@
                     <div class="stat-card">
                         <div class="stat-icon"><i class="ri-signal-tower-line"></i></div>
                         <div class="stat-info">
-                            <span class="stat-value" id="stat-providers">-</span>
                             <span class="stat-label">活跃服务站</span>
+                            <span class="stat-value" id="stat-providers">-</span>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon"><i class="ri-ticket-line"></i></div>
                         <div class="stat-info">
-                            <span class="stat-value" id="stat-tokens">-</span>
                             <span class="stat-label">统计 Tokens</span>
+                            <span class="stat-value" id="stat-tokens">-</span>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon"><i class="ri-send-plane-line"></i></div>
                         <div class="stat-info">
-                            <span class="stat-value" id="stat-requests">-</span>
                             <span class="stat-label">统计请求</span>
+                            <span class="stat-value" id="stat-requests">-</span>
                         </div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-icon"><i class="ri-checkbox-circle-line"></i></div>
                         <div class="stat-info">
-                            <span class="stat-value" id="stat-success-rate">-</span>
                             <span class="stat-label">统计成功率</span>
+                            <span class="stat-value" id="stat-success-rate">-</span>
                         </div>
                     </div>
                 </div>

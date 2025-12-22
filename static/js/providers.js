@@ -229,13 +229,11 @@ const Providers = {
                         <div class="provider-name-row">
                             ${healthDotHtml}
                             <h3>${providerName}</h3>
+                            ${Utils.renderProtocolTag(provider.default_protocol)}
                         </div>
                         <div class="url">${provider.base_url}</div>
                     </div>
-                    <div class="provider-badges">
-                        <span class="status-badge info">${statusText}</span>
-                        ${Utils.renderProtocolTag(provider.default_protocol)}
-                    </div>
+                    <span class="status-badge weight-badge">${statusText}</span>
                 </div>
                 
                 <div class="provider-models">

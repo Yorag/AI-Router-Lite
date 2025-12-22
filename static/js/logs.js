@@ -72,7 +72,7 @@ const Logs = {
         const typeHtml = `<span class="log-type-text">${Utils.escapeHtml(log.type)}</span>`;
         
         // Protocol
-        const protocolHtml = log.protocol ? `<span class="log-protocol-tag" title="协议类型">${Utils.escapeHtml(log.protocol)}</span>` : '';
+        const protocolHtml = log.protocol ? `<span class="protocol-tag-mini" title="协议类型">${Utils.escapeHtml(log.protocol)}</span>` : '';
         
         // Content
         let contentHtml = '';
@@ -351,7 +351,7 @@ const Logs = {
     highlightStyle.textContent = `
         @keyframes highlight {
             0% {
-                background-color: rgba(99, 102, 241, 0.3);
+                background-color: rgba(159, 107, 83, 0.3);
             }
             100% {
                 background-color: transparent;

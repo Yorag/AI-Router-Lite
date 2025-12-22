@@ -1,89 +1,100 @@
-/* ==================== 状态标签 ==================== */
+/* ==================== Notion 风格徽章 ==================== */
 
 .status-badge {
     display: inline-flex;
     align-items: center;
-    padding: 4px 10px;
-    border-radius: 9999px;
-    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xs);
     font-weight: 500;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
 }
 
+/* 启用状态 - 绿色仅用于明确的成功状态 */
 .status-badge.enabled,
 .status-badge.healthy,
 .status-badge.success {
-    background: rgba(34, 197, 94, 0.1);
+    background: var(--success-bg);
     color: var(--success-color);
+    border-color: transparent;
 }
 
-.status-badge.disabled,
+/* 禁用/错误状态 - 使用中性灰色而非红色 */
+.status-badge.disabled {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border-color: var(--border-color);
+}
+
 .status-badge.error {
-    background: rgba(239, 68, 68, 0.1);
+    background: var(--danger-bg);
     color: var(--danger-color);
+    border-color: transparent;
 }
 
+/* 冷却/警告状态 - 使用中性灰色 */
 .status-badge.cooling,
 .status-badge.warning {
-    background: rgba(245, 158, 11, 0.1);
-    color: var(--warning-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border-color: var(--border-color);
 }
 
 .status-badge.info {
-    background: rgba(59, 130, 246, 0.1);
-    color: var(--info-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border-color: var(--border-color);
 }
 
-/* ==================== 模型标签健康状态样式 ==================== */
+/* ==================== 模型标签健康状态 - 统一灰色调 ==================== */
 
-/* 健康状态 - 绿色 */
+/* 健康状态 - 微妙的绿色指示 */
 .model-tag.health-success {
-    background: rgba(34, 197, 94, 0.1);
-    border-color: var(--success-color);
-    color: var(--success-color);
+    background: rgba(68, 131, 97, 0.08);
+    border-color: rgba(68, 131, 97, 0.25);
+    color: var(--text-color);
 }
 
-/* 注：健康检测失败会触发熔断，显示为 cooling 状态（橙色），不再使用红色状态 */
-
-/* 未知状态 - 灰色 (默认可点击检测) */
+/* 未知状态 - 默认灰色 */
 .model-tag.health-unknown {
     background: var(--bg-tertiary);
     border-color: var(--border-color);
-    color: var(--text-secondary);
+    color: var(--text-color);
     cursor: pointer;
 }
 
 .model-tag.health-unknown:hover {
-    border-color: var(--primary-light);
-    background: rgba(59, 130, 246, 0.05);
+    background: var(--bg-hover);
+    border-color: var(--border-strong);
 }
 
-/* 冷却状态 - 橙色 */
+/* 冷却状态 - 中性灰色 */
 .model-tag.health-cooling {
-    background: rgba(245, 158, 11, 0.1);
-    border-color: var(--warning-color);
-    color: var(--warning-color);
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-secondary);
 }
 
-/* 永久禁用状态 - 深灰色 */
+/* 禁用状态 - 淡灰色 */
 .model-tag.health-disabled {
-    background: rgba(100, 116, 139, 0.1);
-    border-color: #64748b;
-    color: #64748b;
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+    color: var(--text-muted);
     cursor: not-allowed;
 }
 
-/* Provider 被禁用时的模型标签 */
 .model-tag.provider-disabled-model {
-    background: rgba(100, 116, 139, 0.05);
+    background: var(--bg-tertiary);
     border-color: var(--border-color);
     color: var(--text-muted);
     opacity: 0.6;
     cursor: not-allowed;
 }
 
-/* ==================== 协议徽章样式 ==================== */
+/* ==================== 协议徽章 - 统一灰色 ==================== */
 
-/* 协议徽章（模型标签上的小标签）- 颜色随父模型标签健康状态变化 */
 .protocol-badge {
     display: inline-flex;
     align-items: center;
@@ -91,49 +102,50 @@
     font-weight: 500;
     padding: 1px 4px;
     margin-left: 4px;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     text-transform: uppercase;
-    /* 默认继承父组件颜色 */
-    background: transparent;
-    color: inherit;
-    border: 1px solid currentColor;
-    opacity: 0.85;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
 }
 
-/* 健康状态下的协议徽章 */
 .model-tag.health-success .protocol-badge {
-    background: rgba(34, 197, 94, 0.2);
+    background: rgba(68, 131, 97, 0.1);
     color: var(--success-color);
-    border-color: var(--success-color);
+    border-color: rgba(68, 131, 97, 0.2);
 }
 
-/* 注：health-error 已移除，健康检测失败触发熔断显示 cooling */
-
-/* 未知状态下的协议徽章 */
-.model-tag.health-unknown .protocol-badge {
-    background: rgba(148, 163, 184, 0.2);
-    color: var(--text-secondary);
-    border-color: var(--text-muted);
-}
-
-/* 冷却状态下的协议徽章 */
-.model-tag.health-cooling .protocol-badge {
-    background: rgba(245, 158, 11, 0.2);
-    color: var(--warning-color);
-    border-color: var(--warning-color);
-}
-
-/* 禁用状态下的协议徽章 */
+.model-tag.health-unknown .protocol-badge,
+.model-tag.health-cooling .protocol-badge,
 .model-tag.health-disabled .protocol-badge {
-    background: rgba(100, 116, 139, 0.2);
-    color: #64748b;
-    border-color: #64748b;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border-color: var(--border-color);
 }
 
-/* 未配置协议的警告徽章 - 保持警告色突出显示 */
 .protocol-badge.protocol-none {
-    background: rgba(245, 158, 11, 0.15);
-    color: var(--warning-color);
-    border-color: var(--warning-color);
-    font-size: 0.75rem;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border-color: var(--border-color);
+    font-size: var(--text-xs);
+}
+
+/* ==================== 协议标签 Mini - 通用样式 ==================== */
+
+.protocol-tag-mini {
+    display: inline-flex;
+    align-items: center;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    font-size: 0.625rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+}
+
+.protocol-tag-mini.empty {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
 }

@@ -1,16 +1,61 @@
-/* ==================== 卡片 ==================== */
+/* ==================== Notion 风格卡片 ==================== */
+/* Notion 的卡片非常简洁，几乎无边框，靠背景色区分 */
 
 .card {
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
-    padding: 24px;
-    margin-bottom: 24px;
+    border-radius: var(--radius-md);
+    padding: 20px;
+    margin-bottom: 20px;
 }
 
 .card h3 {
-    font-size: 1rem;
+    font-family: var(--font-display);
+    font-size: var(--text-md);
     font-weight: 600;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
     color: var(--text-color);
+    letter-spacing: -0.01em;
+}
+
+/* 带细微边框的卡片变体 */
+.card.bordered {
+    border: 1px solid var(--border-color);
+}
+
+/* 悬浮效果卡片 */
+.card.hoverable {
+    transition: var(--transition);
+}
+
+.card.hoverable:hover {
+    box-shadow: var(--shadow-md);
+}
+
+/* 帮助文本 */
+.help-text {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    line-height: var(--leading-relaxed);
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--info-color);
+}
+
+/* 空状态 */
+.empty-state {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-muted);
+}
+
+.empty-state i {
+    font-size: 3rem;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.empty-state p {
+    font-size: var(--text-md);
 }

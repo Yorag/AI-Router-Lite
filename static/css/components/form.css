@@ -1,64 +1,101 @@
-/* ==================== 表单 ==================== */
+/* ==================== Notion 风格表单 ==================== */
 
 .form-group {
-    margin-bottom: 20px;
+    margin-bottom: 18px;
 }
 
 .form-group label {
     display: block;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     font-weight: 500;
-    font-size: 0.875rem;
-    color: var(--text-color);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
 }
 
 .form-group input,
 .form-group select,
 .form-group textarea {
     width: 100%;
-    padding: 10px 14px;
+    padding: 8px 10px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: var(--border-radius-sm);
+    border-radius: var(--radius-sm);
     color: var(--text-color);
-    font-size: 0.9375rem;
-    font-family: inherit;
-    transition: var(--transition);
+    font-size: var(--text-sm);
+    font-family: var(--font-ui);
+    transition: var(--transition-fast);
+}
+
+.form-group input:hover,
+.form-group select:hover,
+.form-group textarea:hover {
+    border-color: var(--border-strong);
 }
 
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
     outline: none;
-    border-color: var(--primary-light);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px var(--primary-subtle);
 }
 
 .form-group input::placeholder,
 .form-group textarea::placeholder {
-    color: var(--text-muted);
+    color: var(--text-placeholder);
 }
 
 .form-group textarea {
-    min-height: 100px;
+    min-height: 80px;
     resize: vertical;
+    line-height: var(--leading-relaxed);
 }
 
 .form-group .hint {
     margin-top: 6px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     color: var(--text-muted);
 }
 
+/* 表单操作按钮 */
 .form-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 12px;
-    margin-top: 24px;
-    padding-top: 20px;
-    border-top: 1px solid var(--border-color);
+    gap: 8px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--divider-color);
 }
 
-/* 表单必填标记 */
+/* 必填标记 */
 .required {
     color: var(--danger-color);
+    margin-left: 2px;
+}
+
+/* 内联表单组 */
+.form-row {
+    display: flex;
+    gap: 12px;
+}
+
+.form-row .form-group {
+    flex: 1;
+}
+
+/* 复选框和单选框 */
+.form-checkbox,
+.form-radio {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: var(--text-sm);
+}
+
+.form-checkbox input,
+.form-radio input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary-color);
 }

@@ -305,8 +305,8 @@ const Dashboard = {
                     datasets: [{
                         label: '请求数',
                         data: [],
-                        borderColor: '#6366f1',
-                        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                        borderColor: '#9F6B53',
+                        backgroundColor: 'rgba(159, 107, 83, 0.1)',
                         fill: true,
                         tension: 0.4
                     }]
@@ -352,14 +352,14 @@ const Dashboard = {
                     datasets: [{
                         data: [],
                         backgroundColor: [
-                            '#6366f1',
-                            '#22c55e',
-                            '#f59e0b',
-                            '#ef4444',
-                            '#3b82f6',
-                            '#8b5cf6',
-                            '#ec4899',
-                            '#14b8a6'
+                            '#9F6B53',
+                            '#448361',
+                            '#CB912F',
+                            '#D9730D',
+                            '#787774',
+                            '#9065B0',
+                            '#C14C8A',
+                            '#337EA9'
                         ]
                     }]
                 },

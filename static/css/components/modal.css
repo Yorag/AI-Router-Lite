@@ -1,4 +1,4 @@
-/* ==================== 模态框 ==================== */
+/* ==================== Notion 风格模态框 ==================== */
 
 .modal-overlay {
     position: fixed;
@@ -6,44 +6,68 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(15, 23, 42, 0.6);
-    backdrop-filter: blur(4px);
+    background: rgba(15, 15, 15, 0.6);
+    backdrop-filter: blur(2px);
     display: none;
     justify-content: center;
-    align-items: center;
-    z-index: 1000;
+    align-items: flex-start;
+    padding-top: 10vh;
+    z-index: var(--z-modal);
+    overflow-y: auto;
 }
 
 .modal-overlay.active {
     display: flex;
+    animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 .modal {
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius-lg);
+    border-radius: var(--radius-lg);
     width: 90%;
-    max-width: 500px;
-    max-height: 90vh;
+    max-width: 480px;
+    max-height: 80vh;
     overflow: auto;
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-popup);
+    animation: slideUp 0.2s ease-out;
 }
 
-/* 宽模态框支持 */
+@keyframes slideUp {
+    from { 
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to { 
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 宽模态框 */
 .modal.wide {
-    max-width: 800px;
+    max-width: 720px;
 }
 
 .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--border-color);
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--divider-color);
+    position: sticky;
+    top: 0;
+    background: var(--bg-secondary);
+    z-index: 1;
 }
 
 .modal-header h3 {
-    font-size: 1.125rem;
+    font-family: var(--font-display);
+    font-size: var(--text-lg);
     font-weight: 600;
     margin: 0;
     color: var(--text-color);
@@ -53,26 +77,33 @@
     background: none;
     border: none;
     color: var(--text-muted);
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     cursor: pointer;
-    padding: 0;
+    padding: 4px;
     line-height: 1;
-    transition: var(--transition);
+    transition: var(--transition-fast);
+    border-radius: var(--radius-sm);
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .modal-close:hover {
+    background: var(--bg-hover);
     color: var(--text-color);
 }
 
 .modal-content {
-    padding: 24px;
+    padding: 20px;
 }
 
 /* 模态框表单网格布局 */
 .modal-form-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 24px;
+    gap: 20px;
 }
 
 .form-left, .form-right {
@@ -80,8 +111,13 @@
     flex-direction: column;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 600px) {
     .modal-form-grid {
         grid-template-columns: 1fr;
+    }
+    
+    .modal {
+        width: 95%;
+        max-height: 85vh;
     }
 }

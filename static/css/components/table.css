@@ -1,4 +1,5 @@
-/* ==================== 表格 ==================== */
+/* ==================== Notion 风格表格 ==================== */
+/* 简洁、干净、无多余装饰 */
 
 .data-table {
     width: 100%;
@@ -7,30 +8,22 @@
 
 .data-table th,
 .data-table td {
-    padding: 14px 16px;
+    padding: 10px 12px;
     text-align: left;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--divider-color);
 }
 
 .data-table th {
-    font-weight: 600;
-    color: var(--text-secondary);
-    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    background: var(--bg-tertiary);
-}
-
-.data-table th:first-child {
-    border-radius: var(--border-radius-sm) 0 0 0;
-}
-
-.data-table th:last-child {
-    border-radius: 0 var(--border-radius-sm) 0 0;
+    letter-spacing: 0.04em;
+    background: transparent;
 }
 
 .data-table tbody tr {
-    transition: var(--transition);
+    transition: var(--transition-fast);
 }
 
 .data-table tbody tr:hover {
@@ -43,5 +36,31 @@
 
 .data-table .actions {
     display: flex;
-    gap: 8px;
+    gap: 4px;
+    opacity: 0;
+    transition: var(--transition-fast);
+}
+
+.data-table tbody tr:hover .actions {
+    opacity: 1;
+}
+
+/* 表格响应式容器 */
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* 单元格内容样式 */
+.data-table .cell-mono {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+}
+
+.data-table .cell-truncate {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }

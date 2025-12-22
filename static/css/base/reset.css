@@ -1,15 +1,75 @@
+/* ==================== Notion 风格重置 ==================== */
+
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
 }
 
+html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+}
+
 body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: var(--font-ui);
     background-color: var(--bg-color);
     color: var(--text-color);
-    line-height: 1.6;
-    font-size: 14px;
+    line-height: var(--leading-normal);
+    font-size: var(--text-base);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "kern" 1, "liga" 1;
+}
+
+/* 标题使用衬线字体 - Notion 特色 */
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text-color);
+}
+
+/* 代码使用等宽字体 */
+code, pre, kbd, samp {
+    font-family: var(--font-mono);
+}
+
+/* 链接样式 */
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+/* 图片响应式 */
+img, svg {
+    max-width: 100%;
+    height: auto;
+    vertical-align: middle;
+}
+
+/* 按钮和输入框重置 */
+button, input, select, textarea {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    color: inherit;
+}
+
+button {
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+/* 列表重置 */
+ul, ol {
+    list-style: none;
+}
+
+/* 表格重置 */
+table {
+    border-collapse: collapse;
+    border-spacing: 0;
 }
