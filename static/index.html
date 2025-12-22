@@ -8,9 +8,24 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Lora:wght@400;500;600;700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css" rel="stylesheet">
+    <link id="remixicon-css" href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" onerror="this.onerror=null;this.src='js/lib/chart.min.js';"></script>
+    <script>
+    // Remixicon CSS fallback
+    setTimeout(function() {
+        var testEl = document.createElement('i');
+        testEl.className = 'ri-home-line';
+        testEl.style.cssText = 'position:absolute;visibility:hidden;';
+        document.body.appendChild(testEl);
+        var style = window.getComputedStyle(testEl);
+        if (style.fontFamily.indexOf('remixicon') === -1) {
+            var link = document.getElementById('remixicon-css');
+            link.href = 'css/lib/remixicon.css';
+        }
+        document.body.removeChild(testEl);
+    }, 100);
+    </script>
 </head>
 <body>
     <div class="app-container">
@@ -19,7 +34,7 @@
             <div class="sidebar-header">
                 <h1>AI-Router</h1>
                 <!-- 注意：此版本号需与 src/constants.py 中的 APP_VERSION 保持同步 -->
-                <span class="version" id="app-version">v0.7.0</span>
+                <span class="version" id="app-version">v0.8.0</span>
             </div>
             <nav class="sidebar-nav">
                 <a href="#" class="nav-item active" data-page="dashboard">

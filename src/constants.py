@@ -10,7 +10,7 @@
 APP_NAME: str = "AI-Router-Lite"
 
 # 应用版本
-APP_VERSION: str = "0.7.0"
+APP_VERSION: str = "0.8.0"
 
 # 应用描述
 APP_DESCRIPTION: str = "轻量级 AI 聚合路由 + 管理面板"
