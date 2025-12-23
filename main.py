@@ -122,7 +122,7 @@ async def fetch_remote_models(base_url: str, api_key: str, provider_id: str, pro
                     path="/providers/sync",
                     provider=provider_name,
                     provider_id=provider_id,
-                    message="同步失败: 响应格式不正确",
+                    message="更新失败: 响应格式不正确",
                     error=response.text[:500]
                 )
                 return None
@@ -134,7 +134,7 @@ async def fetch_remote_models(base_url: str, api_key: str, provider_id: str, pro
                     path="/providers/sync",
                     provider=provider_name,
                     provider_id=provider_id,
-                    message=f"同步失败: HTTP {response.status_code}",
+                    message=f"更新失败: HTTP {response.status_code}",
                     error=response.text[:500]
                 )
                 return None
@@ -146,7 +146,7 @@ async def fetch_remote_models(base_url: str, api_key: str, provider_id: str, pro
             path="/providers/sync",
             provider=provider_name,
             provider_id=provider_id,
-            message="同步失败: 网络错误",
+            message="更新失败: 网络错误",
             error=str(e)
         )
         return None
@@ -223,9 +223,9 @@ async def auto_sync_model_mappings_task():
             
             # 如果从未同步过，立即同步
             if not sync_config.last_full_sync:
-                print(f"[AUTO-SYNC] 首次同步，立即执行...")
+                print(f"[AUTO-SYNC] 首次更新，立即执行...")
                 result = await sync_all_provider_models_logic()
-                print(f"[AUTO-SYNC] 完成: 同步了 {result['synced_count']} 个 Provider")
+                print(f"[AUTO-SYNC] 完成: 更新了 {result['synced_count']} 个 Provider")
                 continue
             
             # 解析上次同步时间
@@ -235,7 +235,7 @@ async def auto_sync_model_mappings_task():
                 # 无法解析时间，执行同步
                 print(f"[AUTO-SYNC] 无法解析上次同步时间，立即执行同步...")
                 result = await sync_all_provider_models_logic()
-                print(f"[AUTO-SYNC] 完成: 同步了 {result['synced_count']} 个 Provider")
+                print(f"[AUTO-SYNC] 完成: 更新了 {result['synced_count']} 个 Provider")
                 continue
             
             # 计算目标时间和当前时间
@@ -246,7 +246,7 @@ async def auto_sync_model_mappings_task():
             if current_time >= target_sync_time:
                 print(f"[AUTO-SYNC] 已到达同步时间，开始自动同步...")
                 result = await sync_all_provider_models_logic()
-                print(f"[AUTO-SYNC] 完成: 同步了 {result['synced_count']} 个 Provider")
+                print(f"[AUTO-SYNC] 完成: 更新了 {result['synced_count']} 个 Provider")
 
         except asyncio.CancelledError:
             print(f"[AUTO-SYNC] 任务已取消")
