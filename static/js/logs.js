@@ -133,6 +133,17 @@ const Logs = {
                     </div>
                  `;
              }
+        } else if (log.type === 'auth') {
+            // 认证日志：显示 IP 和消息
+            const ipLabel = log.client_ip ? `<span class="log-ip-tag" title="客户端 IP">${Utils.escapeHtml(log.client_ip)}</span>` : '';
+            const msg = log.message || '';
+
+            contentHtml = `
+                <div class="log-content-row">
+                    ${ipLabel}
+                    <span class="${log.level === 'warning' ? 'log-error-msg' : 'log-msg'}">${Utils.escapeHtml(msg)}</span>
+                </div>
+            `;
         } else if (log.type === 'system') {
             // 系统日志（可能是普通消息或错误）
             let msg = log.error || log.message || '';

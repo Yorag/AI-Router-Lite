@@ -1,7 +1,6 @@
 {
   "server_port": 8000,
   "server_host": "0.0.0.0",
-  "max_retries": 3,
   "request_timeout": 120,
   "db_encryption_key": "请使用 python scripts/gen_fernet_key.py 生成密钥并粘贴到此处"
 }

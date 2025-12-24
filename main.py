@@ -14,10 +14,11 @@ from typing import Optional, Dict
 
 import uvicorn
 import httpx
-from fastapi import FastAPI, HTTPException, Request, Query, Depends
+from fastapi import FastAPI, HTTPException, Request, Query, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from src.config import config_manager, get_config
 from src.constants import (
@@ -57,6 +58,7 @@ from src.model_mapping import model_mapping_manager
 from src.model_health import model_health_manager
 from src.provider_models import provider_models_manager
 from src.protocols import get_protocol, is_supported_protocol
+from src.auth import admin_auth_manager
 
 
 router: ModelRouter = None  # type: ignore
@@ -85,7 +87,6 @@ def print_config_summary():
 
     print(f"[CONFIG] 服务地址: http://{config.server_host}:{config.server_port}")
     print(f"[CONFIG] 管理面板: http://{config.server_host}:{config.server_port}/admin")
-    print(f"[CONFIG] 最大重试次数: {config.max_retries}")
     print(f"[CONFIG] 请求超时: {config.request_timeout}s")
     print(f"[CONFIG] 模型映射: {mappings_count} 个")
     print(f"[CONFIG] Provider 数量: {len(providers)} 个")
@@ -321,7 +322,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # 改为你的实际域名
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -371,6 +372,106 @@ async def verify_api_key(raw_request: Request) -> APIKey:
         raise HTTPException(status_code=401, detail="无效的 API 密钥或密钥已被禁用")
 
     return key_obj
+
+
+# ==================== 认证相关 Schema ====================
+
+class InitAdminRequest(BaseModel):
+    password: str
+
+class LoginRequest(BaseModel):
+    password: str
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
+# ==================== 认证端点 ====================
+
+@app.get("/api/auth/status")
+async def auth_status(request: Request):
+    """检查认证状态"""
+    is_initialized = admin_auth_manager.is_initialized()
+    is_authenticated = False
+    
+    if is_initialized:
+        token = admin_auth_manager.get_token_from_request(request)
+        if token:
+            is_authenticated = admin_auth_manager.verify_token(token)
+    
+    return {
+        "initialized": is_initialized,
+        "authenticated": is_authenticated
+    }
+
+
+@app.post("/api/auth/init")
+async def init_admin(request: InitAdminRequest, response: Response):
+    """初始化管理员账户（首次设置密码）"""
+    success, message = admin_auth_manager.initialize_admin(request.password)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    # 自动登录
+    admin_auth_manager.login(request.password, response)
+    return {"status": "success", "message": message}
+
+
+@app.post("/api/auth/login")
+async def login(request: LoginRequest, response: Response, raw_request: Request):
+    """管理员登录"""
+    if not admin_auth_manager.is_initialized():
+        raise HTTPException(status_code=400, detail="管理员账户未初始化，请先设置密码")
+
+    success, message = admin_auth_manager.login(request.password, response)
+    client_ip = raw_request.client.host if raw_request.client else "unknown"
+    if not success:
+        log_manager.log(
+            level=LogLevel.WARNING,
+            log_type="auth",
+            method="POST",
+            path="/api/auth/login",
+            message=f"登录失败: {message}",
+            client_ip=client_ip
+        )
+        raise HTTPException(status_code=401, detail=message)
+
+    log_manager.log(
+        level=LogLevel.INFO,
+        log_type="auth",
+        method="POST",
+        path="/api/auth/login",
+        message="登录成功",
+        client_ip=client_ip
+    )
+    return {"status": "success", "message": message}
+
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    """管理员登出"""
+    admin_auth_manager.logout(response)
+    return {"status": "success", "message": "已登出"}
+
+
+@app.post("/api/auth/change-password")
+async def change_password(request: ChangePasswordRequest, raw_request: Request):
+    """修改管理员密码"""
+    admin_auth_manager.require_auth(raw_request)
+    
+    success, message = admin_auth_manager.change_password(request.old_password, request.new_password)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    return {"status": "success", "message": message}
+
+
+# ==================== 认证依赖 ====================
+
+async def require_admin_auth(request: Request) -> None:
+    """验证管理员认证的依赖函数"""
+    admin_auth_manager.require_auth(request)
 
 
 @app.get("/v1/models")
@@ -612,18 +713,18 @@ async def get_stats(tag: Optional[str] = None):
 
 
 @app.get("/api/keys")
-async def list_api_keys():
+async def list_api_keys(_: None = Depends(require_admin_auth)):
     return {"keys": api_key_manager.list_keys(), "stats": api_key_manager.get_stats()}
 
 
 @app.post("/api/keys")
-async def create_api_key(request: CreateAPIKeyRequest):
+async def create_api_key(request: CreateAPIKeyRequest, _: None = Depends(require_admin_auth)):
     full_key, key_info = api_key_manager.create_key(name=request.name)
     return {"key": full_key, "info": key_info}
 
 
 @app.get("/api/keys/{key_id}")
-async def get_api_key(key_id: str):
+async def get_api_key(key_id: str, _: None = Depends(require_admin_auth)):
     key_info = api_key_manager.get_key(key_id)
     if not key_info:
         raise HTTPException(status_code=404, detail="密钥不存在")
@@ -631,7 +732,7 @@ async def get_api_key(key_id: str):
 
 
 @app.put("/api/keys/{key_id}")
-async def update_api_key(key_id: str, request: UpdateAPIKeyRequest):
+async def update_api_key(key_id: str, request: UpdateAPIKeyRequest, _: None = Depends(require_admin_auth)):
     success = api_key_manager.update_key(key_id=key_id, name=request.name, enabled=request.enabled)
     if not success:
         raise HTTPException(status_code=404, detail="密钥不存在")
@@ -639,7 +740,7 @@ async def update_api_key(key_id: str, request: UpdateAPIKeyRequest):
 
 
 @app.delete("/api/keys/{key_id}")
-async def delete_api_key(key_id: str):
+async def delete_api_key(key_id: str, _: None = Depends(require_admin_auth)):
     success = api_key_manager.delete_key(key_id)
     if not success:
         raise HTTPException(status_code=404, detail="密钥不存在")
@@ -653,6 +754,7 @@ async def get_logs(
     log_type: Optional[str] = None,
     keyword: Optional[str] = None,
     provider: Optional[str] = None,
+    _: None = Depends(require_admin_auth),
 ):
     return {
         "logs": log_manager.get_recent_logs(
@@ -662,7 +764,7 @@ async def get_logs(
 
 
 @app.get("/api/logs/stream")
-async def stream_logs():
+async def stream_logs(_: None = Depends(require_admin_auth)):
     async def generate():
         async for log_entry in log_manager.subscribe():
             yield f"data: {json.dumps(log_entry.to_dict(), ensure_ascii=False)}\n\n"
@@ -675,17 +777,17 @@ async def stream_logs():
 
 
 @app.get("/api/logs/stats")
-async def get_log_stats(date: Optional[str] = None, tag: Optional[str] = None):
+async def get_log_stats(date: Optional[str] = None, tag: Optional[str] = None, _: None = Depends(require_admin_auth)):
     return log_manager.get_stats(date, tag=tag)
 
 
 @app.get("/api/logs/daily")
-async def get_daily_stats(days: int = Query(7, ge=1, le=30), tag: Optional[str] = None):
+async def get_daily_stats(days: int = Query(7, ge=1, le=30), tag: Optional[str] = None, _: None = Depends(require_admin_auth)):
     return log_manager.get_daily_stats(days, tag=tag)
 
 
 @app.get("/api/providers")
-async def list_providers():
+async def list_providers(_: None = Depends(require_admin_auth)):
     providers = admin_manager.list_providers()
     runtime_states = provider_manager.get_runtime_states()
     for p in providers:
@@ -696,7 +798,7 @@ async def list_providers():
 
 
 @app.post("/api/providers")
-async def add_provider(request: ProviderRequest):
+async def add_provider(request: ProviderRequest, _: None = Depends(require_admin_auth)):
     provider_data = request.model_dump()
     if "id" not in provider_data or not provider_data.get("id"):
         # SQLite admin requires id; keep existing behavior by generating server-side UUID if missing
@@ -719,7 +821,7 @@ async def add_provider(request: ProviderRequest):
 
 
 @app.get("/api/providers/all-models")
-async def get_all_provider_models():
+async def get_all_provider_models(_: None = Depends(require_admin_auth)):
     """获取所有 Provider 的模型列表 (DB SSOT)"""
     all_providers = admin_manager.list_providers()
     # Get full provider models info (including owned_by, endpoints, etc.)
@@ -747,14 +849,14 @@ async def get_all_provider_models():
 
 
 @app.post("/api/providers/sync-all-models")
-async def sync_all_models():
+async def sync_all_models(_: None = Depends(require_admin_auth)):
     """手动触发全量同步"""
     result = await sync_all_provider_models_logic()
     return result
 
 
 @app.post("/api/providers/{provider_id}/sync-models")
-async def sync_single_provider_models(provider_id: str):
+async def sync_single_provider_models(provider_id: str, _: None = Depends(require_admin_auth)):
     provider = admin_manager.get_provider_by_id(provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
@@ -801,19 +903,19 @@ async def sync_single_provider_models(provider_id: str):
 
 
 @app.get("/api/providers/runtime-states")
-async def get_runtime_states():
+async def get_runtime_states(_: None = Depends(require_admin_auth)):
     """获取 Provider 和模型的运行时状态"""
     return provider_manager.get_runtime_states()
 
 
 @app.get("/api/model-health/results")
-async def get_all_health_results():
+async def get_all_health_results(_: None = Depends(require_admin_auth)):
     """获取所有健康检测结果"""
     return {"results": {k: v.to_dict() for k, v in model_health_manager.get_all_results().items()}}
 
 
 @app.get("/api/model-health/results/{unified_name}")
-async def get_mapping_health_results(unified_name: str):
+async def get_mapping_health_results(unified_name: str, _: None = Depends(require_admin_auth)):
     """获取指定映射的健康检测结果"""
     mapping = model_mapping_manager.get_mapping(unified_name)
     if not mapping:
@@ -824,7 +926,7 @@ async def get_mapping_health_results(unified_name: str):
 
 
 @app.post("/api/model-health/test/{unified_name}")
-async def test_mapping_health(unified_name: str):
+async def test_mapping_health(unified_name: str, _: None = Depends(require_admin_auth)):
     """检测指定映射下的所有模型"""
     mapping = model_mapping_manager.get_mapping(unified_name)
     if not mapping:
@@ -847,7 +949,7 @@ async def test_mapping_health(unified_name: str):
 
 
 @app.post("/api/model-health/test-single")
-async def test_single_model_health(request: TestSingleModelRequest):
+async def test_single_model_health(request: TestSingleModelRequest, _: None = Depends(require_admin_auth)):
     """检测单个模型"""
     result = await model_health_manager.test_single_model(request.provider_id, request.model)
     
@@ -858,13 +960,13 @@ async def test_single_model_health(request: TestSingleModelRequest):
 
 
 @app.get("/api/protocols")
-async def get_protocols():
+async def get_protocols(_: None = Depends(require_admin_auth)):
     from src.protocols import _protocols
     return {"protocols": [{"value": k, "label": k} for k in _protocols.keys()]}
 
 
 @app.get("/api/model-mappings")
-async def list_model_mappings():
+async def list_model_mappings(_: None = Depends(require_admin_auth)):
     mappings = model_mapping_manager.get_all_mappings()
     sync_config = model_mapping_manager.get_sync_config()
     return {
@@ -874,7 +976,7 @@ async def list_model_mappings():
 
 
 @app.post("/api/model-mappings")
-async def create_model_mapping(request: CreateModelMappingRequest):
+async def create_model_mapping(request: CreateModelMappingRequest, _: None = Depends(require_admin_auth)):
     success, message = model_mapping_manager.create_mapping(
         unified_name=request.unified_name,
         description=request.description,
@@ -890,7 +992,7 @@ async def create_model_mapping(request: CreateModelMappingRequest):
 
 # 具体路径路由必须在通用路径参数路由之前定义
 @app.post("/api/model-mappings/preview")
-async def preview_model_mapping(request: PreviewResolveRequest):
+async def preview_model_mapping(request: PreviewResolveRequest, _: None = Depends(require_admin_auth)):
     provider_models_map = provider_models_manager.get_all_provider_models_map()
     matched = model_mapping_manager.preview_resolve(
         request.rules,
@@ -907,7 +1009,7 @@ async def preview_model_mapping(request: PreviewResolveRequest):
 
 
 @app.post("/api/model-mappings/sync")
-async def sync_model_mappings(unified_name: Optional[str] = Query(None)):
+async def sync_model_mappings(unified_name: Optional[str] = Query(None), _: None = Depends(require_admin_auth)):
     provider_models_map = provider_models_manager.get_all_provider_models_map()
     provider_id_name_map = admin_manager.get_provider_id_name_map()
     provider_protocols = admin_manager.get_provider_protocols()
@@ -932,7 +1034,7 @@ async def sync_model_mappings(unified_name: Optional[str] = Query(None)):
 
 
 @app.post("/api/model-mappings/reorder")
-async def reorder_model_mappings(request: ReorderModelMappingsRequest):
+async def reorder_model_mappings(request: ReorderModelMappingsRequest, _: None = Depends(require_admin_auth)):
     success, message = model_mapping_manager.reorder_mappings(request.ordered_names)
     if not success:
         raise HTTPException(status_code=400, detail=message)
@@ -940,12 +1042,12 @@ async def reorder_model_mappings(request: ReorderModelMappingsRequest):
 
 
 @app.get("/api/model-mappings/sync-config")
-async def get_sync_config():
+async def get_sync_config(_: None = Depends(require_admin_auth)):
     return model_mapping_manager.get_sync_config().to_dict()
 
 
 @app.put("/api/model-mappings/sync-config")
-async def update_sync_config(request: SyncConfigRequest):
+async def update_sync_config(request: SyncConfigRequest, _: None = Depends(require_admin_auth)):
     success, message = model_mapping_manager.update_sync_config(
         auto_sync_enabled=request.auto_sync_enabled,
         auto_sync_interval_hours=request.auto_sync_interval_hours
@@ -957,7 +1059,7 @@ async def update_sync_config(request: SyncConfigRequest):
 
 # 通用路径参数路由必须在具体路径路由之后定义
 @app.get("/api/model-mappings/{unified_name}")
-async def get_model_mapping(unified_name: str):
+async def get_model_mapping(unified_name: str, _: None = Depends(require_admin_auth)):
     mapping = model_mapping_manager.get_mapping(unified_name)
     if not mapping:
         raise HTTPException(status_code=404, detail="映射不存在")
@@ -965,7 +1067,7 @@ async def get_model_mapping(unified_name: str):
 
 
 @app.put("/api/model-mappings/{unified_name}")
-async def update_model_mapping(unified_name: str, request: UpdateModelMappingRequest):
+async def update_model_mapping(unified_name: str, request: UpdateModelMappingRequest, _: None = Depends(require_admin_auth)):
     if request.new_unified_name and request.new_unified_name != unified_name:
         success, message = model_mapping_manager.rename_mapping(unified_name, request.new_unified_name)
         if not success:
@@ -986,7 +1088,7 @@ async def update_model_mapping(unified_name: str, request: UpdateModelMappingReq
 
 
 @app.delete("/api/model-mappings/{unified_name}")
-async def delete_model_mapping(unified_name: str):
+async def delete_model_mapping(unified_name: str, _: None = Depends(require_admin_auth)):
     success, message = model_mapping_manager.delete_mapping(unified_name)
     if not success:
         raise HTTPException(status_code=404, detail=message)
@@ -994,7 +1096,7 @@ async def delete_model_mapping(unified_name: str):
 
 
 @app.get("/api/model-mappings/{unified_name}/model-settings")
-async def get_model_settings(unified_name: str):
+async def get_model_settings(unified_name: str, _: None = Depends(require_admin_auth)):
     mapping = model_mapping_manager.get_mapping(unified_name)
     if not mapping:
         raise HTTPException(status_code=404, detail="映射不存在")
@@ -1002,7 +1104,7 @@ async def get_model_settings(unified_name: str):
 
 
 @app.put("/api/model-mappings/{unified_name}/model-settings")
-async def update_model_protocol(unified_name: str, request: UpdateModelProtocolRequest):
+async def update_model_protocol(unified_name: str, request: UpdateModelProtocolRequest, _: None = Depends(require_admin_auth)):
     if request.protocol and not is_supported_protocol(request.protocol):
         raise HTTPException(status_code=400, detail=f"不支持的协议: {request.protocol}")
         
@@ -1018,7 +1120,7 @@ async def update_model_protocol(unified_name: str, request: UpdateModelProtocolR
 
 
 @app.delete("/api/model-mappings/{unified_name}/model-settings/{provider_id}/{model_id}")
-async def delete_model_protocol(unified_name: str, provider_id: str, model_id: str):
+async def delete_model_protocol(unified_name: str, provider_id: str, model_id: str, _: None = Depends(require_admin_auth)):
     success, message = model_mapping_manager.set_model_protocol(
         unified_name,
         provider_id,
@@ -1031,7 +1133,7 @@ async def delete_model_protocol(unified_name: str, provider_id: str, model_id: s
 
 
 @app.get("/api/providers/{provider_id}")
-async def get_provider(provider_id: str):
+async def get_provider(provider_id: str, _: None = Depends(require_admin_auth)):
     provider = admin_manager.get_provider_by_id(provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="Provider 不存在")
@@ -1039,7 +1141,7 @@ async def get_provider(provider_id: str):
 
 
 @app.put("/api/providers/{provider_id}")
-async def update_provider(provider_id: str, request: UpdateProviderRequest):
+async def update_provider(provider_id: str, request: UpdateProviderRequest, _: None = Depends(require_admin_auth)):
     provider = admin_manager.get_provider_by_id(provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="Provider 不存在")
@@ -1055,7 +1157,7 @@ async def update_provider(provider_id: str, request: UpdateProviderRequest):
 
 
 @app.delete("/api/providers/{provider_id}")
-async def delete_provider(provider_id: str):
+async def delete_provider(provider_id: str, _: None = Depends(require_admin_auth)):
     provider = admin_manager.get_provider_by_id(provider_id)
 
     success, message = admin_manager.delete_provider(provider_id)
@@ -1074,7 +1176,7 @@ async def delete_provider(provider_id: str):
 
 
 @app.post("/api/admin/reset/{provider_id}")
-async def reset_provider(provider_id: str):
+async def reset_provider(provider_id: str, _: None = Depends(require_admin_auth)):
     provider = admin_manager.get_provider_by_id(provider_id)
 
     if provider_manager.reset(provider_id):
@@ -1084,13 +1186,13 @@ async def reset_provider(provider_id: str):
 
 
 @app.post("/api/admin/reset-all")
-async def reset_all_providers():
+async def reset_all_providers(_: None = Depends(require_admin_auth)):
     provider_manager.reset_all()
     return {"status": "success", "message": "所有 Provider 已重置"}
 
 
 @app.get("/api/admin/system-stats")
-async def get_system_stats():
+async def get_system_stats(_: None = Depends(require_admin_auth)):
     model_mapping_manager.load()
     return {
         "providers": provider_manager.get_stats(),

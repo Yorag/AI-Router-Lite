@@ -13,7 +13,8 @@ const API = {
             method,
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            credentials: 'same-origin'  // 确保发送 Cookie
         };
 
         if (data) {
@@ -22,6 +23,13 @@ const API = {
 
         try {
             const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+            
+            // 处理 401 未认证错误 - 跳转到登录页
+            if (response.status === 401) {
+                window.location.href = '/admin/login.html';
+                throw new Error('未登录或会话已过期');
+            }
+            
             const result = await response.json();
             
             if (!response.ok) {
@@ -33,6 +41,23 @@ const API = {
             console.error(`API Error [${method} ${endpoint}]:`, error);
             throw error;
         }
+    },
+
+    // ==================== 认证 ====================
+
+    async getAuthStatus() {
+        return this.request('GET', '/api/auth/status');
+    },
+
+    async logout() {
+        return this.request('POST', '/api/auth/logout');
+    },
+
+    async changePassword(oldPassword, newPassword) {
+        return this.request('POST', '/api/auth/change-password', {
+            old_password: oldPassword,
+            new_password: newPassword
+        });
     },
 
     // ==================== 系统 ====================

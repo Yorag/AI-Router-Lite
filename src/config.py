@@ -24,7 +24,6 @@ class AppConfig(BaseModel):
     """应用配置模型，直接反映 config.json 的结构"""
     server_port: int = Field(default=DEFAULT_SERVER_PORT, ge=1, le=65535)
     server_host: str = Field(default=DEFAULT_SERVER_HOST)
-    max_retries: int = Field(default=3, ge=1)
     request_timeout: float = Field(default=120.0, ge=1.0)
     db_encryption_key: str = Field(..., min_length=1, description="用于数据库加密的 Fernet 密钥")
 

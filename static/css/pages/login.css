@@ -1,0 +1,167 @@
+/* 登录页面样式 */
+
+.login-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-primary);
+}
+
+.login-container {
+    width: 100%;
+    max-width: 400px;
+    padding: 20px;
+}
+
+.login-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 40px 32px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 32px;
+}
+
+.login-header h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 8px 0;
+}
+
+.login-header .version {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    background: var(--bg-tertiary);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.login-form h2 {
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin: 0 0 8px 0;
+    text-align: center;
+}
+
+.login-form .form-desc {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    text-align: center;
+    margin: 0 0 24px 0;
+}
+
+.login-form form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.login-form .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.login-form .form-group label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.login-form .input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.login-form .input-wrapper i {
+    position: absolute;
+    left: 12px;
+    color: var(--text-tertiary);
+    font-size: 1.125rem;
+}
+
+.login-form .input-wrapper input {
+    width: 100%;
+    padding: 12px 12px 12px 40px;
+    font-size: 0.9375rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.login-form .input-wrapper input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
+}
+
+.login-form .input-wrapper input::placeholder {
+    color: var(--text-tertiary);
+}
+
+.login-form .error-message {
+    font-size: 0.875rem;
+    color: var(--error-color);
+    background: rgba(var(--error-rgb), 0.1);
+    padding: 10px 12px;
+    border-radius: 6px;
+    text-align: center;
+}
+
+.login-form .btn-block {
+    width: 100%;
+    padding: 12px;
+    font-size: 1rem;
+    margin-top: 8px;
+}
+
+.login-form .btn-loading {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 40px 0;
+    color: var(--text-secondary);
+}
+
+.loading-state i {
+    font-size: 2rem;
+    color: var(--primary-color);
+}
+
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.login-footer {
+    text-align: center;
+    margin-top: 24px;
+}
+
+.login-footer p {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    margin: 0;
+}

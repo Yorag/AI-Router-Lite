@@ -10,7 +10,7 @@
 APP_NAME: str = "AI-Router-Lite"
 
 # 应用版本
-APP_VERSION: str = "0.8.0"
+APP_VERSION: str = "0.9.0"
 
 # 应用描述
 APP_DESCRIPTION: str = "轻量级 AI 聚合路由 + 管理面板"
@@ -119,5 +119,22 @@ HEALTH_TEST_MAX_TOKENS: int = 10
 # 健康测试请求的消息内容
 HEALTH_TEST_MESSAGE: str = "hi"
 
+
+# ==================== 认证配置 ====================
+
+# JWT 令牌有效期（小时）
+AUTH_TOKEN_EXPIRE_HOURS: int = 6
+
+# JWT Cookie 名称
+AUTH_COOKIE_NAME: str = "admin_session"
+
+# 密码最小长度
+AUTH_PASSWORD_MIN_LENGTH: int = 8
+
+# 登录失败锁定阈值（连续失败次数）
+AUTH_MAX_LOGIN_ATTEMPTS: int = 5
+
+# 登录失败锁定时间（秒）
+AUTH_LOCKOUT_DURATION_SECONDS: int = 900  # 15 分钟
 
 

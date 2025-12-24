@@ -166,6 +166,16 @@
     border: 1px solid var(--border-color);
 }
 
+.log-ip-tag {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    padding: 1px 6px;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--border-color);
+}
+
 .log-model { font-weight: 500; color: var(--text-color); }
 .log-arrow { color: var(--text-muted); font-size: var(--text-xs); }
 .log-provider { color: var(--primary-color); }

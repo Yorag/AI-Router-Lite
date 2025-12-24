@@ -90,6 +90,14 @@ def _apply_pragmas(conn: sqlite3.Connection) -> None:
 def init_schema_app(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
+        CREATE TABLE IF NOT EXISTS admin_users (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          username TEXT NOT NULL,
+          password_hash TEXT NOT NULL,
+          created_at_ms INTEGER NOT NULL,
+          updated_at_ms INTEGER NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS api_keys (
           key_id TEXT PRIMARY KEY,
           key_hash TEXT NOT NULL UNIQUE,

@@ -6,6 +6,19 @@ const App = {
     currentPage: 'dashboard',
 
     async init() {
+        // 检查认证状态
+        try {
+            const authStatus = await API.getAuthStatus();
+            if (!authStatus.initialized || !authStatus.authenticated) {
+                window.location.href = '/admin/login.html';
+                return;
+            }
+        } catch (error) {
+            console.error('认证检查失败:', error);
+            window.location.href = '/admin/login.html';
+            return;
+        }
+
         // 初始化导航
         this.initNavigation();
 
@@ -103,6 +116,62 @@ const App = {
             Toast.success('已复制到剪贴板');
         } catch (error) {
             Toast.error('复制失败');
+        }
+    },
+
+    // 登出
+    async logout() {
+        try {
+            await API.logout();
+            window.location.href = '/admin/login.html';
+        } catch (error) {
+            Toast.error('登出失败');
+        }
+    },
+
+    // 显示修改密码弹窗
+    showChangePasswordModal() {
+        Modal.show('修改密码', `
+            <form onsubmit="App.handleChangePassword(event)">
+                <div class="form-group">
+                    <label>原密码</label>
+                    <input type="password" id="old-password" required>
+                </div>
+                <div class="form-group">
+                    <label>新密码</label>
+                    <input type="password" id="new-password" required minlength="6">
+                </div>
+                <div class="form-group">
+                    <label>确认新密码</label>
+                    <input type="password" id="confirm-password" required minlength="6">
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="Modal.close()">取消</button>
+                    <button type="submit" class="btn btn-primary">确认修改</button>
+                </div>
+            </form>
+        `);
+    },
+
+    // 处理修改密码
+    async handleChangePassword(event) {
+        event.preventDefault();
+        
+        const oldPassword = document.getElementById('old-password').value;
+        const newPassword = document.getElementById('new-password').value;
+        const confirmPassword = document.getElementById('confirm-password').value;
+        
+        if (newPassword !== confirmPassword) {
+            Toast.error('两次输入的新密码不一致');
+            return;
+        }
+        
+        try {
+            await API.changePassword(oldPassword, newPassword);
+            Toast.success('密码修改成功');
+            Modal.close();
+        } catch (error) {
+            Toast.error(error.message || '密码修改失败');
         }
     }
 };

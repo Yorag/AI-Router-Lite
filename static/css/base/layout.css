@@ -101,6 +101,37 @@
     color: var(--text-muted);
 }
 
+.footer-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.btn-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition-fast);
+    font-size: 1rem;
+}
+
+.btn-footer:hover {
+    background: var(--sidebar-hover);
+    color: var(--text-color);
+}
+
+.btn-footer.btn-logout:hover {
+    background: rgba(var(--danger-rgb, 220, 38, 38), 0.1);
+    color: var(--danger-color);
+}
+
 .status-dot {
     width: 8px;
     height: 8px;

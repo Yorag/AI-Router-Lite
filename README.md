@@ -10,7 +10,7 @@
     <a href="https://python.org"><img alt="Python" src="https://img.shields.io/badge/Python-3.8+-blue?logo=python&logoColor=white"></a>
     <a href="https://fastapi.tiangolo.com/"><img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.104+-05998b?logo=fastapi&logoColor=white"></a>
     <a href="https://github.com/Yorag/AI-Router-Lite/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/Yorag/AI-Router-Lite?color=blue"></a>
-    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.8.0-brightgreen"></a>
+    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.9.0-brightgreen"></a>
   </p>
 </div>
 
@@ -115,7 +115,6 @@ cp config.example.json config.json
 {
   "server_port": 8000,
   "server_host": "0.0.0.0",
-  "max_retries": 3,
   "request_timeout": 120,
   // 将密钥粘贴到此处
   "db_encryption_key": "bXlfc2VjcmV0X2tleV9oZXJlXzMyYnl0ZXM=" 
@@ -134,6 +133,11 @@ python scripts/init_db.py
 python main.py
 ```
 服务启动后，即可通过 `http://127.0.0.1:8000/admin` 访问管理面板。
+
+### 7. 首次登录设置
+首次访问管理面板时，系统会要求您设置管理员密码（至少 6 位）。设置完成后，使用该密码登录即可开始使用。
+
+> 🔐 **安全提示**：管理面板已启用认证保护，所有管理 API 端点均需要登录后才能访问。会话有效期为 24 小时。
 
 ## 🛠️ 使用方法
 
@@ -179,8 +183,13 @@ python main.py
   - **UI 重构**: 采用 Notion 风格设计系统，全面优化视觉体验。
   - **Tooltip 系统**: 引入集中式 Tooltip，展示丰富的模型健康数据。
   - **前端模块化**: 重构前端资源结构，统一工具函数和组件渲染。
-- [ ] **v0.9 (Protocol Conversion)**: 引入协议转换层，实现将多种 API 格式（如 Anthropic, Gemini）统一为 OpenAI Chat Completions 格式输出。
-- [ ] **v1.0**: 完整稳定版本，包含负载均衡优化、完善的文档和测试覆盖。
+- [x] **v0.9 (Authentication & Security)**:
+  - **管理面板认证**: 新增独立登录页面，支持管理员密码认证。
+  - **JWT 会话管理**: 基于 JWT 的安全会话机制，支持自动过期。
+  - **防暴力破解**: 登录失败次数限制（5 次后锁定 15 分钟）。
+  - **认证日志记录**: 登录成功/失败均记录日志，包含客户端 IP。
+  - **日志筛选增强**: 新增 Auth 类型日志筛选。
+- [ ] **v1.0 (Protocol Conversion)**: 引入协议转换层，实现将多种 API 格式（如 Anthropic, Gemini）统一为 OpenAI Chat Completions 格式输出。完整稳定版本，包含负载均衡优化、完善的文档和测试覆盖。
 
 ## 📄 许可
 
