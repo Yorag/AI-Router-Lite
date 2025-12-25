@@ -25,6 +25,7 @@ wheels/
 
 # IDE
 .vscode/
+.claude/
 
 # Config (用户自定义配置不应提交)
 config.json
@@ -35,9 +36,12 @@ config.json.bak
 logs/
 
 # Data (运行时数据)
-data/*.json
-data/logs/
+data/
 
+docs/
 # OS
 .DS_Store
 Thumbs.db
+
+.gitignore
+问题.txt

@@ -525,14 +525,15 @@ const ModelMap = {
             // key 使用 provider_id:model 格式
             const key = `${providerId}:${model}`;
             this.healthResults[key] = result;
-            
+
             if (result.success) {
                 Toast.success(`${model} 健康 (${Math.round(result.latency_ms)}ms)`);
             } else {
                 Toast.error(`${model} 异常: ${result.error}`);
             }
-            
-            // 重新渲染以更新状态颜色
+
+            // 重新加载运行时状态并渲染
+            await this.loadRuntimeStates();
             this.render();
         } catch (error) {
             Toast.error('检测失败: ' + error.message);
@@ -630,13 +631,15 @@ const ModelMap = {
                 Toast.error(`检测完成: 所有 ${result.tested_count} 个模型均异常`);
             }
             
-            // 更新健康结果缓存并重新渲染
+            // 更新健康结果缓存
             // 结果中 provider 字段存储 provider_id
             for (const r of result.results) {
                 const key = `${r.provider}:${r.model}`;
                 this.healthResults[key] = r;
             }
-            
+
+            // 重新加载运行时状态以反映健康检测后的变化
+            await this.loadRuntimeStates();
             this.render();
         } catch (error) {
             Toast.error('健康检测失败: ' + error.message);
@@ -656,8 +659,9 @@ const ModelMap = {
                 Toast.error(`${model} 健康检测失败: ${result.error}`);
             }
             
-            // 关闭模态框并重新渲染
+            // 关闭模态框，重新加载运行时状态并渲染
             Modal.close();
+            await this.loadRuntimeStates();
             this.render();
         } catch (error) {
             Toast.error('检测失败: ' + error.message);
