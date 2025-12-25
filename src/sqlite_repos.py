@@ -211,35 +211,53 @@ class ApiKeyRepo:
     def __init__(self):
         self._paths = get_db_paths()
 
+    def _decrypt_key(self, key_enc: bytes) -> str:
+        """解密密钥"""
+        fernet = get_fernet()
+        return fernet.decrypt(key_enc).decode("utf-8")
+
+    def _encrypt_key(self, full_key: str) -> bytes:
+        """加密密钥"""
+        fernet = get_fernet()
+        return fernet.encrypt(full_key.encode("utf-8"))
+
+    def _make_masked(self, full_key: str) -> str:
+        """生成掩码格式的密钥"""
+        if len(full_key) > 10:
+            return f"{full_key[:6]}****{full_key[-4:]}"
+        return "****"
+
+    def _row_to_dict(self, r, include_full_key: bool = True) -> dict:
+        """将数据库行转换为字典"""
+        created_at = float(r["created_at_ms"]) / 1000.0
+        last_used = float(r["last_used_ms"]) / 1000.0 if r["last_used_ms"] is not None else None
+        full_key = self._decrypt_key(r["key_enc"])
+        result = {
+            "key_id": r["key_id"],
+            "key_masked": self._make_masked(full_key),
+            "name": r["name"],
+            "created_at": created_at,
+            "created_at_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(created_at)),
+            "last_used": last_used,
+            "last_used_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_used)) if last_used else None,
+            "enabled": bool(r["enabled"]),
+            "total_requests": int(r["total_requests"]),
+        }
+        if include_full_key:
+            result["full_key"] = full_key
+        return result
+
     def list(self) -> list[dict]:
         with get_db_cursor(self._paths.app_db_path) as cur:
             cur.execute(
                 """
-                SELECT key_id, name, created_at_ms, last_used_ms, enabled, total_requests
+                SELECT key_id, key_enc, name, created_at_ms, last_used_ms, enabled, total_requests
                 FROM api_keys
                 ORDER BY created_at_ms DESC
                 """
             )
             rows = cur.fetchall()
-        
-        result: list[dict] = []
-        for r in rows:
-            created_at = float(r["created_at_ms"]) / 1000.0
-            last_used = float(r["last_used_ms"]) / 1000.0 if r["last_used_ms"] is not None else None
-            result.append(
-                {
-                    "key_id": r["key_id"],
-                    "key_masked": f"{r['key_id'][:6]}****{r['key_id'][-4:]}",
-                    "name": r["name"],
-                    "created_at": created_at,
-                    "created_at_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(created_at)),
-                    "last_used": last_used,
-                    "last_used_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_used)) if last_used else None,
-                    "enabled": bool(r["enabled"]),
-                    "total_requests": int(r["total_requests"]),
-                }
-            )
-        return result
+        return [self._row_to_dict(r) for r in rows]
 
     def get_stats(self) -> dict:
         with get_db_cursor(self._paths.app_db_path) as cur:
@@ -249,7 +267,7 @@ class ApiKeyRepo:
             enabled = int(cur.fetchone()["c"])
             cur.execute("SELECT COALESCE(SUM(total_requests), 0) AS s FROM api_keys")
             total_requests = int(cur.fetchone()["s"])
-        
+
         return {
             "total_keys": total,
             "enabled_keys": enabled,
@@ -261,40 +279,26 @@ class ApiKeyRepo:
         with get_db_cursor(self._paths.app_db_path) as cur:
             cur.execute(
                 """
-                SELECT key_id, name, created_at_ms, last_used_ms, enabled, total_requests
+                SELECT key_id, key_enc, name, created_at_ms, last_used_ms, enabled, total_requests
                 FROM api_keys
                 WHERE key_id = ?
                 """,
                 (key_id,),
             )
             r = cur.fetchone()
-        
-        if not r:
-            return None
-        created_at = float(r["created_at_ms"]) / 1000.0
-        last_used = float(r["last_used_ms"]) / 1000.0 if r["last_used_ms"] is not None else None
-        return {
-            "key_id": r["key_id"],
-            "key_masked": f"{r['key_id'][:6]}****{r['key_id'][-4:]}",
-            "name": r["name"],
-            "created_at": created_at,
-            "created_at_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(created_at)),
-            "last_used": last_used,
-            "last_used_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_used)) if last_used else None,
-            "enabled": bool(r["enabled"]),
-            "total_requests": int(r["total_requests"]),
-        }
+        return self._row_to_dict(r) if r else None
 
-    def create(self, key_id: str, key_hash: str, name: str) -> None:
+    def create(self, key_id: str, full_key: str, name: str) -> None:
         now_ms = _now_ms()
+        key_enc = self._encrypt_key(full_key)
         with get_db_cursor(self._paths.app_db_path) as cur:
             cur.execute(
                 """
                 INSERT INTO api_keys (
-                  key_id, key_hash, name, created_at_ms, enabled, last_used_ms, total_requests
+                  key_id, key_enc, name, created_at_ms, enabled, last_used_ms, total_requests
                 ) VALUES (?, ?, ?, ?, 1, NULL, 0)
                 """,
-                (key_id, key_hash, name, now_ms),
+                (key_id, key_enc, name, now_ms),
             )
 
     def update(self, key_id: str, name: str, enabled: bool) -> bool:
@@ -314,43 +318,45 @@ class ApiKeyRepo:
             cur.execute("DELETE FROM api_keys WHERE key_id = ?", (key_id,))
             return cur.rowcount > 0
 
-    def validate_and_touch(self, full_key: str) -> Optional[dict]:
-        import hashlib
+    def reset_secret(self, key_id: str, new_full_key: str) -> bool:
+        """重置密钥的 secret 部分，保持 key_id 不变"""
+        key_enc = self._encrypt_key(new_full_key)
+        with get_db_cursor(self._paths.app_db_path) as cur:
+            cur.execute(
+                "UPDATE api_keys SET key_enc = ? WHERE key_id = ?",
+                (key_enc, key_id),
+            )
+            return cur.rowcount > 0
 
-        key_hash = hashlib.sha256(full_key.encode("utf-8")).hexdigest()
+    def validate_and_touch(self, full_key: str) -> Optional[dict]:
+        """验证密钥并更新使用时间，返回 {key_id, name} 或 None"""
         now_ms = _now_ms()
 
         with get_db_cursor(self._paths.app_db_path) as cur:
             cur.execute(
-                """
-                SELECT key_id, name, created_at_ms, last_used_ms, enabled, total_requests
-                FROM api_keys
-                WHERE key_hash = ?
-                """,
-                (key_hash,),
+                "SELECT key_id, key_enc, name FROM api_keys WHERE enabled = 1"
             )
-            r = cur.fetchone()
-            if not r or not bool(r["enabled"]):
+            rows = cur.fetchall()
+
+            # 遍历解密比较
+            matched_row = None
+            for r in rows:
+                try:
+                    if self._decrypt_key(r["key_enc"]) == full_key:
+                        matched_row = r
+                        break
+                except Exception:
+                    continue
+
+            if not matched_row:
                 return None
 
             cur.execute(
-                """
-                UPDATE api_keys
-                SET last_used_ms = ?, total_requests = total_requests + 1
-                WHERE key_id = ?
-                """,
-                (now_ms, r["key_id"]),
+                "UPDATE api_keys SET last_used_ms = ?, total_requests = total_requests + 1 WHERE key_id = ?",
+                (now_ms, matched_row["key_id"]),
             )
 
-        created_at = float(r["created_at_ms"]) / 1000.0
-        last_used = float(now_ms) / 1000.0
-        return {
-            "key_id": r["key_id"],
-            "name": r["name"],
-            "created_at": created_at,
-            "last_used": last_used,
-            "enabled": True,
-        }
+        return {"key_id": matched_row["key_id"], "name": matched_row["name"]}
 
 
 class LogRepo:

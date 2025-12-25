@@ -22,7 +22,7 @@ const APIKeys = {
 
     render() {
         const tbody = document.getElementById('api-keys-table');
-        
+
         if (this.keys.length === 0) {
             tbody.innerHTML = `
                 <tr>
@@ -37,11 +37,15 @@ const APIKeys = {
         }
 
         tbody.innerHTML = this.keys.map(key => {
+            const escapedFullKey = (key.full_key || '').replace(/'/g, "\\'");
             return `
                 <tr>
                     <td>${key.name}</td>
                     <td class="key-cell">
                         <code class="key-code">${key.key_masked || ''}</code>
+                        <button class="btn-icon" onclick="APIKeys.copyKey('${escapedFullKey}')" title="复制密钥">
+                            <i class="ri-file-copy-line"></i>
+                        </button>
                     </td>
                     <td>
                         <span class="status-badge ${key.enabled ? 'enabled' : 'disabled'}">
@@ -55,6 +59,9 @@ const APIKeys = {
                         <button class="btn btn-sm btn-secondary" onclick="APIKeys.showEditModal('${key.key_id}')">
                             编辑
                         </button>
+                        <button class="btn btn-sm btn-warning" onclick="APIKeys.confirmReset('${key.key_id}')">
+                            重置
+                        </button>
                         <button class="btn btn-sm ${key.enabled ? 'btn-secondary' : 'btn-success'}"
                                 onclick="APIKeys.toggleEnabled('${key.key_id}', ${!key.enabled})">
                             ${key.enabled ? '禁用' : '启用'}
@@ -66,6 +73,14 @@ const APIKeys = {
                 </tr>
             `;
         }).join('');
+    },
+
+    copyKey(fullKey) {
+        Utils.copyToClipboard(fullKey).then(() => {
+            Toast.success('密钥已复制到剪贴板');
+        }).catch(() => {
+            Toast.error('复制失败');
+        });
     },
 
     showCreateModal() {
@@ -87,56 +102,22 @@ const APIKeys = {
 
     async create(event) {
         event.preventDefault();
-        
+
         const name = document.getElementById('key-name').value.trim();
-        
+
         if (!name) {
             Toast.warning('请输入密钥名称');
             return;
         }
-        
+
         try {
-            const result = await API.createAPIKey(name);
+            await API.createAPIKey(name);
             Modal.close();
-            // 显示密钥创建成功弹窗
-            this.showKeyCreatedModal(result.key);
+            Toast.success('密钥创建成功');
+            await this.load();
         } catch (error) {
             Toast.error('创建密钥失败: ' + error.message);
         }
-    },
-
-    showKeyCreatedModal(keyPlain) {
-        const content = `
-            <div class="key-created-notice">
-                <p><i class="ri-alert-line"></i> 请立即复制并妥善保存此密钥，关闭后将无法再次查看！</p>
-            </div>
-            <div class="form-group">
-                <label>API 密钥</label>
-                <div class="key-display" onclick="APIKeys.copyCreatedKey(event)" style="cursor: pointer;" title="点击复制">
-                    <code id="created-key-value" style="pointer-events: none;">${keyPlain}</code>
-                </div>
-                <div class="hint" style="text-align: right; margin-top: 4px;">点击密钥即可复制</div>
-            </div>
-            <div class="form-actions">
-                <button type="button" class="btn btn-primary" onclick="Modal.close(); APIKeys.load();">
-                    我已保存，关闭
-                </button>
-            </div>
-        `;
-        Modal.show('<i class="ri-key-2-line"></i> 密钥创建成功', content);
-    },
-
-    copyCreatedKey(event) {
-        if (event) {
-            event.stopPropagation();
-        }
-
-        const keyValue = document.getElementById('created-key-value').textContent;
-        Utils.copyToClipboard(keyValue).then(() => {
-            Toast.success('密钥已复制到剪贴板');
-        }).catch(() => {
-            Toast.error('复制失败，请手动复制');
-        });
     },
 
     showEditModal(keyId) {
@@ -197,6 +178,25 @@ const APIKeys = {
             await this.load();
         } catch (error) {
             Toast.error('删除失败: ' + error.message);
+        }
+    },
+
+    confirmReset(keyId) {
+        const key = this.keys.find(k => k.key_id === keyId);
+        Modal.confirm(
+            '确认重置密钥',
+            `确定要重置密钥 "${key?.name || keyId}" 吗？重置后旧密钥将立即失效。`,
+            () => this.resetKey(keyId)
+        );
+    },
+
+    async resetKey(keyId) {
+        try {
+            await API.resetAPIKey(keyId);
+            Toast.success('密钥已重置');
+            await this.load();
+        } catch (error) {
+            Toast.error('重置失败: ' + error.message);
         }
     }
 };

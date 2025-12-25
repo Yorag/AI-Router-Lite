@@ -751,6 +751,14 @@ async def delete_api_key(key_id: str, _: None = Depends(require_admin_auth)):
     return {"status": "success", "message": "删除成功"}
 
 
+@app.post("/api/keys/{key_id}/reset")
+async def reset_api_key(key_id: str, _: None = Depends(require_admin_auth)):
+    new_key = api_key_manager.reset_key(key_id)
+    if not new_key:
+        raise HTTPException(status_code=404, detail="密钥不存在")
+    return {"key": new_key, "message": "密钥已重置"}
+
+
 @app.get("/api/logs")
 async def get_logs(
     limit: int = Query(100, ge=1, le=1000),

@@ -12,16 +12,9 @@ class APIKey:
     name: str
     enabled: bool = True
 
-    def to_dict(self) -> dict:
-        return {
-            "key_id": self.key_id,
-            "name": self.name,
-            "enabled": self.enabled,
-        }
-
 
 class APIKeyManager:
-    """API Key 管理器（SQLite 版本：不落盘明文）"""
+    """API Key 管理器（SQLite 版本：加密存储）"""
 
     def __init__(self):
         self._repo = ApiKeyRepo()
@@ -33,17 +26,26 @@ class APIKeyManager:
         full_key = f"{key_id}-{key_secret}"
         return key_id, full_key
 
+    @staticmethod
+    def _generate_secret() -> str:
+        """只生成 secret 部分"""
+        return secrets.token_hex(API_KEY_SECRET_BYTES)
+
     def create_key(self, name: str) -> tuple[str, dict]:
         key_id, full_key = self._generate_key()
-
-        import hashlib
-        key_hash = hashlib.sha256(full_key.encode("utf-8")).hexdigest()
-
-        self._repo.create(key_id, key_hash, name)
-
-        # return plaintext only once
+        self._repo.create(key_id, full_key, name)
         info = self._repo.get_by_id(key_id) or {"key_id": key_id, "name": name}
         return full_key, info
+
+    def reset_key(self, key_id: str) -> Optional[str]:
+        """重置密钥的 secret 部分，返回新的完整密钥"""
+        existing = self._repo.get_by_id(key_id)
+        if not existing:
+            return None
+        new_secret = self._generate_secret()
+        new_full_key = f"{key_id}-{new_secret}"
+        success = self._repo.reset_secret(key_id, new_full_key)
+        return new_full_key if success else None
 
     def validate_key(self, key: str) -> Optional[APIKey]:
         touched = self._repo.validate_and_touch(key)

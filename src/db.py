@@ -100,7 +100,7 @@ def init_schema_app(conn: sqlite3.Connection) -> None:
 
         CREATE TABLE IF NOT EXISTS api_keys (
           key_id TEXT PRIMARY KEY,
-          key_hash TEXT NOT NULL UNIQUE,
+          key_enc BLOB NOT NULL,
           name TEXT NOT NULL,
           created_at_ms INTEGER NOT NULL,
           enabled INTEGER NOT NULL DEFAULT 1,

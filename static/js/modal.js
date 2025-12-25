@@ -23,7 +23,7 @@ const Modal = {
      * @param {string} options.width - 宽度，如 '800px'
      */
     show(title, content, options = {}) {
-        this.titleEl.textContent = title;
+        this.titleEl.innerHTML = title;
         
         if (typeof content === 'string') {
             this.contentEl.innerHTML = content;

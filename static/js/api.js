@@ -97,6 +97,10 @@ const API = {
         return this.request('DELETE', `/api/keys/${keyId}`);
     },
 
+    async resetAPIKey(keyId) {
+        return this.request('POST', `/api/keys/${keyId}/reset`);
+    },
+
     // ==================== 日志 ====================
 
     async getLogs(options = {}) {

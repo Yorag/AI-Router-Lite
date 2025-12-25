@@ -104,6 +104,29 @@
 }
 
 /* 图标按钮 - Notion 风格的悬浮操作 */
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: var(--transition-fast);
+    color: var(--text-muted);
+    padding: 0;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+.btn-icon:hover {
+    background: var(--bg-hover);
+    color: var(--text-color);
+}
+
 .btn-icon-mini {
     display: inline-flex;
     align-items: center;
