@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Any, Tuple, Dict, Union
 from dataclasses import dataclass
 
-from .constants import HEALTH_TEST_MAX_TOKENS, HEALTH_TEST_MESSAGE
+from .constants import HEALTH_TEST_MAX_TOKENS, HEALTH_TEST_MESSAGE, DEFAULT_USER_AGENT
 
 @dataclass
 class ProtocolRequest:
@@ -54,27 +54,76 @@ class BaseProtocol(ABC):
         """
         pass
 
+    # 不允许穿透的请求头（小写），这些头由网关控制
+    BLOCKED_HEADERS: Tuple[str, ...] = (
+        # 认证相关 - 上游使用 provider 的 key
+        "authorization",
+        "x-api-key",
+        # HTTP 协议控制 - httpx 自动处理
+        "host",
+        "content-length",
+        "content-type",
+        "connection",
+        "transfer-encoding",
+        "accept-encoding",
+        # 代理相关 - 隐藏代理痕迹
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-proto",
+        "x-forwarded-port",
+        "x-real-ip",
+        "forwarded",
+        "via",
+        "proxy-connection",
+        "proxy-authorization",
+        # 其他客户端类
+        "x-title",
+        "http-referer"
+    )
+
     @abstractmethod
     def build_request(
         self,
         base_url: str,
         api_key: str,
         original_request: Dict[str, Any],
-        actual_model: str
+        actual_model: str,
+        client_headers: Optional[Dict[str, str]] = None
     ) -> ProtocolRequest:
         """
         构建发送给上游 Provider 的请求
-        
+
         Args:
             base_url: Provider 的基础 URL
             api_key: Provider 的 API Key
             original_request: 原始请求体 (dict)
             actual_model: 实际使用的模型名称 (可能经过映射)
-            
+            client_headers: 客户端请求头（用于穿透）
+
         Returns:
             ProtocolRequest 对象
         """
         pass
+
+    def _filter_passthrough_headers(self, client_headers: Optional[Dict[str, str]]) -> Dict[str, str]:
+        """
+        过滤客户端请求头，排除黑名单中的头，其他全部穿透。
+        如果客户端未提供 User-Agent，则使用默认值。
+        """
+        if not client_headers:
+            return {"User-Agent": DEFAULT_USER_AGENT}
+
+        result = {
+            key: value
+            for key, value in client_headers.items()
+            if key.lower() not in self.BLOCKED_HEADERS
+        }
+
+        # 如果客户端未提供 User-Agent，使用默认值
+        if not any(k.lower() == "user-agent" for k in result):
+            result["User-Agent"] = DEFAULT_USER_AGENT
+
+        return result
 
     @abstractmethod
     def get_health_check_body(self, model: str) -> Dict[str, Any]:
@@ -112,7 +161,7 @@ class OpenAIProtocol(BaseProtocol):
     OpenAI Chat Completions 协议适配器
     端点: /v1/chat/completions
     """
-    
+
     @property
     def protocol_type(self) -> str:
         return "openai"
@@ -127,25 +176,24 @@ class OpenAIProtocol(BaseProtocol):
         base_url: str,
         api_key: str,
         original_request: Dict[str, Any],
-        actual_model: str
+        actual_model: str,
+        client_headers: Optional[Dict[str, str]] = None
     ) -> ProtocolRequest:
-        # 构建 URL
         url = f"{base_url.rstrip('/')}/chat/completions"
-        
-        # 复制请求体并替换模型名
+
         body = original_request.copy()
         body["model"] = actual_model
-        
-        # 如果是流式请求，尝试添加 stream_options 以获取 usage
+
         if body.get("stream"):
             if "stream_options" not in body:
                 body["stream_options"] = {"include_usage": True}
-        
+
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
-        
+        headers.update(self._filter_passthrough_headers(client_headers))
+
         return ProtocolRequest(
             url=url,
             headers=headers,
@@ -199,7 +247,7 @@ class OpenAIResponseProtocol(BaseProtocol):
     OpenAI Responses API 协议适配器 (Beta)
     端点: /v1/responses
     """
-    
+
     @property
     def protocol_type(self) -> str:
         return "openai-response"
@@ -214,15 +262,14 @@ class OpenAIResponseProtocol(BaseProtocol):
         base_url: str,
         api_key: str,
         original_request: Dict[str, Any],
-        actual_model: str
+        actual_model: str,
+        client_headers: Optional[Dict[str, str]] = None
     ) -> ProtocolRequest:
-        # 构建 URL
         url = f"{base_url.rstrip('/')}/responses"
-        
-        # 复制请求体并替换模型名
+
         body = original_request.copy()
         body["model"] = actual_model
-        
+
         if "max_output_tokens" in body:
             body.setdefault("max_tokens", body.pop("max_output_tokens"))
 
@@ -230,7 +277,8 @@ class OpenAIResponseProtocol(BaseProtocol):
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
-        
+        headers.update(self._filter_passthrough_headers(client_headers))
+
         return ProtocolRequest(
             url=url,
             headers=headers,
@@ -306,27 +354,25 @@ class AnthropicProtocol(BaseProtocol):
         base_url: str,
         api_key: str,
         original_request: Dict[str, Any],
-        actual_model: str
+        actual_model: str,
+        client_headers: Optional[Dict[str, str]] = None
     ) -> ProtocolRequest:
-        # 构建 URL
-        # Anthropic 官方通常是 https://api.anthropic.com/v1/messages
-        # 如果 base_url 包含 /v1，则直接拼接 messages
-        # 如果 base_url 不包含 /v1，则添加 /v1/messages
         base = base_url.rstrip('/')
         if base.endswith("/v1"):
             url = f"{base}/messages"
         else:
             url = f"{base}/v1/messages"
-            
+
         body = original_request.copy()
         body["model"] = actual_model
-        
+
         headers = {
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
             "Content-Type": "application/json"
         }
-        
+        headers.update(self._filter_passthrough_headers(client_headers))
+
         return ProtocolRequest(
             url=url,
             headers=headers,
@@ -406,13 +452,7 @@ class GeminiProtocol(BaseProtocol):
         return "gemini"
 
     def parse_request(self, request_body: Dict[str, Any]) -> Tuple[str, bool]:
-        # Gemini 的模型名通常在 URL 中，但作为通用网关，我们可能需要从 body 中约定一个字段
-        # 或者在调用 parse_request 时，如果 body 中没有 model，则需要从 URL path 中获取
-        # 这里假设 body 中有一个扩展字段 'model' 或者由上层路由逻辑处理
-        # 暂时返回空字符串，依赖路由层传入的 model
         model = request_body.get("model", "")
-        # Gemini 没有显式的 stream 字段，而是通过调用的方法区分 (generateContent vs streamGenerateContent)
-        # 这里我们可能需要约定一个字段
         stream = request_body.get("stream", False)
         return model, stream
 
@@ -421,24 +461,23 @@ class GeminiProtocol(BaseProtocol):
         base_url: str,
         api_key: str,
         original_request: Dict[str, Any],
-        actual_model: str
+        actual_model: str,
+        client_headers: Optional[Dict[str, str]] = None
     ) -> ProtocolRequest:
-        # 构建 URL
-        # Gemini: https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent
         method = "streamGenerateContent" if original_request.get("stream") else "generateContent"
-        
+
         base = base_url.rstrip('/')
         url = f"{base}/models/{actual_model}:{method}?key={api_key}"
-        
-        # 移除我们添加的辅助字段
+
         body = original_request.copy()
         body.pop("model", None)
         body.pop("stream", None)
-        
+
         headers = {
             "Content-Type": "application/json"
         }
-        
+        headers.update(self._filter_passthrough_headers(client_headers))
+
         return ProtocolRequest(
             url=url,
             headers=headers,

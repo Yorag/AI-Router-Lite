@@ -504,6 +504,9 @@ async def process_request(
     if not original_model:
         raise HTTPException(status_code=400, detail="无法从请求中提取模型名称")
 
+    # 提取客户端请求头用于穿透
+    client_headers = dict(request.headers)
+
     start_time = time.time()
     client_ip = request.client.host if request.client else None
     api_key_id = api_key.key_id
@@ -522,6 +525,7 @@ async def process_request(
                         stream_context,
                         api_key_name=api_key_name,
                         api_key_id=api_key_id,
+                        client_headers=client_headers,
                     ):
                         yield chunk
 
@@ -594,7 +598,7 @@ async def process_request(
             )
 
         result: ProxyResult = await proxy.forward_request(
-            body, protocol_handler, original_model, api_key_name=api_key_name, api_key_id=api_key_id
+            body, protocol_handler, original_model, api_key_name=api_key_name, api_key_id=api_key_id, client_headers=client_headers
         )
 
         duration_ms = (time.time() - start_time) * 1000

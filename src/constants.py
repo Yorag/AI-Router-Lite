@@ -113,6 +113,9 @@ API_KEY_SECRET_BYTES: int = 24
 # 管理 API 的 HTTP 超时时间（秒）
 ADMIN_HTTP_TIMEOUT: float = 30.0
 
+# 默认 User-Agent（当客户端未提供时使用）
+DEFAULT_USER_AGENT: str = "ai-router-lite/" + APP_VERSION
+
 # 健康测试请求的 max_tokens
 HEALTH_TEST_MAX_TOKENS: int = 10
 
