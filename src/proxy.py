@@ -169,58 +169,88 @@ class RequestProxy:
     
     def _weighted_random_select_index(
         self,
-        candidates: list[tuple["ProviderState", str]]
+        candidates: list[tuple["ProviderState", list[str]]]
     ) -> int:
         """
-        加权随机选择候选索引
-        
+        加权随机选择候选渠道索引
+
         Args:
-            candidates: 候选列表 [(Provider, model_id), ...]
-            
+            candidates: 候选列表 [(Provider, [model_ids]), ...]
+
         Returns:
             选中的索引
         """
         if len(candidates) == 1:
             return 0
-        
+
         weights = [p.config.weight for p, _ in candidates]
         total_weight = sum(weights)
-        
+
         r = random.uniform(0, total_weight)
         cumulative = 0
-        
+
         for i, weight in enumerate(weights):
             cumulative += weight
             if r <= cumulative:
                 return i
-        
+
         return len(candidates) - 1
-    
-    def _reorder_candidates_with_weighted_first(
+
+    def _reorder_providers_with_weighted_first(
         self,
-        candidates: list[tuple["ProviderState", str]]
-    ) -> list[tuple["ProviderState", str]]:
+        candidates: list[tuple["ProviderState", list[str]]]
+    ) -> list[tuple["ProviderState", list[str]]]:
         """
-        重排候选列表：首个元素通过加权随机选择，其余按原顺序
-        
+        重排候选渠道列表：首个元素通过加权随机选择，其余按原顺序
+
         Args:
             candidates: 按权重排序的候选列表
-            
+
         Returns:
             重排后的列表
         """
         if len(candidates) <= 1:
             return candidates
-        
+
         # 加权随机选择首个
         first_idx = self._weighted_random_select_index(candidates)
-        
+
         # 构建新列表：选中的在前，其余按原顺序
         result = [candidates[first_idx]]
         result.extend(candidates[:first_idx])
         result.extend(candidates[first_idx + 1:])
-        
+
         return result
+
+    def _select_model_in_provider(
+        self,
+        api_key_name: str,
+        unified_model: str,
+        provider_id: str,
+        available_models: list[str]
+    ) -> str:
+        """
+        在渠道内选择模型（支持 sticky）
+
+        Args:
+            api_key_name: API 密钥名称（用于隔离 sticky 偏好）
+            unified_model: 统一模型名
+            provider_id: Provider ID
+            available_models: 该渠道下可用的模型列表
+
+        Returns:
+            选中的模型名
+        """
+        if not available_models:
+            raise ValueError("available_models cannot be empty")
+
+        # 优先使用 sticky 模型（按 api_key_name 隔离）
+        sticky = self.provider_manager.get_sticky_model(api_key_name, unified_model, provider_id)
+        if sticky and sticky in available_models:
+            return sticky
+
+        # 否则随机选择
+        return random.choice(available_models)
     
     async def _execute_with_retry(
         self,
@@ -234,19 +264,29 @@ class RequestProxy:
         stream_context: Optional[StreamContext] = None,
         client_headers: Optional[Dict[str, str]] = None
     ) -> AsyncIterator[Any]:
-        """统一的重试执行逻辑 (作为异步生成器)"""
+        """统一的重试执行逻辑 (作为异步生成器) - 两阶段选择"""
         last_error: Optional[ProxyError] = None
         req_protocol = required_protocol or protocol_handler.protocol_type
 
-        all_candidates = self.router.find_candidate_models(original_model, required_protocol=req_protocol)
+        # 第一阶段：获取候选渠道列表
+        all_providers = self.router.find_candidate_providers(original_model, required_protocol=req_protocol)
 
-        if not all_candidates:
+        if not all_providers:
             raise RoutingError(f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider")
 
-        ordered_candidates = self._reorder_candidates_with_weighted_first(all_candidates)
-        max_attempts = len(ordered_candidates)
+        # 按权重随机重排渠道
+        ordered_providers = self._reorder_providers_with_weighted_first(all_providers)
+        max_attempts = len(ordered_providers)
 
-        for attempt, (provider, actual_model) in enumerate(ordered_candidates, 1):
+        # 用于 sticky 的密钥标识（无密钥时使用默认值）
+        sticky_key = api_key_name or "_default_"
+
+        for attempt, (provider, available_models) in enumerate(ordered_providers, 1):
+            # 第二阶段：在渠道内选择模型（优先 sticky）
+            actual_model = self._select_model_in_provider(
+                sticky_key, original_model, provider.config.id, available_models
+            )
+
             if stream_context:
                 stream_context.provider_id = provider.config.id
                 stream_context.provider_name = provider.config.name
@@ -271,14 +311,16 @@ class RequestProxy:
                             total_tokens = (stream_context.request_tokens or 0) + (stream_context.response_tokens or 0)
 
                     self.provider_manager.mark_success(provider.config.id, model_name=actual_model, tokens=total_tokens)
+                    self.provider_manager.set_sticky_model(sticky_key, original_model, provider.config.id, actual_model)
                     model_health_manager.record_passive_result(provider.config.id, actual_model, success=True)
                     provider_models_manager.update_activity(provider.config.id, actual_model, "call")
                     return  # 成功，结束生成器
 
-                else: # not is_stream
+                else:  # not is_stream
                     _, protocol_resp = await self._do_request(provider, request_body, protocol_handler, actual_model, original_model, client_headers)
 
                     self.provider_manager.mark_success(provider.config.id, model_name=actual_model, tokens=protocol_resp.total_tokens or 0)
+                    self.provider_manager.set_sticky_model(sticky_key, original_model, provider.config.id, actual_model)
                     model_health_manager.record_passive_result(provider.config.id, actual_model, success=True)
                     provider_models_manager.update_activity(provider.config.id, actual_model, "call")
 
@@ -291,7 +333,7 @@ class RequestProxy:
                         response_tokens=protocol_resp.response_tokens,
                         total_tokens=protocol_resp.total_tokens
                     )
-                    return # 成功，结束生成器
+                    return  # 成功，结束生成器
 
             except ProxyError as e:
                 last_error = e
@@ -300,6 +342,8 @@ class RequestProxy:
                 if e.skip_retry:
                     raise e
 
+                # 清除 sticky 并触发熔断，然后切换到下一个渠道
+                self.provider_manager.clear_sticky_model(sticky_key, original_model, provider.config.id)
                 self.provider_manager.mark_failure(provider.config.id, model_name=actual_model, status_code=e.status_code, error_message=e.message)
 
                 self._log_proxy_error(

@@ -153,19 +153,22 @@ class ProviderState:
 class ProviderManager:
     """
     Provider 管理器
-    
+
     支持双层熔断机制：
     - 渠道级熔断：影响整个 Provider（如鉴权失败、网络错误）
     - 模型级熔断：仅影响特定 Provider + Model 组合（如超频、服务错误）
-    
+
     注意：内部使用 provider_id (UUID) 作为标识
     """
-    
+
     def __init__(self):
         # key = provider_id
         self._providers: dict[str, ProviderState] = {}
         # 模型状态：key = "provider_id:model_name"
         self._model_states: dict[str, ModelState] = {}
+        # Sticky 模型：{api_key_name: {unified_model_name: {provider_id: model_id}}}
+        # 按 API 密钥隔离，每个密钥有独立的 sticky 偏好
+        self._sticky_models: dict[str, dict[str, dict[str, str]]] = {}
         # 日志管理器引用（延迟获取，避免循环导入）
         self._log_manager: Optional["LogManager"] = None
     
@@ -220,7 +223,49 @@ class ProviderManager:
                 model_name=model_name
             )
         return self._model_states[key]
-    
+
+    def get_sticky_model(self, api_key_name: str, unified_model: str, provider_id: str) -> Optional[str]:
+        """
+        获取指定统一模型在指定渠道的 sticky 模型
+
+        Args:
+            api_key_name: API 密钥名称（用于隔离不同密钥的 sticky 偏好）
+            unified_model: 统一模型名（用户请求的模型名）
+            provider_id: Provider ID
+
+        Returns:
+            上次成功使用的实际模型名，如果没有则返回 None
+        """
+        return self._sticky_models.get(api_key_name, {}).get(unified_model, {}).get(provider_id)
+
+    def set_sticky_model(self, api_key_name: str, unified_model: str, provider_id: str, model_id: str) -> None:
+        """
+        设置 sticky 模型（请求成功时调用）
+
+        Args:
+            api_key_name: API 密钥名称
+            unified_model: 统一模型名
+            provider_id: Provider ID
+            model_id: 实际使用的模型名
+        """
+        if api_key_name not in self._sticky_models:
+            self._sticky_models[api_key_name] = {}
+        if unified_model not in self._sticky_models[api_key_name]:
+            self._sticky_models[api_key_name][unified_model] = {}
+        self._sticky_models[api_key_name][unified_model][provider_id] = model_id
+
+    def clear_sticky_model(self, api_key_name: str, unified_model: str, provider_id: str) -> None:
+        """
+        清除 sticky 模型（请求失败时调用）
+
+        Args:
+            api_key_name: API 密钥名称
+            unified_model: 统一模型名
+            provider_id: Provider ID
+        """
+        if api_key_name in self._sticky_models and unified_model in self._sticky_models[api_key_name]:
+            self._sticky_models[api_key_name][unified_model].pop(provider_id, None)
+
     def get_all(self) -> list[ProviderState]:
         """获取所有 Provider 状态"""
         return list(self._providers.values())

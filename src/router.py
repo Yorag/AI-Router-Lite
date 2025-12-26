@@ -43,25 +43,25 @@ class ModelRouter:
         # 没有映射配置或已禁用，返回空字典
         return {}
     
-    def find_candidate_models(
+    def find_candidate_providers(
         self,
         requested_model: str,
-        exclude: Optional[set[tuple[str, str]]] = None,
+        exclude_providers: Optional[set[str]] = None,
         required_protocol: Optional[str] = None
-    ) -> list[tuple[ProviderState, str]]:
+    ) -> list[tuple[ProviderState, list[str]]]:
         """
-        查找支持指定模型的所有可用 (Provider, Model) 组合（模型级重试支持）
-        
+        查找支持指定模型的所有可用渠道及其可用模型列表（两阶段选择支持）
+
         Args:
             requested_model: 用户请求的模型名
-            exclude: 要排除的 (provider_id, model_id) 元组集合
+            exclude_providers: 要排除的 provider_id 集合
             required_protocol: 要求的协议类型（如 "openai", "anthropic" 等），
-                              如果指定，则只返回协议匹配的组合
-            
+                              如果指定，则只返回协议匹配的模型
+
         Returns:
-            列表：[(Provider 状态, 实际模型名), ...]
-            按权重降序排序，同一 Provider 的多个模型会连续出现
-            
+            列表：[(Provider 状态, [可用模型列表]), ...]
+            按权重降序排序，每个渠道只出现一次
+
         Note:
             此方法会同时检查：
             1. Provider 渠道级是否可用
@@ -69,51 +69,58 @@ class ModelRouter:
             3. Provider 是否在统一模型映射的 resolved_models 中
             4. 如果指定了 required_protocol，检查模型协议是否匹配
         """
-        exclude = exclude or set()
-        candidates: list[tuple[ProviderState, str, int]] = []
-        
+        exclude_providers = exclude_providers or set()
+        # {provider_id: (ProviderState, [model_ids], weight)}
+        provider_candidates: dict[str, tuple[ProviderState, list[str], int]] = {}
+
         # 解析模型映射（返回 {provider_id: [model_ids]} 格式）
         resolved_models = self.resolve_model(requested_model)
-        
+
         # 获取映射配置（用于协议检查）
         mapping = model_mapping_manager.get_mapping(requested_model)
-        
+
         if resolved_models:
             # 有映射配置：匹配 resolved_models 中所有可用的 provider_id 和 model_id 组合
             for provider_id, model_ids in resolved_models.items():
+                # 跳过被排除的渠道
+                if provider_id in exclude_providers:
+                    continue
+
                 # 获取 Provider 状态
                 provider = self.provider_manager.get(provider_id)
                 if not provider or not provider.is_available:
                     continue
-                
+
                 # 获取该 Provider 实际支持的模型列表（用于二次验证）
                 supported_models = self._get_supported_models(provider_id)
-                
+
+                available_models: list[str] = []
+
                 # 遍历映射中指定的所有模型
                 for model_id in model_ids:
-                    # 跳过被排除的 (provider_id, model_id) 组合
-                    if (provider_id, model_id) in exclude:
-                        continue
-                    
                     # 验证 Provider 确实支持该模型
                     if model_id not in supported_models:
                         continue
-                    
+
                     # 协议过滤：检查模型协议是否匹配
                     if required_protocol and mapping:
                         model_protocol = mapping.get_model_protocol(provider_id, model_id)
                         if model_protocol != required_protocol:
                             continue
-                    
+
                     # 双层检查：检查该 Provider + Model 组合是否可用（模型级熔断）
                     if self.provider_manager.is_model_available(provider_id, model_id):
-                        candidates.append((provider, model_id, provider.config.weight))
-        
+                        available_models.append(model_id)
+
+                # 只有当渠道有可用模型时才加入候选
+                if available_models:
+                    provider_candidates[provider_id] = (provider, available_models, provider.config.weight)
+
         # 按权重降序排序
-        candidates.sort(key=lambda x: x[2], reverse=True)
-        
-        return [(p, m) for p, m, _ in candidates]
-    
+        sorted_candidates = sorted(provider_candidates.values(), key=lambda x: x[2], reverse=True)
+
+        return [(p, models) for p, models, _ in sorted_candidates]
+
     def _get_supported_models(self, provider_id: str) -> set[str]:
         """
         获取指定 Provider 支持的模型集合
