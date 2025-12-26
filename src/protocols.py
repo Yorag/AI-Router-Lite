@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Any, Tuple, Dict, Union
 from dataclasses import dataclass
 
-from .constants import HEALTH_TEST_MAX_TOKENS, HEALTH_TEST_MESSAGE, DEFAULT_USER_AGENT
+from .constants import HEALTH_TEST_MAX_TOKENS, HEALTH_TEST_MESSAGE, DEFAULT_USER_AGENT, BLOCKED_HEADERS
 
 @dataclass
 class ProtocolRequest:
@@ -54,33 +54,6 @@ class BaseProtocol(ABC):
         """
         pass
 
-    # 不允许穿透的请求头（小写），这些头由网关控制
-    BLOCKED_HEADERS: Tuple[str, ...] = (
-        # 认证相关 - 上游使用 provider 的 key
-        "authorization",
-        "x-api-key",
-        # HTTP 协议控制 - httpx 自动处理
-        "host",
-        "content-length",
-        "content-type",
-        "connection",
-        "transfer-encoding",
-        "accept-encoding",
-        # 代理相关 - 隐藏代理痕迹
-        "x-forwarded-for",
-        "x-forwarded-host",
-        "x-forwarded-proto",
-        "x-forwarded-port",
-        "x-real-ip",
-        "forwarded",
-        "via",
-        "proxy-connection",
-        "proxy-authorization",
-        # 其他客户端类
-        "x-title",
-        "http-referer"
-    )
-
     @abstractmethod
     def build_request(
         self,
@@ -116,7 +89,7 @@ class BaseProtocol(ABC):
         result = {
             key: value
             for key, value in client_headers.items()
-            if key.lower() not in self.BLOCKED_HEADERS
+            if key.lower() not in BLOCKED_HEADERS
         }
 
         # 如果客户端未提供 User-Agent，使用默认值

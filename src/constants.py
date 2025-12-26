@@ -105,6 +105,34 @@ ADMIN_HTTP_TIMEOUT: float = 30.0
 # 默认 User-Agent（当客户端未提供时使用）
 DEFAULT_USER_AGENT: str = "ai-router-lite/" + APP_VERSION
 
+# 不允许穿透的请求头（小写），这些头由网关控制
+BLOCKED_HEADERS: tuple[str, ...] = (
+    # 认证相关 - 上游使用 provider 的 key
+    "authorization",
+    "x-api-key",
+    # HTTP 协议控制 - httpx 自动处理
+    "host",
+    "content-length",
+    "content-type",
+    "connection",
+    "transfer-encoding",
+    "accept-encoding",
+    # 中转相关
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-forwarded-port",
+    "x-real-ip",
+    "forwarded",
+    "via",
+    "proxy-connection",
+    "proxy-authorization",
+    # 其他客户端类
+    "x-title",
+    "http-referer",
+    "cookie"
+)
+
 # 健康测试请求的 max_tokens
 HEALTH_TEST_MAX_TOKENS: int = 10
 
