@@ -303,36 +303,5 @@ class ProviderModelsManager:
             result[pid] = sorted(pdata.keys())
         return result
 
-    def get_models_needing_health_check(
-        self,
-        threshold_hours: float = 6.0
-    ) -> dict[str, list[str]]:
-        
-        from datetime import timedelta
-        
-        raw = self._repo.get_all_provider_models()
-        now = datetime.now(timezone.utc)
-        threshold = timedelta(hours=threshold_hours)
-        
-        result = {}
-        
-        for pid, pdata in raw.items():
-            models_needing_check = []
-            for mid, mdata in pdata.items():
-                needs_check = True
-                last_ms = mdata.get("last_activity")
-                if last_ms:
-                    last_time = datetime.fromtimestamp(last_ms / 1000.0, timezone.utc)
-                    if now - last_time < threshold:
-                        needs_check = False
-                
-                if needs_check:
-                    models_needing_check.append(mid)
-            
-            if models_needing_check:
-                result[pid] = models_needing_check
-        
-        return result
-
 
 provider_models_manager = ProviderModelsManager()

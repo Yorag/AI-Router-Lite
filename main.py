@@ -28,7 +28,6 @@ from src.constants import (
     DEFAULT_SERVER_HOST,
     DEFAULT_SERVER_PORT,
     AUTO_SYNC_CHECK_INTERVAL_SECONDS,
-    HEALTH_TEST_FAILURE_COOLDOWN_SECONDS
 )
 from src.provider import ModelStatus, CooldownReason
 from src.schemas import (
@@ -945,10 +944,6 @@ async def test_mapping_health(unified_name: str, _: None = Depends(require_admin
         raise HTTPException(status_code=404, detail="映射不存在")
     
     results = await model_health_manager.test_mapping_models(mapping.resolved_models)
-    
-    # 更新 Provider 状态
-    for res in results:
-        provider_manager.update_model_health_from_test(res.provider, res.model, res.success, res.error)
 
     success_count = sum(1 for r in results if r.success)
     
@@ -964,10 +959,6 @@ async def test_mapping_health(unified_name: str, _: None = Depends(require_admin
 async def test_single_model_health(request: TestSingleModelRequest, _: None = Depends(require_admin_auth)):
     """检测单个模型"""
     result = await model_health_manager.test_single_model(request.provider_id, request.model)
-    
-    # 更新 Provider 状态
-    provider_manager.update_model_health_from_test(result.provider, result.model, result.success, result.error)
-    
     return result.to_dict()
 
 

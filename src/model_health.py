@@ -183,6 +183,8 @@ class ModelHealthManager:
         req = protocol.build_request(base_url, api_key, minimal_body, model)
         
         start_time = time.time()
+        status_code: Optional[int] = None  # 跟踪状态码，用于熔断判断
+
         try:
             async with httpx.AsyncClient(timeout=ADMIN_HTTP_TIMEOUT) as client:
                 response = await client.post(
@@ -191,12 +193,13 @@ class ModelHealthManager:
                     json=req.body
                 )
                 latency_ms = (time.time() - start_time) * 1000
-                
+                status_code = response.status_code
+
                 try:
                     response_body = response.json()
                 except json.JSONDecodeError:
                     response_body = {"raw_text": response.text[:500]}
-                
+
                 if response.status_code == 200:
                     result = ModelHealthResult(
                         provider=provider_id,
@@ -219,6 +222,31 @@ class ModelHealthManager:
                         error=full_error,
                         tested_at=datetime.now(timezone.utc).isoformat()
                     )
+        except httpx.TimeoutException:
+            # 超时异常 - 错误信息包含 timeout 关键字以便熔断逻辑识别
+            latency_ms = (time.time() - start_time) * 1000
+            result = ModelHealthResult(
+                provider=provider_id,
+                model=model,
+                success=False,
+                latency_ms=latency_ms,
+                response_body={},
+                error="timeout",
+                tested_at=datetime.now(timezone.utc).isoformat()
+            )
+        except httpx.RequestError as e:
+            # 网络/连接错误 - 错误信息包含 network 关键字以便熔断逻辑识别
+            latency_ms = (time.time() - start_time) * 1000
+            error_msg = str(e) or type(e).__name__
+            result = ModelHealthResult(
+                provider=provider_id,
+                model=model,
+                success=False,
+                latency_ms=latency_ms,
+                response_body={},
+                error=f"network error: {error_msg}",
+                tested_at=datetime.now(timezone.utc).isoformat()
+            )
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
             result = ModelHealthResult(
@@ -237,11 +265,18 @@ class ModelHealthManager:
         self._repo.upsert_result(result.to_dict())
         
         provider_models_manager.update_activity(provider_id, model, "health_test")
-        
-        # 健康检测失败时触发模型级熔断（与被动检测行为一致）
-        provider_manager.update_model_health_from_test(
-            provider_id, model, result.success, result.error
-        )
+
+        # 更新熔断状态（复用被动检测的熔断逻辑）
+        if result.success:
+            provider_manager.update_model_health_from_test(provider_id, model, True)
+        else:
+            # 失败时复用 mark_failure，根据 status_code 动态判断熔断原因和时间
+            provider_manager.mark_failure(
+                provider_id,
+                model_name=model,
+                status_code=status_code,
+                error_message=result.error
+            )
         
         return result
 

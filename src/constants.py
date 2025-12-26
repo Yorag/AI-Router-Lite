@@ -35,17 +35,6 @@ DEFAULT_SERVER_PORT: int = 8000
 DEFAULT_SERVER_HOST: str = "0.0.0.0"
 
 
-
-# ==================== 健康检测配置 ====================
-
-# 健康检测跳过的时间阈值（小时）
-# 如果模型在此时间内有活动记录（调用或测试），自动健康检测会跳过该模型
-HEALTH_CHECK_SKIP_THRESHOLD_HOURS: float = 6.0
-
-# 健康测试失败时的冷却时间（秒）
-HEALTH_TEST_FAILURE_COOLDOWN_SECONDS: int = 60
-
-
 # ==================== 熔断器冷却时间配置（秒） ====================
 
 # 429 超频冷却时间
@@ -58,7 +47,7 @@ COOLDOWN_SERVER_ERROR: int = 600
 COOLDOWN_TIMEOUT: int = 300
 
 # 网络错误冷却时间
-COOLDOWN_NETWORK_ERROR: int = 60
+COOLDOWN_NETWORK_ERROR: int = 120
 
 # 永久禁用标记（用于 401/403 鉴权失败、404 模型不存在）
 COOLDOWN_PERMANENT: int = -1

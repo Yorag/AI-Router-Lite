@@ -15,8 +15,6 @@ from .config import ProviderConfig
 if TYPE_CHECKING:
     from .logger import LogManager
 from .constants import (
-    HEALTH_CHECK_SKIP_THRESHOLD_HOURS,
-    HEALTH_TEST_FAILURE_COOLDOWN_SECONDS,
     COOLDOWN_RATE_LIMITED,
     COOLDOWN_SERVER_ERROR,
     COOLDOWN_TIMEOUT,
@@ -47,7 +45,6 @@ class CooldownReason(Enum):
     AUTH_FAILED = "auth_failed"         # 401/403 鉴权失败（永久）-> 渠道级
     NETWORK_ERROR = "network_error"     # 网络错误 -> 渠道级
     MODEL_NOT_FOUND = "model_not_found" # 404 模型不存在 -> 模型级
-    HEALTH_CHECK_FAILED = "health_check_failed"  # 健康检测失败 -> 模型级
 
 
 # 冷却时间配置（秒）- 使用统一常量
@@ -58,7 +55,6 @@ COOLDOWN_TIMES = {
     CooldownReason.AUTH_FAILED: COOLDOWN_PERMANENT,               # 永久禁用
     CooldownReason.NETWORK_ERROR: COOLDOWN_NETWORK_ERROR,         # 网络错误
     CooldownReason.MODEL_NOT_FOUND: COOLDOWN_PERMANENT,           # 模型不存在: 永久禁用（该模型）
-    CooldownReason.HEALTH_CHECK_FAILED: HEALTH_TEST_FAILURE_COOLDOWN_SECONDS,  # 健康检测失败
 }
 
 
@@ -74,7 +70,6 @@ MODEL_LEVEL_ERRORS = {
     CooldownReason.RATE_LIMITED,
     CooldownReason.SERVER_ERROR,
     CooldownReason.MODEL_NOT_FOUND,
-    CooldownReason.HEALTH_CHECK_FAILED,
 }
 
 
@@ -285,66 +280,24 @@ class ProviderManager:
         provider = self._providers.get(provider_id)
         if not provider or not provider.is_available:
             return False
-        
+
         model_state = self.get_model_state(provider_id, model_name)
         return model_state.is_available
-    
-    def get_model_last_activity_time(self, provider_id: str, model_name: str) -> Optional[float]:
+
+    def update_model_health_from_test(self, provider_id: str, model_name: str, success: bool) -> None:
         """
-        获取模型的最后活动时间
-        
-        Args:
-            provider_id: Provider 的唯一 ID
-            model_name: 模型名称
-            
-        Returns:
-            最后活动时间戳，如果从未有活动则返回 None
-        """
-        key = self._get_model_key(provider_id, model_name)
-        if key in self._model_states:
-            return self._model_states[key].last_activity_time
-        return None
-    
-    def is_model_recently_active(self, provider_id: str, model_name: str,
-                                  threshold_hours: float = HEALTH_CHECK_SKIP_THRESHOLD_HOURS) -> bool:
-        """
-        检查模型是否在近期有活动
-        
-        Args:
-            provider_id: Provider 的唯一 ID
-            model_name: 模型名称
-            threshold_hours: 活动阈值（小时），默认使用 HEALTH_CHECK_SKIP_THRESHOLD_HOURS
-            
-        Returns:
-            如果在阈值时间内有活动返回 True，否则返回 False
-        """
-        last_activity = self.get_model_last_activity_time(provider_id, model_name)
-        if last_activity is None:
-            return False
-        
-        threshold_seconds = threshold_hours * 3600
-        return (time.time() - last_activity) < threshold_seconds
-    
-    def update_model_health_from_test(self, provider_id: str, model_name: str, success: bool, error_message: Optional[str] = None) -> None:
-        """
-        根据健康测试结果更新模型状态（统一健康标记）
+        根据健康测试成功结果更新模型状态
+        注意：失败情况应调用 mark_failure 以复用统一的熔断逻辑
         """
         model_state = self.get_model_state(provider_id, model_name)
         model_state.last_activity_time = time.time()
-        
-        if success:
-            # 测试成功，如果当前是冷却状态，恢复为健康
-            if model_state.status == ModelStatus.COOLING:
-                model_state.status = ModelStatus.HEALTHY
-                model_state.cooldown_until = 0.0
-                model_state.cooldown_reason = None
-                self._log_info(f"模型 [{provider_id}:{model_name}] 健康检测通过，已恢复为健康状态")
-        else:
-            # 测试失败，记录错误并触发模型级熔断
-            model_state.last_error = error_message
-            model_state.last_error_time = time.time()
-            # 触发模型级熔断
-            self._apply_model_cooldown(model_state, CooldownReason.HEALTH_CHECK_FAILED)
+
+        if success and model_state.status == ModelStatus.COOLING:
+            # 测试成功，恢复为健康状态
+            model_state.status = ModelStatus.HEALTHY
+            model_state.cooldown_until = 0.0
+            model_state.cooldown_reason = None
+            self._log_info(f"模型 [{provider_id}:{model_name}] 健康检测通过，已恢复为健康状态")
 
     def mark_success(self, provider_id: str, model_name: Optional[str] = None, tokens: int = 0) -> None:
         """
