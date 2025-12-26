@@ -11,6 +11,7 @@ const ModelMap = {
     providerIdNameMap: {},  // provider_id -> provider_name 映射
     providerDefaultProtocols: {},  // provider_id -> default_protocol 映射
     providerEnabledStatus: {},     // provider_id -> enabled 状态映射
+    providerHealthCheckStatus: {}, // provider_id -> allow_health_check 状态映射
     providerWeights: {},           // provider_id -> weight 映射
     currentProviderId: '',  // 当前选中的 provider_id
     currentProviderModels: [], // 当前选中的中转站模型
@@ -63,12 +64,14 @@ const ModelMap = {
             const providers = result.providers || [];
             this.providerDefaultProtocols = {};
             this.providerEnabledStatus = {};
+            this.providerHealthCheckStatus = {};
             this.providerWeights = {};
             for (const p of providers) {
                 if (p.id) {
                     this.providerDefaultProtocols[p.id] = p.default_protocol || null;
                     // 默认为 true，只有明确为 false 时才是禁用
                     this.providerEnabledStatus[p.id] = p.enabled !== false;
+                    this.providerHealthCheckStatus[p.id] = p.allow_health_check !== false;
                     this.providerWeights[p.id] = p.weight !== undefined ? p.weight : 0;
                 }
             }
@@ -76,6 +79,7 @@ const ModelMap = {
             console.warn('加载 Provider 协议配置失败:', err);
             this.providerDefaultProtocols = {};
             this.providerEnabledStatus = {};
+            this.providerHealthCheckStatus = {};
             this.providerWeights = {};
         }
     },
@@ -426,23 +430,24 @@ const ModelMap = {
         const key = `${providerId}:${model}`;
         const runtimeState = this.runtimeStates[key];
         const healthResult = this.healthResults[key];
-        
-        // 检查渠道是否被禁用
+
+        // 检查渠道是否被禁用或禁止健康检测
         const isProviderDisabled = this.providerEnabledStatus[providerId] === false;
-        
+        const isHealthCheckDisabled = this.providerHealthCheckStatus[providerId] === false;
+
         let healthClass = 'health-unknown';
         let tooltipContent = '点击检测';
         let clickAction = `ModelMap.testSingleModelSilent(this, '${providerId}', '${model}')`;
-        
-        // 如果渠道被禁用，添加禁用样式
-        if (isProviderDisabled) {
+
+        // 如果渠道被禁用或禁止健康检测，添加禁用样式
+        if (isProviderDisabled || isHealthCheckDisabled) {
             healthClass = 'provider-disabled-model';
-            tooltipContent = '';
+            tooltipContent = isProviderDisabled ? '' : '渠道禁用检测';
             clickAction = '';  // 禁用点击
         }
-        
+
         // 优先检查运行时熔断状态（COOLING 和 PERMANENTLY_DISABLED）- 仅当渠道未禁用时
-        if (!isProviderDisabled && runtimeState) {
+        if (!isProviderDisabled && !isHealthCheckDisabled && runtimeState) {
             if (runtimeState.status === 'cooling') {
                 healthClass = 'health-cooling';
                 const remainingSec = Math.max(0, Math.ceil(runtimeState.cooldown_remaining || 0));
@@ -465,9 +470,9 @@ const ModelMap = {
                 clickAction = '';
             }
         }
-        
-        // 如果不是熔断/禁用状态，检查健康状态 - 仅当渠道未禁用时
-        if (!isProviderDisabled && healthClass === 'health-unknown') {
+
+        // 如果不是熔断/禁用状态，检查健康状态 - 仅当渠道未禁用且允许健康检测时
+        if (!isProviderDisabled && !isHealthCheckDisabled && healthClass === 'health-unknown') {
             // 判断是否健康：运行时状态 healthy 且有活动记录，或者健康检测成功
             const isRuntimeHealthy = runtimeState && runtimeState.status === 'healthy' && runtimeState.last_activity_time;
             const isHealthCheckSuccess = healthResult && healthResult.success;
