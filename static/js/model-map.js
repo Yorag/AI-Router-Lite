@@ -439,15 +439,21 @@ const ModelMap = {
         let tooltipContent = '点击检测';
         let clickAction = `ModelMap.testSingleModelSilent(this, '${providerId}', '${model}')`;
 
-        // 如果渠道被禁用或禁止健康检测，添加禁用样式
-        if (isProviderDisabled || isHealthCheckDisabled) {
+        // 如果渠道被禁用，添加禁用样式
+        if (isProviderDisabled) {
             healthClass = 'provider-disabled-model';
-            tooltipContent = isProviderDisabled ? '' : '渠道禁用检测';
+            tooltipContent = '';
             clickAction = '';  // 禁用点击
         }
 
+        // 如果渠道禁用健康检测，只禁用点击，但仍显示正常健康状态（根据被动测试结果）
+        if (isHealthCheckDisabled && !isProviderDisabled) {
+            clickAction = '';  // 禁用点击
+            tooltipContent = '';  // 清空默认的"点击检测"提示
+        }
+
         // 优先检查运行时熔断状态（COOLING 和 PERMANENTLY_DISABLED）- 仅当渠道未禁用时
-        if (!isProviderDisabled && !isHealthCheckDisabled && runtimeState) {
+        if (!isProviderDisabled && runtimeState) {
             if (runtimeState.status === 'cooling') {
                 healthClass = 'health-cooling';
                 const remainingSec = Math.max(0, Math.ceil(runtimeState.cooldown_remaining || 0));
@@ -458,8 +464,10 @@ const ModelMap = {
                 if (runtimeState.last_error) {
                     tooltipContent += ` | ${runtimeState.last_error}`;
                 }
-                // 熔断中的模型仍可点击重新检测
-                clickAction = `ModelMap.testSingleModelSilent(this, '${providerId}', '${model}')`;
+                // 熔断中的模型可点击重新检测（除非渠道禁用健康检测）
+                if (!isHealthCheckDisabled) {
+                    clickAction = `ModelMap.testSingleModelSilent(this, '${providerId}', '${model}')`;
+                }
             } else if (runtimeState.status === 'permanently_disabled') {
                 healthClass = 'health-disabled';
                 tooltipContent = '永久禁用';
@@ -471,8 +479,8 @@ const ModelMap = {
             }
         }
 
-        // 如果不是熔断/禁用状态，检查健康状态 - 仅当渠道未禁用且允许健康检测时
-        if (!isProviderDisabled && !isHealthCheckDisabled && healthClass === 'health-unknown') {
+        // 如果不是熔断/禁用状态，检查健康状态 - 仅当渠道未禁用时（禁用健康检测的渠道仍显示被动测试结果）
+        if (!isProviderDisabled && healthClass === 'health-unknown') {
             // 判断是否健康：运行时状态 healthy 且有活动记录，或者健康检测成功
             const isRuntimeHealthy = runtimeState && runtimeState.status === 'healthy' && runtimeState.last_activity_time;
             const isHealthCheckSuccess = healthResult && healthResult.success;
@@ -490,7 +498,12 @@ const ModelMap = {
             }
             // 注：健康检测失败会触发熔断，显示为 cooling 状态（橙色），不再单独显示红色
         }
-        
+
+        // 禁用健康检测的渠道，unknown 状态时显示提示
+        if (isHealthCheckDisabled && !isProviderDisabled && healthClass === 'health-unknown') {
+            tooltipContent = '渠道禁用健康检测';
+        }
+
         // 获取协议配置状态
         let protocolBadge = '';
         if (unifiedName) {
