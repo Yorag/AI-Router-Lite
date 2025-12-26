@@ -34,8 +34,14 @@
     border-color: transparent;
 }
 
-/* 冷却/警告状态 - 使用中性灰色 */
-.status-badge.cooling,
+/* 冷却状态 - 橙色警示 */
+.status-badge.cooling {
+    background: var(--cooling-bg);
+    color: var(--cooling-color);
+    border-color: var(--cooling-border);
+}
+
+/* 警告状态 - 使用中性灰色 */
 .status-badge.warning {
     background: var(--bg-tertiary);
     color: var(--text-secondary);
@@ -70,11 +76,11 @@
     border-color: var(--border-strong);
 }
 
-/* 冷却状态 - 中性灰色 */
+/* 冷却状态 - 橙色警示 */
 .model-tag.health-cooling {
-    background: var(--bg-tertiary);
-    border-color: var(--border-color);
-    color: var(--text-secondary);
+    background: var(--cooling-bg);
+    border-color: var(--cooling-border);
+    color: var(--cooling-color);
 }
 
 /* 禁用状态 - 淡灰色 */
@@ -115,8 +121,13 @@
     border-color: rgba(68, 131, 97, 0.2);
 }
 
+.model-tag.health-cooling .protocol-badge {
+    background: var(--cooling-bg);
+    color: var(--cooling-color);
+    border-color: var(--cooling-border);
+}
+
 .model-tag.health-unknown .protocol-badge,
-.model-tag.health-cooling .protocol-badge,
 .model-tag.health-disabled .protocol-badge {
     background: var(--bg-tertiary);
     color: var(--text-muted);

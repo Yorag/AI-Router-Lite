@@ -230,7 +230,7 @@
 }
 
 .provider-health-dot.cooling {
-    background-color: var(--text-muted);
+    background-color: var(--cooling-color);
 }
 
 .provider-health-dot.permanently_disabled {

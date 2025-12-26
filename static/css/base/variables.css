@@ -30,6 +30,9 @@
     --danger-bg: rgba(224, 62, 62, 0.1);
     --info-color: #787774;
     --info-bg: rgba(120, 119, 116, 0.1);
+    --cooling-color: #D9730D;
+    --cooling-bg: rgba(217, 115, 13, 0.1);
+    --cooling-border: rgba(217, 115, 13, 0.4);
     
     /* ===== 背景色 ===== */
     --bg-color: #FFFFFF;
