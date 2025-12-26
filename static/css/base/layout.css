@@ -94,17 +94,9 @@
     border-top: 1px solid var(--divider-color);
 }
 
-.status-indicator {
-    display: flex;
-    align-items: center;
-    font-size: var(--text-xs);
-    color: var(--text-muted);
-}
-
 .footer-actions {
     display: flex;
     gap: 8px;
-    margin-top: 12px;
 }
 
 .btn-footer {
@@ -130,27 +122,6 @@
 .btn-footer.btn-logout:hover {
     background: rgba(var(--danger-rgb, 220, 38, 38), 0.1);
     color: var(--danger-color);
-}
-
-.status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    margin-right: 8px;
-    animation: pulse 2s ease-in-out infinite;
-}
-
-.status-dot.online {
-    background: var(--success-color);
-}
-
-.status-dot.offline {
-    background: var(--danger-color);
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
 }
 
 /* ==================== 主内容区 ==================== */

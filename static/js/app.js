@@ -48,7 +48,6 @@ const App = {
             }
         });
         
-        console.log('AI-Router-Lite Admin Panel initialized');
     },
 
     initNavigation() {
