@@ -194,7 +194,7 @@ async def sync_all_provider_models_logic() -> dict:
     provider_protocols = admin_manager.get_provider_protocols()
 
     mapping_results = model_mapping_manager.sync_all_mappings(
-        provider_models_flat, provider_id_name_map, provider_protocols
+        provider_models_flat, provider_id_name_map, provider_protocols, update_last_sync=True
     )
     
     return {

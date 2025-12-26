@@ -575,7 +575,8 @@ class ModelMappingManager:
         self,
         all_provider_models: dict[str, list[str]],
         provider_id_name_map: Optional[dict[str, str]] = None,
-        provider_protocols: Optional[dict[str, Optional[str]]] = None
+        provider_protocols: Optional[dict[str, Optional[str]]] = None,
+        update_last_sync: bool = False
     ) -> list[dict]:
         self._ensure_loaded()
         
@@ -631,10 +632,11 @@ class ModelMappingManager:
                 "removed": removed
             })
             
-        self._repo.update_sync_config(None, None, last_sync=now_ms)
-        if self._sync_config_cache:
-            self._sync_config_cache.last_full_sync = datetime.fromtimestamp(now_ms / 1000.0, timezone.utc).isoformat()
-            
+        if update_last_sync:
+            self._repo.update_sync_config(None, None, last_sync=now_ms)
+            if self._sync_config_cache:
+                self._sync_config_cache.last_full_sync = datetime.fromtimestamp(now_ms / 1000.0, timezone.utc).isoformat()
+
         return results
 
     def get_resolved_models_for_unified(self, unified_name: str) -> list[str]:
