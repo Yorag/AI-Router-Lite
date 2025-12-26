@@ -100,9 +100,10 @@ class ModelState:
             return False
         if self.status == ModelStatus.COOLING:
             if time.time() >= self.cooldown_until:
-                # 冷却时间已过，恢复健康状态
+                # 冷却时间已过，恢复为可用但未知状态（需重新检测）
                 self.status = ModelStatus.HEALTHY
                 self.cooldown_reason = None
+                self.last_activity_time = None  # 清除活动记录，前端显示为未知
                 return True
             return False
         return True
