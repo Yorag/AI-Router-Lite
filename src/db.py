@@ -250,11 +250,28 @@ def init_schema_logs(conn: sqlite3.Connection) -> None:
         );
 
         CREATE INDEX IF NOT EXISTS idx_logs_ts ON request_logs(timestamp_ms);
-        CREATE INDEX IF NOT EXISTS idx_logs_type_ts ON request_logs(type, timestamp_ms);
         CREATE INDEX IF NOT EXISTS idx_logs_api_key_ts ON request_logs(api_key_id, timestamp_ms);
         CREATE INDEX IF NOT EXISTS idx_logs_provider_ts ON request_logs(provider_id, timestamp_ms);
         CREATE INDEX IF NOT EXISTS idx_logs_unified_model_ts ON request_logs(unified_model, timestamp_ms);
         CREATE INDEX IF NOT EXISTS idx_logs_status ON request_logs(status_code);
+
+        CREATE TABLE IF NOT EXISTS event_logs (
+          id TEXT PRIMARY KEY,
+          timestamp_ms INTEGER NOT NULL,
+          level TEXT NOT NULL,
+          type TEXT NOT NULL,
+          message TEXT,
+          error TEXT,
+          provider_id TEXT,
+          model TEXT,
+          actual_model TEXT,
+          client_ip TEXT,
+          status_code INTEGER,
+          duration_ms REAL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_event_logs_ts ON event_logs(timestamp_ms);
+        CREATE INDEX IF NOT EXISTS idx_event_logs_type_ts ON event_logs(type, timestamp_ms);
         """
     )
     conn.commit()

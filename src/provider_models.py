@@ -241,11 +241,9 @@ class ProviderModelsManager:
         
         log_message = f"{', '.join(parts)}"
         print(f"[PROVIDER-MODELS] [{display_name}] {log_message}")
-        log_manager.log(
+        log_manager.log_event(
             level=LogLevel.INFO,
             log_type="sync",
-            method="SYNC",
-            path="/providers/sync",
             provider=display_name,
             provider_id=provider_id,
             message=log_message

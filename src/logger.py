@@ -12,7 +12,7 @@ from .constants import (
     LOG_RECENT_LIMIT_DEFAULT,
     LOG_SUBSCRIBE_QUEUE_SIZE,
 )
-from .sqlite_repos import LogRepo
+from .sqlite_repos import LogRepo, EventLogRepo
 
 _TZ = timezone(timedelta(hours=DEFAULT_TIMEZONE_OFFSET))
 
@@ -69,13 +69,37 @@ class RequestLog:
         return data
 
 
+@dataclass
+class EventLog:
+    """Event log for non-proxy events (sync, breaker, auth, admin, system)"""
+    id: str
+    timestamp: float
+    level: str
+    type: str
+    message: Optional[str] = None
+    error: Optional[str] = None
+    provider_id: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    actual_model: Optional[str] = None
+    client_ip: Optional[str] = None
+    status_code: Optional[int] = None
+    duration_ms: Optional[float] = None
+
+    def to_dict(self) -> dict:
+        data = asdict(self)
+        data["timestamp_str"] = timestamp_to_datetime(self.timestamp).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        return data
+
+
 class LogManager:
     def __init__(self, max_memory_logs: int = LOG_MAX_MEMORY_ENTRIES):
         self.max_memory_logs = max_memory_logs
-        self._logs: deque[RequestLog] = deque(maxlen=max_memory_logs)
+        self._logs: deque = deque(maxlen=max_memory_logs)
         self._subscribers: list[asyncio.Queue] = []
         self._log_counter = 0
         self._repo = LogRepo()
+        self._event_repo = EventLogRepo()
 
     def _generate_log_id(self) -> str:
         self._log_counter += 1
@@ -159,7 +183,61 @@ class LogManager:
         self._notify_subscribers(log_entry)
         return log_entry
 
-    def _notify_subscribers(self, log_entry: RequestLog) -> None:
+    def log_event(
+        self,
+        level: LogLevel,
+        log_type: str,
+        message: str,
+        provider_id: Optional[str] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        actual_model: Optional[str] = None,
+        error: Optional[str] = None,
+        client_ip: Optional[str] = None,
+        status_code: Optional[int] = None,
+        duration_ms: Optional[float] = None,
+    ) -> EventLog:
+        """Log non-proxy events (sync, breaker, auth, admin, system)"""
+        ts = time.time()
+        log_entry = EventLog(
+            id=self._generate_log_id(),
+            timestamp=ts,
+            level=level.value,
+            type=log_type,
+            message=message,
+            error=error,
+            provider_id=provider_id,
+            provider=provider,
+            model=model,
+            actual_model=actual_model,
+            client_ip=client_ip,
+            status_code=status_code,
+            duration_ms=duration_ms,
+        )
+
+        self._logs.append(log_entry)
+
+        self._event_repo.insert(
+            {
+                "id": log_entry.id,
+                "timestamp_ms": int(ts * 1000),
+                "level": log_entry.level,
+                "type": log_entry.type,
+                "message": log_entry.message,
+                "error": log_entry.error,
+                "provider_id": log_entry.provider_id,
+                "model": log_entry.model,
+                "actual_model": log_entry.actual_model,
+                "client_ip": log_entry.client_ip,
+                "status_code": log_entry.status_code,
+                "duration_ms": log_entry.duration_ms,
+            }
+        )
+
+        self._notify_subscribers(log_entry)
+        return log_entry
+
+    def _notify_subscribers(self, log_entry) -> None:
         dead = []
         for q in self._subscribers:
             try:
@@ -188,51 +266,45 @@ class LogManager:
         keyword: Optional[str] = None,
         provider: Optional[str] = None,
     ) -> list[dict]:
-        # Use DB for SSOT (and persistence across restarts)
-        logs = self._repo.get_recent(
-            limit=limit,
-            level=level,
-            log_type=log_type,
-            keyword=keyword,
-            provider=provider
-        )
-        
-        # Application-side JOIN: Map IDs to Names
+        # Determine if we need to query one or both tables
+        proxy_types = {"proxy"}
+        event_types = {"sync", "breaker", "auth", "admin", "system"}
+
+        if log_type:
+            if log_type in proxy_types:
+                logs = self._repo.get_recent(limit=limit, level=level, log_type=log_type, keyword=keyword, provider=provider)
+            elif log_type in event_types:
+                logs = self._event_repo.get_recent(limit=limit, level=level, log_type=log_type, keyword=keyword)
+            else:
+                logs = self._repo.get_recent(limit=limit, level=level, log_type=log_type, keyword=keyword, provider=provider)
+        else:
+            # Merge both tables
+            request_logs = self._repo.get_recent(limit=limit, level=level, log_type=None, keyword=keyword, provider=provider)
+            event_logs = self._event_repo.get_recent(limit=limit, level=level, log_type=None, keyword=keyword)
+            logs = sorted(request_logs + event_logs, key=lambda x: x["timestamp"], reverse=True)[:limit]
+
         from .admin import admin_manager
         from .api_keys import api_key_manager
-        
-        # Get ID->Name maps (cached or fresh)
-        # For performance, admin_manager has get_provider_id_name_map which queries DB.
-        # api_key_manager doesn't expose a map getter, but we can list keys.
-        # Let's optimize: fetch once per request.
+
         provider_map = admin_manager.get_provider_id_name_map()
-        
-        # API Keys map: {key_id: name}
-        # ApiKeyRepo has list(), but not a direct map getter. We can build it.
-        # Or we can accept that api_key_name might be missing if we don't query it.
-        # The repo insert() stored api_key_id.
-        # Let's fetch all keys to map.
         all_keys = api_key_manager.list_keys()
         api_key_map = {k["key_id"]: k["name"] for k in all_keys}
-        
-        # Enrich/Format logs
+
         for l in logs:
             ts = l["timestamp"]
             l["timestamp_str"] = timestamp_to_datetime(ts).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            
-            # Map IDs to Names
+
             pid = l.get("provider_id")
             if pid:
-                l["provider"] = provider_map.get(pid, pid) # Fallback to ID if name not found
-            
+                l["provider"] = provider_map.get(pid, pid)
+
             ak_id = l.get("api_key_id")
             if ak_id:
                 l["api_key_name"] = api_key_map.get(ak_id, "Unknown")
-            
-            # Reconstruct actual_model_full using names
+
             if l.get("provider") and l.get("actual_model"):
                 l["actual_model_full"] = f"{l['provider']}:{l['actual_model']}"
-        
+
         return logs
 
     def get_stats(self, date: Optional[str] = None, tag: Optional[str] = None) -> dict:

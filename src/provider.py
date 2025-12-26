@@ -409,11 +409,9 @@ class ProviderManager:
             self._log_error(message)
             # 记录熔断状态变更日志（不包含详细错误，错误已在 proxy.py 中记录）
             log_manager = self._get_log_manager()
-            log_manager.log(
+            log_manager.log_event(
                 level=LogLevel.WARNING,
                 log_type="breaker",
-                method="BREAKER",
-                path="/provider",
                 provider=provider.config.name,
                 provider_id=provider.config.id,
                 message=message
@@ -426,11 +424,9 @@ class ProviderManager:
             self._log_warning(message)
             # 记录熔断状态变更日志（不包含详细错误，错误已在 proxy.py 中记录）
             log_manager = self._get_log_manager()
-            log_manager.log(
+            log_manager.log_event(
                 level=LogLevel.WARNING,
                 log_type="breaker",
-                method="BREAKER",
-                path="/provider",
                 provider=provider.config.name,
                 provider_id=provider.config.id,
                 message=message
@@ -454,11 +450,9 @@ class ProviderManager:
             self._log_error(message)
             # 记录熔断状态变更日志（不包含详细错误，错误已在 proxy.py 中记录）
             log_manager = self._get_log_manager()
-            log_manager.log(
+            log_manager.log_event(
                 level=LogLevel.WARNING,
                 log_type="breaker",
-                method="BREAKER",
-                path="/model",
                 provider=provider_name,
                 provider_id=model_state.provider_id,
                 actual_model=model_state.model_name,
@@ -472,11 +466,9 @@ class ProviderManager:
             self._log_warning(message)
             # 记录熔断状态变更日志（不包含详细错误，错误已在 proxy.py 中记录）
             log_manager = self._get_log_manager()
-            log_manager.log(
+            log_manager.log_event(
                 level=LogLevel.WARNING,
                 log_type="breaker",
-                method="BREAKER",
-                path="/model",
                 provider=provider_name,
                 provider_id=model_state.provider_id,
                 actual_model=model_state.model_name,

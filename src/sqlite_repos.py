@@ -438,20 +438,18 @@ class LogRepo:
         self,
         limit: int,
         level: Optional[str] = None,
-        log_type: Optional[str] = None,
+        log_type: Optional[str] = None,  # 保留参数兼容性，但不再使用
         keyword: Optional[str] = None,
         provider: Optional[str] = None,
     ) -> list[dict]:
         with get_db_cursor(self._paths.logs_db_path) as cur:
             query = "SELECT * FROM request_logs WHERE 1=1"
             params = []
-            
+
             if level:
                 query += " AND level = ?"
                 params.append(level)
-            if log_type:
-                query += " AND type = ?"
-                params.append(log_type)
+            # log_type 参数不再需要，request_logs 表只存 proxy 日志
             if provider:
                 # Assuming provider is provider_name, but DB has provider_id.
                 # If we want to support name filtering, we need to join or assume ID.
@@ -515,7 +513,7 @@ class LogRepo:
         Refactored to use efficient aggregation (similar to get_daily_stats)
         """
         # 1. Build Filter Conditions
-        where_clauses = ["type = 'proxy'"]
+        where_clauses = ["1=1"]
         params = []
         
         if date_str:
@@ -633,7 +631,7 @@ class LogRepo:
     def get_daily_stats(self, days: int = 7, tag: Optional[str] = None) -> list[dict]:
         # 1. Determine date range
         _TZ = timezone(timedelta(hours=DEFAULT_TIMEZONE_OFFSET))
-        
+
         end_dt = datetime.now(_TZ)
         # We want to include the full current day, so we go back `days-1` full days,
         # and then to the start of that day.
@@ -643,8 +641,8 @@ class LogRepo:
 
         # 2. Handle tag filtering
         params: list[Any] = [start_ms]
-        where_sql = "type = 'proxy' AND timestamp_ms >= ?"
-        
+        where_sql = "timestamp_ms >= ?"
+
         if tag:
             key_id = None
             with get_db_cursor(self._paths.app_db_path) as app_cur:
@@ -740,6 +738,112 @@ class LogRepo:
                 })
                 
         return result[::-1]
+
+
+class EventLogRepo:
+    """Repository for event logs (non-proxy logs: sync, breaker, auth, admin, system)"""
+    _last_cleanup_check_date: Optional[str] = None
+
+    def __init__(self):
+        self._paths = get_db_paths()
+
+    def _perform_cleanup_if_needed(self) -> None:
+        today = datetime.now().strftime("%Y-%m-%d")
+        if today == EventLogRepo._last_cleanup_check_date:
+            return
+        EventLogRepo._last_cleanup_check_date = today
+
+        with get_db_cursor(self._paths.logs_db_path) as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT strftime('%Y-%m-%d', timestamp_ms / 1000, 'unixepoch', 'localtime') as day
+                FROM event_logs ORDER BY day ASC
+                """
+            )
+            days = [row[0] for row in cur.fetchall()]
+            if len(days) >= LOG_RETENTION_DAYS:
+                oldest_day = days[0]
+                cur.execute(
+                    "DELETE FROM event_logs WHERE strftime('%Y-%m-%d', timestamp_ms / 1000, 'unixepoch', 'localtime') = ?",
+                    (oldest_day,),
+                )
+
+    def insert(self, entry: dict[str, Any]) -> None:
+        self._perform_cleanup_if_needed()
+        with get_db_cursor(self._paths.logs_db_path) as cur:
+            cur.execute(
+                """
+                INSERT INTO event_logs (
+                  id, timestamp_ms, level, type, message, error,
+                  provider_id, model, actual_model, client_ip, status_code, duration_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entry["id"],
+                    entry["timestamp_ms"],
+                    entry["level"],
+                    entry["type"],
+                    entry.get("message"),
+                    entry.get("error"),
+                    entry.get("provider_id"),
+                    entry.get("model"),
+                    entry.get("actual_model"),
+                    entry.get("client_ip"),
+                    entry.get("status_code"),
+                    entry.get("duration_ms"),
+                ),
+            )
+
+    def get_recent(
+        self,
+        limit: int,
+        level: Optional[str] = None,
+        log_type: Optional[str] = None,
+        keyword: Optional[str] = None,
+    ) -> list[dict]:
+        with get_db_cursor(self._paths.logs_db_path) as cur:
+            query = "SELECT * FROM event_logs WHERE 1=1"
+            params = []
+
+            if level:
+                query += " AND level = ?"
+                params.append(level)
+            if log_type:
+                query += " AND type = ?"
+                params.append(log_type)
+            if keyword:
+                kw = f"%{keyword}%"
+                query += " AND (message LIKE ? OR model LIKE ? OR actual_model LIKE ? OR error LIKE ?)"
+                params.extend([kw, kw, kw, kw])
+
+            query += " ORDER BY timestamp_ms DESC LIMIT ?"
+            params.append(limit)
+
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+            provider_repo = ProviderRepo()
+            id_name_map = provider_repo.get_id_name_map()
+
+            logs = []
+            for r in rows:
+                pid = r["provider_id"]
+                logs.append({
+                    "id": r["id"],
+                    "timestamp": r["timestamp_ms"] / 1000.0,
+                    "level": r["level"],
+                    "type": r["type"],
+                    "message": r["message"],
+                    "error": r["error"],
+                    "provider_id": pid,
+                    "model": r["model"],
+                    "actual_model": r["actual_model"],
+                    "client_ip": r["client_ip"],
+                    "status_code": r["status_code"],
+                    "duration_ms": r["duration_ms"],
+                    "provider": id_name_map.get(pid, pid) if pid else None,
+                })
+            return logs
 
 
 class ProviderModelsRepo:

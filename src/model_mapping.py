@@ -500,7 +500,7 @@ class ModelMappingManager:
             
         msg = ", ".join(parts)
         print(f"[MODEL-MAPPING] [{unified_name}] {msg}")
-        log_manager.log(LogLevel.INFO, "sync", "SYNC", "/model-mapping", model=unified_name, message=msg)
+        log_manager.log_event(LogLevel.INFO, "sync", msg, model=unified_name)
 
     def _inherit_protocols(
         self,

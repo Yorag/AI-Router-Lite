@@ -115,11 +115,9 @@ async def fetch_remote_models(base_url: str, api_key: str, provider_id: str, pro
                         for m in data["data"] if m.get("id")
                     ]
                 
-                log_manager.log(
+                log_manager.log_event(
                     level=LogLevel.WARNING,
                     log_type="sync",
-                    method="SYNC",
-                    path="/providers/sync",
                     provider=provider_name,
                     provider_id=provider_id,
                     message="更新失败: 响应格式不正确",
@@ -127,11 +125,9 @@ async def fetch_remote_models(base_url: str, api_key: str, provider_id: str, pro
                 )
                 return None
             else:
-                log_manager.log(
+                log_manager.log_event(
                     level=LogLevel.WARNING,
                     log_type="sync",
-                    method="SYNC",
-                    path="/providers/sync",
                     provider=provider_name,
                     provider_id=provider_id,
                     message=f"更新失败: HTTP {response.status_code}",
@@ -139,11 +135,9 @@ async def fetch_remote_models(base_url: str, api_key: str, provider_id: str, pro
                 )
                 return None
     except Exception as e:
-        log_manager.log(
+        log_manager.log_event(
             level=LogLevel.WARNING,
             log_type="sync",
-            method="SYNC",
-            path="/providers/sync",
             provider=provider_name,
             provider_id=provider_id,
             message="更新失败: 网络错误",
@@ -291,11 +285,9 @@ async def lifespan(app: FastAPI):
 
     model_mapping_manager.load()
     mappings_count = len(model_mapping_manager.get_all_mappings())
-    log_manager.log(
+    log_manager.log_event(
         level=LogLevel.INFO,
         log_type="system",
-        method="STARTUP",
-        path="/",
         message=f"服务启动完成 - {len(providers)} 个 Provider, {mappings_count} 个模型映射",
     )
 
@@ -426,21 +418,17 @@ async def login(request: LoginRequest, response: Response, raw_request: Request)
     success, message = admin_auth_manager.login(request.password, response)
     client_ip = raw_request.client.host if raw_request.client else "unknown"
     if not success:
-        log_manager.log(
+        log_manager.log_event(
             level=LogLevel.WARNING,
             log_type="auth",
-            method="POST",
-            path="/api/auth/login",
             message=f"登录失败: {message}",
             client_ip=client_ip
         )
         raise HTTPException(status_code=401, detail=message)
 
-    log_manager.log(
+    log_manager.log_event(
         level=LogLevel.INFO,
         log_type="auth",
-        method="POST",
-        path="/api/auth/login",
         message="登录成功",
         client_ip=client_ip
     )
@@ -563,18 +551,14 @@ async def process_request(
                     yield "data: [DONE]\n\n"
                 except Exception as e:
                     duration_ms = (time.time() - start_time) * 1000
-                    log_manager.log(
+                    log_manager.log_event(
                         level=LogLevel.ERROR,
                         log_type="system",
-                        method=request.method,
-                        path=request.url.path,
                         model=original_model,
                         status_code=500,
                         duration_ms=duration_ms,
                         error=str(e),
                         client_ip=client_ip,
-                        api_key_id=api_key_id,
-                        api_key_name=api_key_name,
                     )
                     error_response = {
                         "error": {
@@ -633,18 +617,14 @@ async def process_request(
         )
     except RoutingError as e:
         duration_ms = (time.time() - start_time) * 1000
-        log_manager.log(
+        log_manager.log_event(
             level=LogLevel.ERROR,
             log_type="system",
-            method=request.method,
-            path=request.url.path,
             model=original_model,
             status_code=404,
             duration_ms=duration_ms,
             error=str(e),
             client_ip=client_ip,
-            api_key_id=api_key_id,
-            api_key_name=api_key_name,
         )
         return JSONResponse(
             status_code=404,
@@ -654,18 +634,14 @@ async def process_request(
         )
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        log_manager.log(
+        log_manager.log_event(
             level=LogLevel.ERROR,
             log_type="system",
-            method=request.method,
-            path=request.url.path,
             model=original_model,
             status_code=500,
             duration_ms=duration_ms,
             error=str(e),
             client_ip=client_ip,
-            api_key_id=api_key_id,
-            api_key_name=api_key_name,
         )
         return JSONResponse(
             status_code=500,
@@ -821,11 +797,9 @@ async def add_provider(request: ProviderRequest, _: None = Depends(require_admin
     if not success:
         raise HTTPException(status_code=400, detail=message)
     
-    log_manager.log(
+    log_manager.log_event(
         level=LogLevel.INFO,
         log_type="admin",
-        method="POST",
-        path="/api/providers",
         message=f"添加 Provider: {request.name} (ID: {provider_id})",
     )
     return {"status": "success", "message": message, "provider_id": provider_id}
@@ -1168,11 +1142,9 @@ async def delete_provider(provider_id: str, _: None = Depends(require_admin_auth
         raise HTTPException(status_code=404, detail=message)
 
     provider_name = provider.get("name", provider_id) if provider else provider_id
-    log_manager.log(
+    log_manager.log_event(
         level=LogLevel.WARNING,
         log_type="admin",
-        method="DELETE",
-        path=f"/api/providers/{provider_id}",
         message=f"删除 Provider: {provider_name}",
     )
     return {"status": "success", "message": message}
