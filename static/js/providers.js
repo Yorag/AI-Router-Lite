@@ -221,7 +221,14 @@ const Providers = {
         
         // 生成健康状态圆点
         const healthDotHtml = ProviderHealth.renderDot(provider, { showHealthyTooltip: false });
-        
+
+        // 判断是否被动禁用（熔断/冷却），只有被动禁用才显示重置按钮
+        const normalized = ProviderHealth.normalize(provider);
+        const isPassivelyDisabled = normalized.enabled && (normalized.status === 'permanently_disabled' || normalized.status === 'cooling');
+        const resetBtn = isPassivelyDisabled
+            ? `<button class="btn btn-sm btn-secondary" onclick="Providers.reset('${providerUuid}')">重置状态</button>`
+            : '';
+
         return `
             <div class="provider-card ${!isEnabled ? 'disabled' : ''}" id="provider-${providerDomId}" data-provider-id="${providerUuid}">
                 <div class="provider-card-header">
@@ -255,9 +262,7 @@ const Providers = {
                         编辑
                     </button>
                     ${updateModelBtn}
-                    <button class="btn btn-sm btn-secondary" onclick="Providers.reset('${providerUuid}')">
-                        重置状态
-                    </button>
+                    ${resetBtn}
                     <button class="btn btn-sm btn-danger" onclick="Providers.confirmDelete('${providerUuid}')">
                         删除
                     </button>

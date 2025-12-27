@@ -187,6 +187,11 @@
     border-top: 1px solid var(--divider-color);
 }
 
+/* 按钮组靠右对齐 */
+.provider-card-actions .toggle-switch + .btn {
+    margin-left: auto;
+}
+
 /* 操作按钮统一灰色 */
 .provider-card-actions .btn {
     background: var(--bg-tertiary);
