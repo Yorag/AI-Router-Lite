@@ -67,7 +67,6 @@ LOG_SUBSCRIBE_QUEUE_SIZE: int = 100
 # 最近日志查询默认限制
 LOG_RECENT_LIMIT_DEFAULT: int = 100
 
-
 # 小时统计默认天数
 LOG_HOURLY_STATS_DEFAULT_DAYS: int = 7
 
@@ -94,7 +93,7 @@ API_KEY_PREFIX: str = "sk-"
 API_KEY_ID_RANDOM_BYTES: int = 4
 
 # API 密钥 Secret 长度（字节，实际显示为双倍十六进制字符）
-API_KEY_SECRET_BYTES: int = 24
+API_KEY_SECRET_BYTES: int = 16
 
 
 # ==================== HTTP 请求配置 ====================

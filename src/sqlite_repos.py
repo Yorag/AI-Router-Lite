@@ -451,24 +451,28 @@ class LogRepo:
                 params.append(level)
             # log_type 参数不再需要，request_logs 表只存 proxy 日志
             if provider:
-                # Assuming provider is provider_name, but DB has provider_id.
-                # If we want to support name filtering, we need to join or assume ID.
-                # The logger passes what it gets.
-                # If the user filters by name, we might need ID lookup.
-                # For now, let's assume it filters by what's stored (which might be ID or name depending on log call).
-                # Wait, LogRepo insert uses entry.get("provider_id").
-                # But logger.log also takes "provider" (name).
-                # We stored provider_id in DB.
-                # If frontend sends name, this SQL won't match ID.
-                # However, for now let's just implement basic SQL.
                 query += " AND provider_id = ?"
                 params.append(provider)
-            
+
             if keyword:
                 kw = f"%{keyword}%"
-                # Search in message, model, error, actual_model
-                query += " AND (message LIKE ? OR unified_model LIKE ? OR actual_model LIKE ? OR error LIKE ?)"
+                # 搜索 Provider 名称 -> provider_id
+                provider_repo = ProviderRepo()
+                matched_provider_ids = []
+                for pid, pname in provider_repo.get_id_name_map().items():
+                    if keyword.lower() in pname.lower():
+                        matched_provider_ids.append(pid)
+
+                # 构建搜索条件：文本字段 OR provider_id 匹配
+                conditions = ["message LIKE ?", "unified_model LIKE ?", "actual_model LIKE ?", "error LIKE ?"]
                 params.extend([kw, kw, kw, kw])
+
+                if matched_provider_ids:
+                    placeholders = ",".join("?" for _ in matched_provider_ids)
+                    conditions.append(f"provider_id IN ({placeholders})")
+                    params.extend(matched_provider_ids)
+
+                query += f" AND ({' OR '.join(conditions)})"
             
             query += " ORDER BY timestamp_ms DESC LIMIT ?"
             params.append(limit)
@@ -813,8 +817,22 @@ class EventLogRepo:
                 params.append(log_type)
             if keyword:
                 kw = f"%{keyword}%"
-                query += " AND (message LIKE ? OR model LIKE ? OR actual_model LIKE ? OR error LIKE ?)"
+                # 搜索 Provider 名称 -> provider_id
+                provider_repo = ProviderRepo()
+                matched_provider_ids = []
+                for pid, pname in provider_repo.get_id_name_map().items():
+                    if keyword.lower() in pname.lower():
+                        matched_provider_ids.append(pid)
+
+                conditions = ["message LIKE ?", "model LIKE ?", "actual_model LIKE ?", "error LIKE ?"]
                 params.extend([kw, kw, kw, kw])
+
+                if matched_provider_ids:
+                    placeholders = ",".join("?" for _ in matched_provider_ids)
+                    conditions.append(f"provider_id IN ({placeholders})")
+                    params.extend(matched_provider_ids)
+
+                query += f" AND ({' OR '.join(conditions)})"
 
             query += " ORDER BY timestamp_ms DESC LIMIT ?"
             params.append(limit)
