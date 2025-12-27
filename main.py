@@ -554,6 +554,7 @@ async def process_request(
                     log_manager.log_event(
                         level=LogLevel.ERROR,
                         log_type="system",
+                        message=f"流式请求内部错误: {str(e)}",
                         model=original_model,
                         status_code=500,
                         duration_ms=duration_ms,
@@ -620,6 +621,7 @@ async def process_request(
         log_manager.log_event(
             level=LogLevel.ERROR,
             log_type="system",
+            message=f"路由错误: {str(e)}",
             model=original_model,
             status_code=404,
             duration_ms=duration_ms,
@@ -637,6 +639,7 @@ async def process_request(
         log_manager.log_event(
             level=LogLevel.ERROR,
             log_type="system",
+            message=f"请求处理内部错误: {str(e)}",
             model=original_model,
             status_code=500,
             duration_ms=duration_ms,
