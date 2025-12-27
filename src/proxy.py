@@ -269,7 +269,7 @@ class RequestProxy:
         req_protocol = required_protocol or protocol_handler.protocol_type
 
         # 第一阶段：获取候选渠道列表
-        all_providers = self.router.find_candidate_providers(original_model, required_protocol=req_protocol)
+        all_providers, is_fallback = self.router.find_candidate_providers(original_model, required_protocol=req_protocol)
 
         if not all_providers:
             raise RoutingError(f"没有找到支持模型 '{original_model}' (协议: {req_protocol}) 的可用 Provider")
@@ -314,6 +314,9 @@ class RequestProxy:
                     self.provider_manager.set_sticky_model(sticky_key, original_model, provider.config.id, actual_model)
                     model_health_manager.record_passive_result(provider.config.id, actual_model, success=True)
                     provider_models_manager.update_activity(provider.config.id, actual_model, "call")
+                    # 保底成功，重置熔断状态
+                    if is_fallback:
+                        self.provider_manager.reset_model(provider.config.id, actual_model)
                     return  # 成功，结束生成器
 
                 else:  # not is_stream
@@ -323,6 +326,9 @@ class RequestProxy:
                     self.provider_manager.set_sticky_model(sticky_key, original_model, provider.config.id, actual_model)
                     model_health_manager.record_passive_result(provider.config.id, actual_model, success=True)
                     provider_models_manager.update_activity(provider.config.id, actual_model, "call")
+                    # 保底成功，重置熔断状态
+                    if is_fallback:
+                        self.provider_manager.reset_model(provider.config.id, actual_model)
 
                     yield ProxyResult(
                         response=protocol_resp.response,

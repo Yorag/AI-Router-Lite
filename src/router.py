@@ -48,7 +48,7 @@ class ModelRouter:
         requested_model: str,
         exclude_providers: Optional[set[str]] = None,
         required_protocol: Optional[str] = None
-    ) -> list[tuple[ProviderState, list[str]]]:
+    ) -> tuple[list[tuple[ProviderState, list[str]]], bool]:
         """
         查找支持指定模型的所有可用渠道及其可用模型列表（两阶段选择支持）
 
@@ -59,8 +59,9 @@ class ModelRouter:
                               如果指定，则只返回协议匹配的模型
 
         Returns:
-            列表：[(Provider 状态, [可用模型列表]), ...]
-            按权重降序排序，每个渠道只出现一次
+            (candidates, is_fallback): 候选列表和是否为保底标记
+            - candidates: [(Provider 状态, [可用模型列表]), ...] 按权重降序排序
+            - is_fallback: True 表示所有候选都被熔断，返回的是保底候选
 
         Note:
             此方法会同时检查：
@@ -68,6 +69,8 @@ class ModelRouter:
             2. Provider + Model 组合是否可用（模型级熔断）
             3. Provider 是否在统一模型映射的 resolved_models 中
             4. 如果指定了 required_protocol，检查模型协议是否匹配
+
+            保底机制：当所有候选都被熔断时，选择权重最高渠道的第一个模型
         """
         exclude_providers = exclude_providers or set()
         # {provider_id: (ProviderState, [model_ids], weight)}
@@ -119,7 +122,36 @@ class ModelRouter:
         # 按权重降序排序
         sorted_candidates = sorted(provider_candidates.values(), key=lambda x: x[2], reverse=True)
 
-        return [(p, models) for p, models, _ in sorted_candidates]
+        # 保底机制：如果所有候选都被熔断，选择权重最高渠道的第一个模型
+        if not sorted_candidates and resolved_models:
+            fallback_candidates: list[tuple[ProviderState, list[str], int]] = []
+            for provider_id, model_ids in resolved_models.items():
+                if provider_id in exclude_providers:
+                    continue
+                provider = self.provider_manager.get(provider_id)
+                # 仅检查 enabled 状态，不检查熔断
+                if not provider or not provider.config.enabled:
+                    continue
+                supported = self._get_supported_models(provider_id)
+                valid_models = []
+                for m in model_ids:
+                    if m not in supported:
+                        continue
+                    # 协议过滤
+                    if required_protocol and mapping:
+                        if mapping.get_model_protocol(provider_id, m) != required_protocol:
+                            continue
+                    valid_models.append(m)
+                if valid_models:
+                    fallback_candidates.append((provider, valid_models, provider.config.weight))
+
+            if fallback_candidates:
+                fallback_candidates.sort(key=lambda x: x[2], reverse=True)
+                best = fallback_candidates[0]
+                # 返回权重最高渠道的第一个模型作为保底
+                return ([(best[0], [best[1][0]])], True)
+
+        return ([(p, models) for p, models, _ in sorted_candidates], False)
 
     def _get_supported_models(self, provider_id: str) -> set[str]:
         """
