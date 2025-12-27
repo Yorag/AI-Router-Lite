@@ -84,10 +84,64 @@
 
 ## 🚀 快速开始
 
-### 1. 环境准备
+### 方式一：Docker 部署（推荐）
+
+#### 1. 创建 docker-compose.yml
+
+```yaml
+services:
+  ai-router:
+    image: yorag/ai-router-lite:latest
+    container_name: ai-router-lite
+    ports:
+      - "8000:8000"
+    environment:
+      - AI_ROUTER_ENCRYPTION_KEY=
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+```
+
+#### 2. 首次启动获取密钥
+
+```bash
+docker-compose up
+```
+
+容器会生成密钥并打印到日志，然后退出。复制密钥。
+
+#### 3. 配置密钥并启动
+
+将密钥填入 docker-compose.yml：
+
+```yaml
+environment:
+  - AI_ROUTER_ENCRYPTION_KEY=你复制的密钥
+```
+
+重启：
+
+```bash
+docker-compose up -d
+```
+
+#### 4. 访问服务
+
+- API：`http://localhost:8000`
+- 管理面板：`http://localhost:8000/admin`
+
+首次访问管理面板需设置管理员密码。
+
+> 📖 更多 Docker 命令请参考 [DOCKER.md](DOCKER.md)
+
+---
+
+### 方式二：本地运行
+
+#### 1. 环境准备
 确保你的系统已安装 **Python 3.8+**。
 
-### 2. 安装依赖
+#### 2. 安装依赖
 ```bash
 # 创建并激活虚拟环境
 python -m venv venv
@@ -100,8 +154,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. 生成加密密钥并设置环境变量
-运行脚本生成用于保护数据库敏感信息的密钥。
+#### 3. 生成加密密钥并设置环境变量
 ```bash
 python scripts/gen_fernet_key.py
 ```
@@ -115,32 +168,34 @@ export AI_ROUTER_ENCRYPTION_KEY="生成的密钥"
 ```
 > ⚠️ **请务必妥善保管此密钥**，它是解密数据库中 API Key 的唯一凭证。
 
-### 4. 创建配置文件（可选）
-复制配置模板进行自定义配置。如果不创建，将使用默认值。
+#### 4. 创建配置文件（可选）
 ```bash
 cp config.example.json config.json
 ```
 
-### 5. 初始化数据库
-首次运行前，执行以下命令创建数据库和表结构。
+#### 5. 初始化数据库
 ```bash
 python scripts/init_db.py
 ```
 
-### 6. 启动服务
+#### 6. 启动服务
 ```bash
 python main.py
 ```
-服务启动后，即可通过 `http://127.0.0.1:8000/admin` 访问管理面板。
 
-### 7. 首次登录设置
+---
+
+### 首次登录设置
 首次访问管理面板时，系统会要求您设置管理员密码（至少 8 位）。设置完成后，使用该密码登录即可开始使用。
 
 > 🔐 **安全提示**：管理面板已启用认证保护，所有管理 API 端点均需要登录后才能访问。
 
-### 8. 忘记密码
-如果忘记管理员密码，可运行以下命令重置：
+### 忘记密码
 ```bash
+# Docker 环境
+docker exec -it ai-router-lite python scripts/reset_admin.py
+
+# 本地环境
 python scripts/reset_admin.py
 ```
 重置后重启服务，访问管理面板即可重新设置密码。

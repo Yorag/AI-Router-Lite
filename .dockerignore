@@ -1,0 +1,49 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Local data (will be mounted as volume)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+
+# Documentation
+*.md
+!requirements.txt
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Misc
+.DS_Store
+Thumbs.db
+问题.txt

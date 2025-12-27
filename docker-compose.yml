@@ -1,0 +1,12 @@
+services:
+  ai-router:
+    image: yorag/ai-router-lite:latest
+    container_name: ai-router-lite
+    ports:
+      - "8000:8000"
+    environment:
+      # 首次启动后，将生成的密钥填入此处
+      - AI_ROUTER_ENCRYPTION_KEY=
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
