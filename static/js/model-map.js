@@ -18,6 +18,7 @@ const ModelMap = {
     previewResult: {},      // 预览结果缓存
     healthResults: {},      // 健康检测结果缓存 {provider_id:model -> result}
     runtimeStates: {},      // 运行时熔断状态缓存 {provider_id:model -> state}
+    providerRuntimeStates: {}, // 渠道级运行时状态缓存 {provider_id -> state}
     availableProtocols: [], // 可用协议类型缓存
     expandedMappings: new Set(), // 记录已展开的映射卡片 (unifiedName)
     draggedItem: null,      // 当前拖拽的元素
@@ -131,10 +132,19 @@ const ModelMap = {
         try {
             const data = await API.getRuntimeStates();
             this.runtimeStates = data.models || {};
+            this.providerRuntimeStates = data.providers || {};
         } catch (error) {
             console.error('Load runtime states error:', error);
             this.runtimeStates = {};
+            this.providerRuntimeStates = {};
         }
+    },
+
+    // 判断渠道是否不可用（手动禁用或渠道级熔断）
+    isProviderUnavailable(providerId) {
+        if (this.providerEnabledStatus[providerId] === false) return true;
+        const state = this.providerRuntimeStates[providerId];
+        return state && state.status === 'permanently_disabled';
     },
 
     render() {
@@ -180,7 +190,7 @@ const ModelMap = {
             if (mapping.resolved_models) {
                 for (const [providerId, models] of Object.entries(mapping.resolved_models)) {
                     // 跳过被禁用的 Provider
-                    if (this.providerEnabledStatus[providerId] === false) continue;
+                    if (this.isProviderUnavailable(providerId)) continue;
                     
                     for (const model of models) {
                         const status = this.getModelProtocolStatus(unifiedName, providerId, model);
@@ -269,7 +279,7 @@ const ModelMap = {
 
         for (const [providerId, models] of Object.entries(resolvedModels)) {
             // 如果 Provider 被禁用，则该 Provider 下的所有模型都不可用
-            const isProviderDisabled = this.providerEnabledStatus[providerId] === false;
+            const isProviderDisabled = this.isProviderUnavailable(providerId);
             
             for (const model of models) {
                 total++;
@@ -380,7 +390,7 @@ const ModelMap = {
                         const weight = this.providerWeights[providerId] !== undefined ? this.providerWeights[providerId] : 0;
                         
                         // 检查渠道是否被禁用
-                        const isProviderDisabled = this.providerEnabledStatus[providerId] === false;
+                        const isProviderDisabled = this.isProviderUnavailable(providerId);
                         const providerDisabledClass = isProviderDisabled ? 'provider-disabled' : '';
                         return `
                             <div class="provider-models ${providerDisabledClass}">
@@ -432,7 +442,7 @@ const ModelMap = {
         const healthResult = this.healthResults[key];
 
         // 检查渠道是否被禁用或禁止健康检测
-        const isProviderDisabled = this.providerEnabledStatus[providerId] === false;
+        const isProviderDisabled = this.isProviderUnavailable(providerId);
         const isHealthCheckDisabled = this.providerHealthCheckStatus[providerId] === false;
 
         let healthClass = 'health-unknown';
