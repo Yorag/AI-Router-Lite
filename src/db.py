@@ -38,14 +38,14 @@ def init_fernet(key: str) -> None:
     """
     global _fernet_instance
     if not key:
-        raise ValueError("加密密钥不能为空。请在 config.json 中设置 db_encryption_key。")
+        raise ValueError("加密密钥不能为空。请设置环境变量 AI_ROUTER_ENCRYPTION_KEY。")
     try:
         _fernet_instance = Fernet(key.encode("utf-8"))
     except Exception:
         raise ValueError(
-            "db_encryption_key 格式无效。\n"
+            "加密密钥格式无效。\n"
             "请运行 `python scripts/gen_fernet_key.py` 生成有效密钥，\n"
-            "然后将生成的密钥复制到 config.json 的 db_encryption_key 字段中。"
+            "然后设置环境变量 AI_ROUTER_ENCRYPTION_KEY。"
         )
 
 
@@ -61,7 +61,7 @@ def get_fernet() -> Fernet:
     """
     if _fernet_instance is None:
         raise RuntimeError(
-            "Fernet 尚未初始化。请确保在应用启动时调用 init_fernet() 或检查 config.json 中的 db_encryption_key 配置。"
+            "Fernet 尚未初始化。请确保已设置环境变量 AI_ROUTER_ENCRYPTION_KEY。"
         )
     return _fernet_instance
 

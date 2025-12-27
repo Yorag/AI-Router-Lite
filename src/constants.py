@@ -2,6 +2,13 @@
 统一常量管理模块
 
 所有可配置的常量都应在此文件中定义，便于集中管理和维护
+
+注意：以下配置已迁移到 config.json，通过 get_config() 获取：
+- server_port, server_host (服务器配置)
+- timezone_offset (时区配置)
+- log_retention_days (日志保留天数)
+- cooldown.* (熔断器冷却时间)
+- auth.token_expire_hours, auth.lockout_duration_seconds (认证配置)
 """
 
 # ==================== 应用信息 ====================
@@ -19,37 +26,10 @@ APP_DESCRIPTION: str = "轻量级 AI 聚合路由 + 管理面板"
 MODEL_OWNED_BY: str = "ai-router-lite"
 
 
-# ==================== 时区配置 ====================
-
-# 默认时区偏移量（小时），用于日志记录、统计等时间处理
-# 例如：8 表示 UTC+8（北京时间），0 表示 UTC，-5 表示 UTC-5（美东时间）
-DEFAULT_TIMEZONE_OFFSET: int = 8
-
-
-# ==================== 服务器默认配置 ====================
-
-# 默认服务端口
-DEFAULT_SERVER_PORT: int = 8000
-
-# 默认服务主机
-DEFAULT_SERVER_HOST: str = "0.0.0.0"
-
-
-# ==================== 熔断器冷却时间配置（秒） ====================
-
-# 429 超频冷却时间
-COOLDOWN_RATE_LIMITED: int = 180
-
-# 5xx 服务器错误冷却时间
-COOLDOWN_SERVER_ERROR: int = 600
-
-# 超时冷却时间
-COOLDOWN_TIMEOUT: int = 300
-
-# 网络错误冷却时间
-COOLDOWN_NETWORK_ERROR: int = 120
+# ==================== 熔断器常量 ====================
 
 # 永久禁用标记（用于 401/403 鉴权失败、404 模型不存在）
+# 注意：其他冷却时间已迁移到 config.json 的 cooldown 配置
 COOLDOWN_PERMANENT: int = -1
 
 
@@ -57,9 +37,6 @@ COOLDOWN_PERMANENT: int = -1
 
 # 内存中保留的最大日志条数
 LOG_MAX_MEMORY_ENTRIES: int = 1000
-
-# 日志保留天数
-LOG_RETENTION_DAYS: int = 15
 
 # SSE 订阅队列大小
 LOG_SUBSCRIBE_QUEUE_SIZE: int = 100
@@ -141,9 +118,6 @@ HEALTH_TEST_MESSAGE: str = "hi"
 
 # ==================== 认证配置 ====================
 
-# JWT 令牌有效期（小时）
-AUTH_TOKEN_EXPIRE_HOURS: int = 6
-
 # JWT Cookie 名称
 AUTH_COOKIE_NAME: str = "admin_session"
 
@@ -153,7 +127,5 @@ AUTH_PASSWORD_MIN_LENGTH: int = 8
 # 登录失败锁定阈值（连续失败次数）
 AUTH_MAX_LOGIN_ATTEMPTS: int = 5
 
-# 登录失败锁定时间（秒）
-AUTH_LOCKOUT_DURATION_SECONDS: int = 900  # 15 分钟
 
 

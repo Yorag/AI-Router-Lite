@@ -2,5 +2,16 @@
   "server_port": 8000,
   "server_host": "0.0.0.0",
   "request_timeout": 120,
-  "db_encryption_key": "请使用 python scripts/gen_fernet_key.py 生成密钥并粘贴到此处"
+  "timezone_offset": 8,
+  "log_retention_days": 15,
+  "cooldown": {
+    "rate_limited": 180,
+    "server_error": 600,
+    "timeout": 300,
+    "network_error": 120
+  },
+  "auth": {
+    "token_expire_hours": 6,
+    "lockout_duration_seconds": 900
+  }
 }

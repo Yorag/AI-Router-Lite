@@ -8,7 +8,7 @@ from typing import Any, Optional, Dict, List, Generator
 from cryptography.fernet import InvalidToken
 
 from .db import connect_sqlite, get_db_paths, get_fernet
-from .constants import LOG_RETENTION_DAYS, PROXY_ERROR_MESSAGE_MAX_LENGTH, DEFAULT_TIMEZONE_OFFSET
+from .constants import PROXY_ERROR_MESSAGE_MAX_LENGTH
 
 
 def _now_ms() -> int:
@@ -67,7 +67,7 @@ class ProviderRepo:
             try:
                 api_key = fernet.decrypt(r["api_key_enc"]).decode("utf-8")
             except InvalidToken:
-                raise RuntimeError("Failed to decrypt providers.api_key_enc. Check db_encryption_key in config.json.")
+                raise RuntimeError("Failed to decrypt providers.api_key_enc. Check AI_ROUTER_ENCRYPTION_KEY environment variable.")
             providers.append(
                 {
                     "id": r["provider_id"],
@@ -105,7 +105,7 @@ class ProviderRepo:
         try:
             api_key = fernet.decrypt(r["api_key_enc"]).decode("utf-8")
         except InvalidToken:
-            raise RuntimeError("Failed to decrypt providers.api_key_enc. Check db_encryption_key in config.json.")
+            raise RuntimeError("Failed to decrypt providers.api_key_enc. Check AI_ROUTER_ENCRYPTION_KEY environment variable.")
         return {
             "id": r["provider_id"],
             "name": r["name"],
@@ -375,7 +375,11 @@ class LogRepo:
             return
 
         LogRepo._last_cleanup_check_date = today
-        
+
+        from .config import get_config
+        config = get_config()
+        log_retention_days = config.log_retention_days
+
         with get_db_cursor(self._paths.logs_db_path) as cur:
             # Get all distinct log dates
             cur.execute(
@@ -387,7 +391,7 @@ class LogRepo:
             )
             days = [row[0] for row in cur.fetchall()]
 
-            if len(days) >= LOG_RETENTION_DAYS:
+            if len(days) >= log_retention_days:
                 # Delete logs from the oldest day
                 oldest_day = days[0]
                 cur.execute(
@@ -397,7 +401,7 @@ class LogRepo:
                     """,
                     (oldest_day,),
                 )
-                print(f"[LOG-CLEANUP] Deleted logs from {oldest_day} as retention period of {LOG_RETENTION_DAYS} days was met.")
+                print(f"[LOG-CLEANUP] Deleted logs from {oldest_day} as retention period of {log_retention_days} days was met.")
 
     def insert(self, entry: dict[str, Any]) -> None:
         self._perform_log_cleanup_if_needed()
@@ -634,7 +638,9 @@ class LogRepo:
 
     def get_daily_stats(self, days: int = 7, tag: Optional[str] = None) -> list[dict]:
         # 1. Determine date range
-        _TZ = timezone(timedelta(hours=DEFAULT_TIMEZONE_OFFSET))
+        from .config import get_config
+        config = get_config()
+        _TZ = timezone(timedelta(hours=config.timezone_offset))
 
         end_dt = datetime.now(_TZ)
         # We want to include the full current day, so we go back `days-1` full days,
@@ -757,6 +763,10 @@ class EventLogRepo:
             return
         EventLogRepo._last_cleanup_check_date = today
 
+        from .config import get_config
+        config = get_config()
+        log_retention_days = config.log_retention_days
+
         with get_db_cursor(self._paths.logs_db_path) as cur:
             cur.execute(
                 """
@@ -765,7 +775,7 @@ class EventLogRepo:
                 """
             )
             days = [row[0] for row in cur.fetchall()]
-            if len(days) >= LOG_RETENTION_DAYS:
+            if len(days) >= log_retention_days:
                 oldest_day = days[0]
                 cur.execute(
                     "DELETE FROM event_logs WHERE strftime('%Y-%m-%d', timestamp_ms / 1000, 'unixepoch', 'localtime') = ?",

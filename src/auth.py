@@ -17,12 +17,11 @@ import jwt
 from fastapi import Request, HTTPException, Response
 
 from .constants import (
-    AUTH_TOKEN_EXPIRE_HOURS,
     AUTH_COOKIE_NAME,
     AUTH_PASSWORD_MIN_LENGTH,
     AUTH_MAX_LOGIN_ATTEMPTS,
-    AUTH_LOCKOUT_DURATION_SECONDS,
 )
+from .config import get_config
 from .sqlite_repos import get_db_cursor
 from .db import get_db_paths
 
@@ -116,7 +115,8 @@ class AdminAuthManager:
 
     def create_token(self) -> str:
         """创建 JWT 令牌"""
-        expire = datetime.now(timezone.utc) + timedelta(hours=AUTH_TOKEN_EXPIRE_HOURS)
+        config = get_config()
+        expire = datetime.now(timezone.utc) + timedelta(hours=config.auth.token_expire_hours)
         payload = {
             "sub": "admin",
             "exp": expire,
@@ -145,7 +145,8 @@ class AdminAuthManager:
         """记录失败尝试"""
         self._failed_attempts += 1
         if self._failed_attempts >= AUTH_MAX_LOGIN_ATTEMPTS:
-            self._lockout_until = time.time() + AUTH_LOCKOUT_DURATION_SECONDS
+            config = get_config()
+            self._lockout_until = time.time() + config.auth.lockout_duration_seconds
 
     def _reset_failed_attempts(self) -> None:
         """重置失败计数"""
@@ -158,12 +159,13 @@ class AdminAuthManager:
             remaining = int(self._lockout_until - time.time())
             return False, f"登录尝试次数过多，请 {remaining} 秒后重试"
 
+        config = get_config()
         if not self.verify_credentials(password):
             self._record_failed_attempt()
             remaining_attempts = AUTH_MAX_LOGIN_ATTEMPTS - self._failed_attempts
             if remaining_attempts > 0:
                 return False, f"密码错误，剩余 {remaining_attempts} 次尝试"
-            return False, f"登录尝试次数过多，请 {AUTH_LOCKOUT_DURATION_SECONDS} 秒后重试"
+            return False, f"登录尝试次数过多，请 {config.auth.lockout_duration_seconds} 秒后重试"
 
         self._reset_failed_attempts()
         token = self.create_token()
@@ -171,7 +173,7 @@ class AdminAuthManager:
             key=AUTH_COOKIE_NAME,
             value=token,
             httponly=True,
-            max_age=AUTH_TOKEN_EXPIRE_HOURS * 3600,
+            max_age=config.auth.token_expire_hours * 3600,
             samesite="lax",
             path="/",
         )

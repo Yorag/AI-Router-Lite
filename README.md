@@ -100,29 +100,26 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. 生成加密密钥
+### 3. 生成加密密钥并设置环境变量
 运行脚本生成用于保护数据库敏感信息的密钥。
 ```bash
 python scripts/gen_fernet_key.py
 ```
-> 📋 将输出的密钥复制下来，下一步会用到。
+将输出的密钥设置为环境变量：
+```bash
+# Windows PowerShell
+$env:AI_ROUTER_ENCRYPTION_KEY = "生成的密钥"
 
-### 4. 创建配置文件
-复制配置模板，并填入上一步生成的密钥。
+# Unix/Mac
+export AI_ROUTER_ENCRYPTION_KEY="生成的密钥"
+```
+> ⚠️ **请务必妥善保管此密钥**，它是解密数据库中 API Key 的唯一凭证。
+
+### 4. 创建配置文件（可选）
+复制配置模板进行自定义配置。如果不创建，将使用默认值。
 ```bash
 cp config.example.json config.json
 ```
-```jsonc
-// config.json
-{
-  "server_port": 8000,
-  "server_host": "0.0.0.0",
-  "request_timeout": 120,
-  // 将密钥粘贴到此处
-  "db_encryption_key": "bXlfc2VjcmV0X2tleV9oZXJlXzMyYnl0ZXM=" 
-}
-```
-> ⚠️ **请务必妥善保管 `db_encryption_key`**，它是解密数据库中 API Key 的唯一凭证。
 
 ### 5. 初始化数据库
 首次运行前，执行以下命令创建数据库和表结构。
@@ -137,7 +134,7 @@ python main.py
 服务启动后，即可通过 `http://127.0.0.1:8000/admin` 访问管理面板。
 
 ### 7. 首次登录设置
-首次访问管理面板时，系统会要求您设置管理员密码（至少 6 位）。设置完成后，使用该密码登录即可开始使用。
+首次访问管理面板时，系统会要求您设置管理员密码（至少 8 位）。设置完成后，使用该密码登录即可开始使用。
 
 > 🔐 **安全提示**：管理面板已启用认证保护，所有管理 API 端点均需要登录后才能访问。
 
@@ -147,6 +144,49 @@ python main.py
 python scripts/reset_admin.py
 ```
 重置后重启服务，访问管理面板即可重新设置密码。
+
+## ⚙️ 配置说明
+
+### 环境变量
+
+| 变量名 | 必填 | 说明 |
+| :--- | :---: | :--- |
+| `AI_ROUTER_ENCRYPTION_KEY` | ✅ | Fernet 加密密钥，用于加密数据库中的敏感信息（API Key 等） |
+| `AI_ROUTER_PORT` | ❌ | 服务端口，覆盖配置文件中的 `server_port` |
+| `AI_ROUTER_HOST` | ❌ | 服务主机，覆盖配置文件中的 `server_host` |
+
+### 配置文件 (`config.json`)
+
+所有配置项均为**选填**，未配置时使用默认值。
+
+```jsonc
+{
+  // 服务器配置
+  "server_port": 8000,           // 服务端口（默认: 8000）
+  "server_host": "0.0.0.0",      // 服务主机（默认: 0.0.0.0）
+  "request_timeout": 120,        // 请求超时时间，秒（默认: 120）
+
+  // 时区与日志
+  "timezone_offset": 8,          // 时区偏移量，如 8 表示 UTC+8（默认: 8）
+  "log_retention_days": 15,      // 日志保留天数（默认: 15）
+
+  // 熔断器冷却时间配置（秒）
+  "cooldown": {
+    "rate_limited": 180,         // 429 超频冷却时间（默认: 180）
+    "server_error": 600,         // 5xx 服务器错误冷却时间（默认: 600）
+    "timeout": 300,              // 超时冷却时间（默认: 300）
+    "network_error": 120         // 网络错误冷却时间（默认: 120）
+  },
+
+  // 认证配置
+  "auth": {
+    "token_expire_hours": 6,           // JWT 令牌有效期，小时（默认: 6）
+    "lockout_duration_seconds": 900    // 登录失败锁定时间，秒（默认: 900）
+  }
+}
+```
+
+> 💡 **配置优先级**：环境变量 > config.json > 默认值
 
 ## 🛠️ 使用方法
 

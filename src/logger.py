@@ -7,18 +7,22 @@ from enum import Enum
 from typing import Optional, AsyncIterator, Any
 
 from .constants import (
-    DEFAULT_TIMEZONE_OFFSET,
     LOG_MAX_MEMORY_ENTRIES,
     LOG_RECENT_LIMIT_DEFAULT,
     LOG_SUBSCRIBE_QUEUE_SIZE,
 )
 from .sqlite_repos import LogRepo, EventLogRepo
 
-_TZ = timezone(timedelta(hours=DEFAULT_TIMEZONE_OFFSET))
+
+def _get_timezone() -> timezone:
+    """获取配置的时区（延迟加载，避免循环导入）"""
+    from .config import get_config
+    config = get_config()
+    return timezone(timedelta(hours=config.timezone_offset))
 
 
 def get_current_time() -> datetime:
-    return datetime.now(_TZ)
+    return datetime.now(_get_timezone())
 
 
 def get_today_str() -> str:
@@ -26,7 +30,7 @@ def get_today_str() -> str:
 
 
 def timestamp_to_datetime(ts: float) -> datetime:
-    return datetime.fromtimestamp(ts, _TZ)
+    return datetime.fromtimestamp(ts, _get_timezone())
 
 
 class LogLevel(Enum):

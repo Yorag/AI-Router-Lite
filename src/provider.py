@@ -10,17 +10,11 @@ import time
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import Optional, TYPE_CHECKING
-from .config import ProviderConfig
+from .config import ProviderConfig, get_config
 
 if TYPE_CHECKING:
     from .logger import LogManager
-from .constants import (
-    COOLDOWN_RATE_LIMITED,
-    COOLDOWN_SERVER_ERROR,
-    COOLDOWN_TIMEOUT,
-    COOLDOWN_NETWORK_ERROR,
-    COOLDOWN_PERMANENT,
-)
+from .constants import COOLDOWN_PERMANENT
 
 
 class ProviderStatus(Enum):
@@ -47,15 +41,18 @@ class CooldownReason(Enum):
     MODEL_NOT_FOUND = "model_not_found" # 404 模型不存在 -> 模型级
 
 
-# 冷却时间配置（秒）- 使用统一常量
-COOLDOWN_TIMES = {
-    CooldownReason.RATE_LIMITED: COOLDOWN_RATE_LIMITED,           # 429: 超频
-    CooldownReason.SERVER_ERROR: COOLDOWN_SERVER_ERROR,           # 5xx: 服务器错误
-    CooldownReason.TIMEOUT: COOLDOWN_TIMEOUT,                     # 超时
-    CooldownReason.AUTH_FAILED: COOLDOWN_PERMANENT,               # 永久禁用
-    CooldownReason.NETWORK_ERROR: COOLDOWN_NETWORK_ERROR,         # 网络错误
-    CooldownReason.MODEL_NOT_FOUND: COOLDOWN_PERMANENT,           # 模型不存在: 永久禁用（该模型）
-}
+# 冷却时间配置（秒）- 从配置文件动态获取
+def _get_cooldown_times() -> dict:
+    """获取冷却时间配置（延迟加载，避免循环导入）"""
+    config = get_config()
+    return {
+        CooldownReason.RATE_LIMITED: config.cooldown.rate_limited,
+        CooldownReason.SERVER_ERROR: config.cooldown.server_error,
+        CooldownReason.TIMEOUT: config.cooldown.timeout,
+        CooldownReason.AUTH_FAILED: COOLDOWN_PERMANENT,
+        CooldownReason.NETWORK_ERROR: config.cooldown.network_error,
+        CooldownReason.MODEL_NOT_FOUND: COOLDOWN_PERMANENT,
+    }
 
 
 # 渠道级错误（影响整个 Provider）
@@ -398,8 +395,9 @@ class ProviderManager:
     def _apply_provider_cooldown(self, provider: ProviderState, reason: CooldownReason) -> None:
         """应用渠道级冷却"""
         from .logger import LogLevel  # 避免循环导入
-        
-        cooldown_seconds = COOLDOWN_TIMES[reason]
+
+        cooldown_times = _get_cooldown_times()
+        cooldown_seconds = cooldown_times[reason]
         
         if cooldown_seconds < 0:
             # 永久禁用
@@ -435,8 +433,9 @@ class ProviderManager:
     def _apply_model_cooldown(self, model_state: ModelState, reason: CooldownReason) -> None:
         """应用模型级冷却"""
         from .logger import LogLevel  # 避免循环导入
-        
-        cooldown_seconds = COOLDOWN_TIMES[reason]
+
+        cooldown_times = _get_cooldown_times()
+        cooldown_seconds = cooldown_times[reason]
         
         # 获取 Provider 名称
         provider = self._providers.get(model_state.provider_id)

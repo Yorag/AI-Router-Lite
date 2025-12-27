@@ -25,8 +25,6 @@ from src.constants import (
     APP_NAME,
     APP_VERSION,
     APP_DESCRIPTION,
-    DEFAULT_SERVER_HOST,
-    DEFAULT_SERVER_PORT,
     AUTO_SYNC_CHECK_INTERVAL_SECONDS,
 )
 from src.provider import ModelStatus, CooldownReason
@@ -1193,8 +1191,8 @@ if __name__ == "__main__":
         config = config_manager.load()
         host = config.server_host
         port = config.server_port
-    except Exception:
-        host = DEFAULT_SERVER_HOST
-        port = DEFAULT_SERVER_PORT
+    except Exception as e:
+        print(f"配置加载失败: {e}")
+        sys.exit(1)
 
     uvicorn.run("main:app", host=host, port=port, reload=False, log_level="info")
