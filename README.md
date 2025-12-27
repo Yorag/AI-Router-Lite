@@ -141,6 +141,13 @@ python main.py
 
 > 🔐 **安全提示**：管理面板已启用认证保护，所有管理 API 端点均需要登录后才能访问。
 
+### 8. 忘记密码
+如果忘记管理员密码，可运行以下命令重置：
+```bash
+python scripts/reset_admin.py
+```
+重置后重启服务，访问管理面板即可重新设置密码。
+
 ## 🛠️ 使用方法
 
 在支持 OpenAI/Anthropic/Gemini 协议的客户端（如 NextChat, LobeChat 等）中，将 **API Host** 指向 `http://127.0.0.1:8000`，API Key 填写在管理面板中创建的密钥，即可开始使用。
