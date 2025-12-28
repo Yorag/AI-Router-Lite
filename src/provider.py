@@ -19,14 +19,16 @@ from .constants import COOLDOWN_PERMANENT
 
 class ProviderStatus(Enum):
     """Provider 状态枚举"""
-    HEALTHY = "healthy"           # 健康可用
+    HEALTHY = "healthy"           # 健康可用（已验证）
+    UNKNOWN = "unknown"           # 未知（可用但未验证，冷却期满后的状态）
     COOLING = "cooling"           # 冷却中（临时不可用）
     PERMANENTLY_DISABLED = "permanently_disabled"  # 永久禁用
 
 
 class ModelStatus(Enum):
     """模型状态枚举"""
-    HEALTHY = "healthy"           # 健康可用
+    HEALTHY = "healthy"           # 健康可用（已验证）
+    UNKNOWN = "unknown"           # 未知（可用但未验证，冷却期满后的状态）
     COOLING = "cooling"           # 冷却中（临时不可用）
     PERMANENTLY_DISABLED = "permanently_disabled"  # 永久禁用
 
@@ -92,15 +94,15 @@ class ModelState:
     
     @property
     def is_available(self) -> bool:
-        """检查模型是否可用"""
+        """检查模型是否可用（HEALTHY、UNKNOWN 状态均可用）"""
         if self.status == ModelStatus.PERMANENTLY_DISABLED:
             return False
         if self.status == ModelStatus.COOLING:
             if time.time() >= self.cooldown_until:
-                # 冷却时间已过，恢复为可用但未知状态（需重新检测）
-                self.status = ModelStatus.HEALTHY
+                # 冷却时间已过，恢复为未知状态（可用但未验证）
+                self.status = ModelStatus.UNKNOWN
                 self.cooldown_reason = None
-                self.last_activity_time = None  # 清除活动记录，前端显示为未知
+                self.last_activity_time = None  # 清除活动记录
                 return True
             return False
         return True
@@ -127,7 +129,7 @@ class ProviderState:
     
     @property
     def is_available(self) -> bool:
-        """检查 Provider 是否可用（渠道级）"""
+        """检查 Provider 是否可用（渠道级，HEALTHY、UNKNOWN 状态均可用）"""
         # 检查是否被手动禁用
         if not self.config.enabled:
             return False
@@ -135,8 +137,8 @@ class ProviderState:
             return False
         if self.status == ProviderStatus.COOLING:
             if time.time() >= self.cooldown_until:
-                # 冷却时间已过，恢复健康状态
-                self.status = ProviderStatus.HEALTHY
+                # 冷却时间已过，恢复为未知状态（可用但未验证）
+                self.status = ProviderStatus.UNKNOWN
                 self.cooldown_reason = None
                 return True
             return False
@@ -290,7 +292,7 @@ class ProviderManager:
         model_state = self.get_model_state(provider_id, model_name)
         model_state.last_activity_time = time.time()
 
-        if success and model_state.status == ModelStatus.COOLING:
+        if success and model_state.status in (ModelStatus.COOLING, ModelStatus.UNKNOWN):
             # 测试成功，恢复为健康状态
             model_state.status = ModelStatus.HEALTHY
             model_state.cooldown_until = 0.0
@@ -300,22 +302,28 @@ class ProviderManager:
     def mark_success(self, provider_id: str, model_name: Optional[str] = None, tokens: int = 0) -> None:
         """
         标记请求成功
-        
+
         Args:
             provider_id: Provider 的唯一 ID
             model_name: 模型名称（可选，用于更新模型级统计）
             tokens: 本次请求消耗的 token 数
-        
+
         注意：Provider 级别的统计数据现在从日志系统持久化获取，
         此方法仅更新模型级统计。
         """
         # 更新模型级统计
         if model_name:
             model_state = self.get_model_state(provider_id, model_name)
+            model_state.status = ModelStatus.HEALTHY  # 成功后确认为健康状态
             model_state.total_requests += 1
             model_state.successful_requests += 1
             model_state.total_tokens += tokens
             model_state.last_activity_time = time.time()  # 记录最后活动时间
+
+        # Provider 级状态也确认为健康
+        provider = self._providers.get(provider_id)
+        if provider:
+            provider.status = ProviderStatus.HEALTHY  # 成功后确认为健康状态
     
     def mark_failure(
         self,
