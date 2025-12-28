@@ -1,7 +1,8 @@
 /* ==================== Notion 风格日志监控 ==================== */
 
 .filters-card {
-    padding: 14px 20px;
+    padding: 10px 20px;
+    margin-bottom: 10px;
 }
 
 .filters-row {
