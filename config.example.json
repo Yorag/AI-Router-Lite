@@ -10,6 +10,10 @@
     "timeout": 300,
     "network_error": 120
   },
+  "exponential_backoff": {
+    "base_multiplier": 2.0,
+    "max_multiplier": 16.0
+  },
   "auth": {
     "token_expire_hours": 6,
     "lockout_duration_seconds": 900

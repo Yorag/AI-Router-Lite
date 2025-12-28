@@ -27,6 +27,12 @@ class CooldownConfig(BaseModel):
     network_error: int = Field(default=120, ge=0, description="网络错误冷却时间")
 
 
+class ExponentialBackoffConfig(BaseModel):
+    """指数退避配置"""
+    base_multiplier: float = Field(default=2.0, ge=1.0, le=10.0, description="退避倍数基数")
+    max_multiplier: float = Field(default=16.0, ge=1.0, le=100.0, description="最大退避倍数，设为1.0可禁用指数退避")
+
+
 class AuthConfig(BaseModel):
     """认证相关配置"""
     token_expire_hours: int = Field(default=6, ge=1, description="JWT 令牌有效期（小时）")
@@ -53,6 +59,9 @@ class AppConfig(BaseModel):
 
     # 熔断器配置
     cooldown: CooldownConfig = Field(default_factory=CooldownConfig)
+
+    # 指数退避配置
+    exponential_backoff: ExponentialBackoffConfig = Field(default_factory=ExponentialBackoffConfig)
 
     # 认证配置
     auth: AuthConfig = Field(default_factory=AuthConfig)

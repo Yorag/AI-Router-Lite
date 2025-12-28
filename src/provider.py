@@ -91,6 +91,10 @@ class ModelState:
     
     # 最后活动时间（用于健康检测跳过判断）
     last_activity_time: Optional[float] = None
+
+    # 指数退避相关
+    consecutive_failures: int = 0
+    backoff_multiplier: float = 1.0
     
     @property
     def is_available(self) -> bool:
@@ -126,6 +130,10 @@ class ProviderState:
     # 错误信息（用于展示最后一次错误）
     last_error: Optional[str] = None
     last_error_time: Optional[float] = None
+
+    # 指数退避相关
+    consecutive_failures: int = 0
+    backoff_multiplier: float = 1.0
     
     @property
     def is_available(self) -> bool:
@@ -293,10 +301,12 @@ class ProviderManager:
         model_state.last_activity_time = time.time()
 
         if success and model_state.status in (ModelStatus.COOLING, ModelStatus.UNKNOWN):
-            # 测试成功，恢复为健康状态
+            # 测试成功，恢复为健康状态并重置退避计数
             model_state.status = ModelStatus.HEALTHY
             model_state.cooldown_until = 0.0
             model_state.cooldown_reason = None
+            model_state.consecutive_failures = 0
+            model_state.backoff_multiplier = 1.0
             self._log_info(f"模型 [{provider_id}:{model_name}] 健康检测通过，已恢复为健康状态")
 
     def mark_success(self, provider_id: str, model_name: Optional[str] = None, tokens: int = 0) -> None:
@@ -318,12 +328,16 @@ class ProviderManager:
             model_state.total_requests += 1
             model_state.successful_requests += 1
             model_state.total_tokens += tokens
-            model_state.last_activity_time = time.time()  # 记录最后活动时间
+            model_state.last_activity_time = time.time()
+            model_state.consecutive_failures = 0
+            model_state.backoff_multiplier = 1.0
 
-        # Provider 级状态也确认为健康
+        # Provider 级状态和退避也重置
         provider = self._providers.get(provider_id)
         if provider:
-            provider.status = ProviderStatus.HEALTHY  # 成功后确认为健康状态
+            provider.status = ProviderStatus.HEALTHY
+            provider.consecutive_failures = 0
+            provider.backoff_multiplier = 1.0
     
     def mark_failure(
         self,
@@ -404,10 +418,12 @@ class ProviderManager:
         """应用渠道级冷却"""
         from .logger import LogLevel  # 避免循环导入
 
+        config = get_config()
+        eb_config = config.exponential_backoff
         cooldown_times = _get_cooldown_times()
-        cooldown_seconds = cooldown_times[reason]
-        
-        if cooldown_seconds < 0:
+        base_cooldown = cooldown_times[reason]
+
+        if base_cooldown < 0:
             # 永久禁用
             provider.status = ProviderStatus.PERMANENTLY_DISABLED
             provider.cooldown_reason = reason
@@ -423,10 +439,20 @@ class ProviderManager:
                 message=message
             )
         else:
+            # 递增失败计数
+            provider.consecutive_failures += 1
+
+            # 计算指数退避
+            provider.backoff_multiplier = min(
+                eb_config.base_multiplier ** (provider.consecutive_failures - 1),
+                eb_config.max_multiplier
+            )
+            effective_cooldown = base_cooldown * provider.backoff_multiplier
+
             provider.status = ProviderStatus.COOLING
-            provider.cooldown_until = time.time() + cooldown_seconds
+            provider.cooldown_until = time.time() + effective_cooldown
             provider.cooldown_reason = reason
-            message = f"[{provider.config.name}] 进入冷却状态（渠道级），冷却 {cooldown_seconds} 秒，原因: {reason.value}"
+            message = f"[{provider.config.name}] 进入冷却状态（渠道级），冷却 {effective_cooldown:.0f}s (基础 {base_cooldown}s x {provider.backoff_multiplier:.1f})，连续失败: {provider.consecutive_failures}，原因: {reason.value}"
             self._log_warning(message)
             # 记录熔断状态变更日志（不包含详细错误，错误已在 proxy.py 中记录）
             log_manager = self._get_log_manager()
@@ -442,14 +468,16 @@ class ProviderManager:
         """应用模型级冷却"""
         from .logger import LogLevel  # 避免循环导入
 
+        config = get_config()
+        eb_config = config.exponential_backoff
         cooldown_times = _get_cooldown_times()
-        cooldown_seconds = cooldown_times[reason]
-        
+        base_cooldown = cooldown_times[reason]
+
         # 获取 Provider 名称
         provider = self._providers.get(model_state.provider_id)
         provider_name = provider.config.name if provider else model_state.provider_id
-        
-        if cooldown_seconds < 0:
+
+        if base_cooldown < 0:
             # 永久禁用该模型
             model_state.status = ModelStatus.PERMANENTLY_DISABLED
             model_state.cooldown_reason = reason
@@ -466,10 +494,20 @@ class ProviderManager:
                 message=message
             )
         else:
+            # 递增失败计数
+            model_state.consecutive_failures += 1
+
+            # 计算指数退避
+            model_state.backoff_multiplier = min(
+                eb_config.base_multiplier ** (model_state.consecutive_failures - 1),
+                eb_config.max_multiplier
+            )
+            effective_cooldown = base_cooldown * model_state.backoff_multiplier
+
             model_state.status = ModelStatus.COOLING
-            model_state.cooldown_until = time.time() + cooldown_seconds
+            model_state.cooldown_until = time.time() + effective_cooldown
             model_state.cooldown_reason = reason
-            message = f"[{provider_name}:{model_state.model_name}] 进入冷却状态（模型级），冷却 {cooldown_seconds} 秒，原因: {reason.value}"
+            message = f"[{provider_name}:{model_state.model_name}] 进入冷却状态（模型级），冷却 {effective_cooldown:.0f}s (基础 {base_cooldown}s x {model_state.backoff_multiplier:.1f})，连续失败: {model_state.consecutive_failures}，原因: {reason.value}"
             self._log_warning(message)
             # 记录熔断状态变更日志（不包含详细错误，错误已在 proxy.py 中记录）
             log_manager = self._get_log_manager()
@@ -490,18 +528,22 @@ class ProviderManager:
             provider.status = ProviderStatus.HEALTHY
             provider.cooldown_until = 0.0
             provider.cooldown_reason = None
-            
+            provider.consecutive_failures = 0
+            provider.backoff_multiplier = 1.0
+
             # 重置该 Provider 下所有模型状态
             for key, model_state in self._model_states.items():
                 if model_state.provider_id == provider_id:
                     model_state.status = ModelStatus.HEALTHY
                     model_state.cooldown_until = 0.0
                     model_state.cooldown_reason = None
-            
+                    model_state.consecutive_failures = 0
+                    model_state.backoff_multiplier = 1.0
+
             self._log_info(f"Provider [{provider_id}] 已重置为健康状态（包括所有模型）")
             return True
         return False
-    
+
     def reset_model(self, provider_id: str, model_name: str) -> bool:
         """重置指定模型的状态"""
         key = self._get_model_key(provider_id, model_name)
@@ -510,6 +552,8 @@ class ProviderManager:
             model_state.status = ModelStatus.HEALTHY
             model_state.cooldown_until = 0.0
             model_state.cooldown_reason = None
+            model_state.consecutive_failures = 0
+            model_state.backoff_multiplier = 1.0
             self._log_info(f"模型 [{provider_id}:{model_name}] 已重置为健康状态")
             return True
         return False
@@ -679,7 +723,9 @@ class ProviderManager:
                 "cooldown_reason": None,
                 "cooldown_remaining": None,
                 "last_error": provider.last_error,
-                "last_error_time": provider.last_error_time
+                "last_error_time": provider.last_error_time,
+                "consecutive_failures": provider.consecutive_failures,
+                "backoff_multiplier": provider.backoff_multiplier
             }
             
             if provider.status == ProviderStatus.COOLING:
@@ -705,7 +751,9 @@ class ProviderManager:
                 "last_error_time": model_state.last_error_time,
                 "last_activity_time": model_state.last_activity_time,
                 "successful_requests": model_state.successful_requests,
-                "failed_requests": model_state.failed_requests
+                "failed_requests": model_state.failed_requests,
+                "consecutive_failures": model_state.consecutive_failures,
+                "backoff_multiplier": model_state.backoff_multiplier
             }
             
             if model_state.status == ModelStatus.COOLING:
