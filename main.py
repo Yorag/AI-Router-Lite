@@ -146,9 +146,12 @@ async def fetch_remote_models(base_url: str, api_key: str, provider_id: str, pro
 async def sync_all_provider_models_logic() -> dict:
     """Shared logic for syncing all providers (used by task and API)"""
     providers = admin_manager.list_providers()
-    
+
     from src.sqlite_repos import ProviderRepo
     provider_repo = ProviderRepo()
+
+    # 收集发生变化的 Provider ID
+    changed_provider_ids: set[str] = set()
 
     async def process_provider(p):
         pid = p["id"]
@@ -158,40 +161,48 @@ async def sync_all_provider_models_logic() -> dict:
 
         # 跳过被禁用的服务站
         if p.get("enabled") is False:
-            return False
+            return (False, False, pid)
 
         if not p.get("allow_model_update", True):
-            return False
-        
+            return (False, False, pid)
+
         if not api_key or not base_url:
-            return False
+            return (False, False, pid)
 
         remote_models = await fetch_remote_models(base_url, api_key, pid, pname)
-        
+
         if remote_models is not None:
-            provider_models_manager.update_models_from_remote(pid, remote_models, pname)
+            _, _, _, _, _, has_changes = provider_models_manager.update_models_from_remote(pid, remote_models, pname)
             provider_repo.update_models_updated_at(pid)
-            return True
-        return False
+            return (True, has_changes, pid)
+        return (False, False, pid)
 
     results = await asyncio.gather(*[process_provider(p) for p in providers])
-    
-    synced_count = sum(1 for res in results if res)
+
+    synced_count = sum(1 for synced, _, _ in results if synced)
+    # 收集发生变化的 Provider
+    for synced, has_changes, pid in results:
+        if has_changes:
+            changed_provider_ids.add(pid)
 
     provider_models_flat = provider_models_manager.get_all_provider_models_map()
     total_models = sum(len(models) for models in provider_models_flat.values())
 
-    # Sync mappings
+    # Sync mappings - 只同步受影响的映射
     provider_id_name_map = admin_manager.get_provider_id_name_map()
     provider_protocols = admin_manager.get_provider_protocols()
 
+    # 如果有 Provider 发生变化，传递 changed_providers；否则传递 None 触发全量同步（首次场景）
     mapping_results = model_mapping_manager.sync_all_mappings(
-        provider_models_flat, provider_id_name_map, provider_protocols, update_last_sync=True
+        provider_models_flat, provider_id_name_map, provider_protocols,
+        update_last_sync=True,
+        changed_providers=changed_provider_ids if changed_provider_ids else None
     )
-    
+
     return {
         "synced_count": synced_count,
         "total_models": total_models,
+        "changed_providers": len(changed_provider_ids),
         "mapping_results": mapping_results
     }
 

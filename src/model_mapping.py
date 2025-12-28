@@ -576,34 +576,39 @@ class ModelMappingManager:
         all_provider_models: dict[str, list[str]],
         provider_id_name_map: Optional[dict[str, str]] = None,
         provider_protocols: Optional[dict[str, Optional[str]]] = None,
-        update_last_sync: bool = False
+        update_last_sync: bool = False,
+        changed_providers: Optional[set[str]] = None
     ) -> list[dict]:
-        self._ensure_loaded()
-        
-        results = []
-        for uname in self._cache:
-            success, msg, resolved = self.sync_mapping(
-                uname, all_provider_models, provider_id_name_map, provider_protocols
-            )
-            
-            if success:
-                mapping = self._cache[uname]
-                # Re-compute changes for result (a bit redundant but cleaner)
-                # Actually sync_mapping computed them but didn't return.
-                # Let's trust sync_mapping did the job.
-                # We need added/removed for result.
-                # Ideally sync_mapping should return them or we duplicate logic.
-                # Let's duplicate logic here for reporting since sync_mapping updates state.
-                # Wait, sync_mapping updated state already. 
-                # We can't diff against old state easily unless we kept it.
-                # Refactor: move sync logic loop here?
-                pass
+        """
+        同步所有映射
 
-        # To keep it simple and correct, I will implement the loop logic here similar to original
+        Args:
+            all_provider_models: 所有 Provider 的模型列表
+            provider_id_name_map: Provider ID 到名称的映射
+            provider_protocols: Provider 的默认协议
+            update_last_sync: 是否更新全局同步时间
+            changed_providers: 发生变化的 Provider ID 集合，如果为 None 则同步所有
+        """
+        self._ensure_loaded()
+
         results = []
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        
+
         for uname, mapping in self._cache.items():
+            # 增量同步：跳过未受影响的映射
+            if changed_providers is not None:
+                # 检查该映射是否受影响：变化的 Provider 在当前 resolved_models 中，
+                # 或者变化的 Provider 不在 excluded_providers 中（可能有新匹配）
+                current_providers = set(mapping.resolved_models.keys())
+                excluded = set(mapping.excluded_providers or [])
+                # 条件1: 当前已解析的 Provider 中有变化的
+                has_current_change = bool(changed_providers & current_providers)
+                # 条件2: 变化的 Provider 中有不在排除列表的（可能产生新匹配）
+                has_potential_new = bool(changed_providers - excluded)
+
+                if not has_current_change and not has_potential_new:
+                    continue  # 该映射未受影响，跳过
+
             old_resolved = mapping.resolved_models.copy()
             resolved = self.resolve_models(mapping, all_provider_models)
             added, removed = self._compute_model_changes(old_resolved, resolved)

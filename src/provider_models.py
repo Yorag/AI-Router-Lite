@@ -117,9 +117,12 @@ class ProviderModelsManager:
         provider_id: str,
         remote_models: list[dict],
         provider_name: Optional[str] = None
-    ) -> tuple[int, int, int, list[str], list[str]]:
+    ) -> tuple[int, int, int, list[str], list[str], bool]:
         """
         Sync remote models to DB
+
+        Returns:
+            tuple: (added_count, updated_count, removed_count, added_models, removed_models, has_changes)
         """
         # Get existing IDs
         existing_map = self._repo.get_provider_models(provider_id)
@@ -166,7 +169,8 @@ class ProviderModelsManager:
 
         self._log_sync_changes(provider_id, provider_name, added_models, to_remove)
 
-        return added_count, updated_count, removed_count, added_models, to_remove
+        has_changes = added_count > 0 or removed_count > 0
+        return added_count, updated_count, removed_count, added_models, to_remove, has_changes
 
     def update_models_from_manual_input(
         self,
