@@ -10,7 +10,7 @@
     <a href="https://python.org"><img alt="Python" src="https://img.shields.io/badge/Python-3.8+-blue?logo=python&logoColor=white"></a>
     <a href="https://fastapi.tiangolo.com/"><img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.104+-05998b?logo=fastapi&logoColor=white"></a>
     <a href="https://github.com/Yorag/AI-Router-Lite/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/Yorag/AI-Router-Lite?color=blue"></a>
-    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.9.0-brightgreen"></a>
+    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.9.1-brightgreen"></a>
   </p>
 </div>
 
@@ -53,7 +53,7 @@
 | :--- | :--- |
 | 🌐 **多协议路由** | 支持 **OpenAI, Anthropic, Gemini** 等多种 API 协议的**原生透传**，自动将请求路由至正确的上游端点。 |
 | 🔄 **增强型模型映射** | 通过关键字、正则、前缀等多种规则灵活地将统一模型名映射到不同渠道的实际模型。 |
-| 🔌 **双层熔断机制** | **渠道级 + 模型级**双重保障。对 4xx/5xx/超时等错误进行智能分级冷却，最大化服务可用性。 |
+| 🔌 **双层指数熔断** | **渠道级 + 模型级**双重保障，采用**指数退避**策略。连续失败时冷却时间自动翻倍，成功后立即重置，智能平衡可用性与稳定性。 |
 | 🩺 **智能健康检测** | 主动探测、被动记录，自动更新模型健康状态并与熔断系统联动，确保请求总是发往健康的节点。 |
 | 🔀 **智能故障转移** | 当首选渠道失败时，无感切换到备用渠道重试，按权重选择最佳路径，保证服务连续性。 |
 | 💾 **高性能存储** | 基于 **SQLite (WAL 模式)**，配置与日志分离存储。敏感数据（如 API Key）通过 **Fernet** 加密，安全可靠。 |
@@ -68,11 +68,12 @@
 - 支持按 `(provider_id, model_id)` 维度配置协议类型，配合多协议路由实现**同一统一模型在不同服务站可使用不同协议**。
 - 支持**模型列表自动更新/定时同步**：后台任务会周期性检查同步配置，从上游服务站拉取最新模型列表并写入本地模型库，然后自动触发全量映射同步刷新 `resolved_models`，确保路由候选始终与上游保持一致。
 
-### 2) 双层熔断机制（渠道级 + 模型级）
+### 2) 双层指数熔断机制（渠道级 + 模型级）
 
 - **渠道级熔断**：影响整个服务站（Provider）。典型场景包括鉴权失败（如 401/403）触发永久禁用、超时/网络错误触发短期冷却；冷却到期后自动恢复可用。
 - **模型级熔断**：仅影响特定的 `(Provider, Model)` 组合。典型场景包括 429 超频、5xx 服务错误、404 模型不存在、健康检测失败等；在不牺牲整个服务站的情况下，精确隔离问题模型。
-- 冷却策略与时间统一由常量集中管理，确保行为可预期且易于调参。
+- **指数退避策略**：连续失败时，冷却时间按 `基础冷却 × 2^(失败次数-1)` 指数增长（默认上限 16 倍），避免频繁重试加重上游压力；请求成功后立即重置退避因子，快速恢复正常状态。
+- 冷却策略与时间统一由配置文件集中管理，确保行为可预期且易于调参。
 
 ### 3) 故障转移（Failover / Retry）
 
@@ -217,26 +218,32 @@ python scripts/reset_admin.py
 ```jsonc
 {
   // 服务器配置
-  "server_port": 8000,           // 服务端口（默认: 8000）
-  "server_host": "0.0.0.0",      // 服务主机（默认: 0.0.0.0）
-  "request_timeout": 120,        // 请求超时时间，秒（默认: 120）
+  "server_port": 8000,           // 服务端口
+  "server_host": "0.0.0.0",      // 服务主机
+  "request_timeout": 120,        // 请求超时时间，秒
 
   // 时区与日志
-  "timezone_offset": 8,          // 时区偏移量，如 8 表示 UTC+8（默认: 8）
-  "log_retention_days": 15,      // 日志保留天数（默认: 15）
+  "timezone_offset": 8,          // 时区偏移量，如 8 表示 UTC+8
+  "log_retention_days": 15,      // 日志保留天数
 
-  // 熔断器冷却时间配置（秒）
+  // 熔断器基础冷却时间配置（秒）
   "cooldown": {
-    "rate_limited": 180,         // 429 超频冷却时间（默认: 180）
-    "server_error": 600,         // 5xx 服务器错误冷却时间（默认: 600）
-    "timeout": 300,              // 超时冷却时间（默认: 300）
-    "network_error": 120         // 网络错误冷却时间（默认: 120）
+    "rate_limited": 180,         // 429 超频
+    "server_error": 600,         // 5xx 服务器错误
+    "timeout": 300,              // 超时
+    "network_error": 120         // 网络错误
+  },
+
+  // 指数退避配置
+  "exponential_backoff": {
+    "base_multiplier": 2.0,      // 退避倍数基数
+    "max_multiplier": 16.0       // 最大退避倍数，设为 1.0 可禁用指数退避
   },
 
   // 认证配置
   "auth": {
-    "token_expire_hours": 6,           // JWT 令牌有效期，小时（默认: 6）
-    "lockout_duration_seconds": 900    // 登录失败锁定时间，秒（默认: 900）
+    "token_expire_hours": 6,           // JWT 令牌有效期，小时
+    "lockout_duration_seconds": 900    // 登录失败锁定时间，秒
   }
 }
 ```
