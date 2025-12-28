@@ -192,11 +192,11 @@ async def sync_all_provider_models_logic() -> dict:
     provider_id_name_map = admin_manager.get_provider_id_name_map()
     provider_protocols = admin_manager.get_provider_protocols()
 
-    # 如果有 Provider 发生变化，传递 changed_providers；否则传递 None 触发全量同步（首次场景）
+    # 传递 changed_providers 实现增量同步；空集时跳过所有 mapping（无变化）
     mapping_results = model_mapping_manager.sync_all_mappings(
         provider_models_flat, provider_id_name_map, provider_protocols,
         update_last_sync=True,
-        changed_providers=changed_provider_ids if changed_provider_ids else None
+        changed_providers=changed_provider_ids
     )
 
     return {
@@ -871,7 +871,7 @@ async def sync_single_provider_models(provider_id: str, _: None = Depends(requir
     remote_models = await fetch_remote_models(base_url, api_key, provider_id, pname)
 
     if remote_models is not None:
-        added, updated, removed, _, _ = provider_models_manager.update_models_from_remote(
+        added, updated, removed, _, _, _ = provider_models_manager.update_models_from_remote(
             provider_id, remote_models, pname
         )
         
