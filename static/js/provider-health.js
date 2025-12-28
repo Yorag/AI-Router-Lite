@@ -54,6 +54,7 @@ const ProviderHealth = {
     renderDot(input, options) {
         options = options || {};
         var healthyTooltip = options.healthyTooltip || '运行正常';
+        var unknownTooltip = options.unknownTooltip || '状态未知';
         var disabledTooltip = options.disabledTooltip || '已禁用';
         var showHealthyTooltip = options.showHealthyTooltip !== false;
         var n = this.normalize(input);
@@ -70,6 +71,10 @@ const ProviderHealth = {
             const reason2 = this.formatCooldownReason(n.cooldown_reason);
             const remaining = n.cooldown_remaining || '0s';
             return `<span class="provider-health-dot cooling" data-tooltip-content="冷却中: ${this.escapeAttr(reason2)} (${this.escapeAttr(remaining)})"></span>`;
+        }
+        if (n.status === 'unknown') {
+            // 未知状态使用默认样式（与 healthy 相同的外观，但不同的 tooltip）
+            return `<span class="provider-health-dot healthy" data-tooltip-content="${this.escapeAttr(unknownTooltip)}"></span>`;
         }
         if (showHealthyTooltip) {
             return `<span class="provider-health-dot healthy" data-tooltip-content="${this.escapeAttr(healthyTooltip)}"></span>`;
