@@ -1178,7 +1178,6 @@ class ModelMappingRepo:
                 cur.execute("UPDATE model_mapping_excluded_providers SET unified_name = ? WHERE unified_name = ?", (new_name, old_name))
                 cur.execute("UPDATE model_mapping_resolved_models SET unified_name = ? WHERE unified_name = ?", (new_name, old_name))
                 cur.execute("UPDATE model_mapping_model_settings SET unified_name = ? WHERE unified_name = ?", (new_name, old_name))
-                conn.commit()
             finally:
                 cur.execute("PRAGMA foreign_keys = ON")
 
