@@ -13,19 +13,11 @@
 }
 
 /* 启用状态 - 绿色仅用于明确的成功状态 */
-.status-badge.enabled,
 .status-badge.healthy,
 .status-badge.success {
     background: var(--success-bg);
     color: var(--success-color);
     border-color: transparent;
-}
-
-/* 禁用/错误状态 - 使用中性灰色而非红色 */
-.status-badge.disabled {
-    background: var(--bg-tertiary);
-    color: var(--text-muted);
-    border-color: var(--border-color);
 }
 
 .status-badge.error {

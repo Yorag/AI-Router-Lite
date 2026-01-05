@@ -26,7 +26,7 @@ const APIKeys = {
         if (this.keys.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="7" class="empty-state">
+                    <td colspan="6" class="empty-state">
                         <div class="empty-state-icon"><i class="ri-key-2-line"></i></div>
                         <div class="empty-state-text">暂无 API 密钥</div>
                         <div class="empty-state-hint">点击"创建密钥"按钮添加第一个密钥</div>
@@ -38,6 +38,10 @@ const APIKeys = {
 
         tbody.innerHTML = this.keys.map(key => {
             const escapedFullKey = (key.full_key || '').replace(/'/g, "\\'");
+            const lastUsedRelative = key.last_used
+                ? Utils.formatRelativeTime(key.last_used)
+                : '从未使用';
+            const lastUsedTitle = key.last_used_str || '';
             return `
                 <tr>
                     <td>${key.name}</td>
@@ -47,24 +51,20 @@ const APIKeys = {
                             <i class="ri-file-copy-line"></i>
                         </button>
                     </td>
-                    <td>
-                        <span class="status-badge ${key.enabled ? 'enabled' : 'disabled'}">
-                            ${key.enabled ? '启用' : '禁用'}
-                        </span>
-                    </td>
                     <td>${key.total_requests.toLocaleString()}</td>
-                    <td>${key.last_used_str || '从未使用'}</td>
+                    <td title="${lastUsedTitle}">${lastUsedRelative}</td>
                     <td>${key.created_at_str}</td>
                     <td class="actions">
+                        <label class="toggle-switch" title="${key.enabled ? '点击禁用' : '点击启用'}">
+                            <input type="checkbox" ${key.enabled ? 'checked' : ''}
+                                   onchange="APIKeys.toggleEnabled('${key.key_id}', this.checked)">
+                            <span class="toggle-slider"></span>
+                        </label>
                         <button class="btn btn-sm btn-secondary" onclick="APIKeys.showEditModal('${key.key_id}')">
                             编辑
                         </button>
                         <button class="btn btn-sm btn-warning" onclick="APIKeys.confirmReset('${key.key_id}')">
                             重置
-                        </button>
-                        <button class="btn btn-sm ${key.enabled ? 'btn-secondary' : 'btn-success'}"
-                                onclick="APIKeys.toggleEnabled('${key.key_id}', ${!key.enabled})">
-                            ${key.enabled ? '禁用' : '启用'}
                         </button>
                         <button class="btn btn-sm btn-danger" onclick="APIKeys.confirmDelete('${key.key_id}')">
                             删除

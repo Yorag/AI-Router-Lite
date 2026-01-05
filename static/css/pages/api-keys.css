@@ -1,1 +1,12 @@
 /* ==================== API 密钥管理页面样式 ==================== */
+
+/* API 密钥表格操作列持久显示 */
+#page-api-keys .data-table .actions {
+    opacity: 1;
+    align-items: center;
+}
+
+/* 滑块开关垂直居中 */
+#page-api-keys .data-table .actions .toggle-switch {
+    margin-right: 4px;
+}
