@@ -5,7 +5,8 @@
 const TIME_CONSTANTS = {
     SECONDS_PER_MINUTE: 60,
     SECONDS_PER_HOUR: 3600,
-    SECONDS_PER_DAY: 86400
+    SECONDS_PER_DAY: 86400,
+    SECONDS_PER_MONTH: 2592000
 };
 
 const Utils = {
@@ -35,12 +36,20 @@ const Utils = {
     },
 
     // 格式化相对时间
-    formatRelativeTime(timestamp) {
-        if (!timestamp) return '-';
-        
-        // 兼容秒和毫秒时间戳
-        const isMilliseconds = timestamp > 1000000000000;
-        const tsInSeconds = isMilliseconds ? timestamp / 1000 : timestamp;
+    // 支持: 秒时间戳、毫秒时间戳、Date对象、ISO字符串
+    formatRelativeTime(input) {
+        if (!input) return '-';
+
+        // 统一转换为毫秒时间戳
+        let ms;
+        if (typeof input === 'number') {
+            ms = input > 1e12 ? input : input * 1000;
+        } else {
+            ms = new Date(input).getTime();
+        }
+        if (isNaN(ms)) return '-';
+
+        const tsInSeconds = ms / 1000;
         
         const now = Date.now() / 1000;
         const diff = now - tsInSeconds;
@@ -48,7 +57,8 @@ const Utils = {
         if (diff < TIME_CONSTANTS.SECONDS_PER_MINUTE) return '刚刚';
         if (diff < TIME_CONSTANTS.SECONDS_PER_HOUR) return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_MINUTE)} 分钟前`;
         if (diff < TIME_CONSTANTS.SECONDS_PER_DAY) return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_HOUR)} 小时前`;
-        return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_DAY)} 天前`;
+        if (diff < TIME_CONSTANTS.SECONDS_PER_MONTH) return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_DAY)} 天前`;
+        return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_MONTH)} 个月前`;
     },
 
     // 复制到剪贴板（带 fallback）

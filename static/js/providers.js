@@ -246,7 +246,7 @@ const Providers = {
                 <div class="provider-models">
                     <div class="provider-models-header">
                         <h4>支持的模型 (${models.length})</h4>
-                        ${provider.models_updated_at ? `<span class="last-updated" title="模型列表上次更新时间">${Utils.formatDateTime(new Date(provider.models_updated_at))}</span>` : ''}
+                        ${provider.models_updated_at ? `<span class="last-updated" title="${Utils.formatDateTime(new Date(provider.models_updated_at))}">${Utils.formatRelativeTime(provider.models_updated_at)}</span>` : ''}
                     </div>
                     <div class="model-tags">
                         ${modelTagsHtml}
