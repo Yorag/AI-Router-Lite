@@ -520,13 +520,17 @@ class LogRepo:
         Get aggregated stats from logs.db
         Refactored to use efficient aggregation (similar to get_daily_stats)
         """
+        from .config import get_config
+        config = get_config()
+        _TZ = timezone(timedelta(hours=config.timezone_offset))
+
         # 1. Build Filter Conditions
         where_clauses = ["1=1"]
         params = []
-        
+
         if date_str:
             try:
-                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=_TZ)
                 start_ms = int(dt.timestamp() * 1000)
                 end_ms = int((dt + timedelta(days=1)).timestamp() * 1000)
                 where_clauses.append("timestamp_ms >= ? AND timestamp_ms < ?")
@@ -617,8 +621,9 @@ class LogRepo:
             # 4. Hourly Trends Query (Only if date filter is active)
             hourly_requests = {}
             if date_str:
+                tz_modifier = f"{config.timezone_offset:+d} hours"
                 cur.execute(
-                    f"SELECT strftime('%H', timestamp_ms / 1000, 'unixepoch', 'localtime') as hour, COUNT(*) FROM request_logs WHERE {where_sql} GROUP BY hour",
+                    f"SELECT strftime('%H', timestamp_ms / 1000, 'unixepoch', '{tz_modifier}') as hour, COUNT(*) FROM request_logs WHERE {where_sql} GROUP BY hour",
                     params
                 )
                 for r in cur.fetchall():
