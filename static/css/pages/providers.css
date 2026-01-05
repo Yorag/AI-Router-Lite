@@ -103,10 +103,6 @@
     width: 100%;
 }
 
-.model-tags-hidden {
-    margin-top: 6px;
-}
-
 /* 模型标签 - 统一为中性灰色基调 */
 .model-tag {
     display: inline-flex;
@@ -277,4 +273,95 @@
     .providers-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* ==================== 行视图样式 ==================== */
+
+.providers-table-container {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.providers-table {
+    width: 100%;
+    min-width: 800px;
+}
+
+.providers-table th {
+    text-align: left;
+    white-space: nowrap;
+}
+
+.providers-table td {
+    vertical-align: middle;
+}
+
+.providers-table tr.row-disabled {
+    opacity: 0.6;
+    background: var(--bg-tertiary);
+}
+
+.providers-table .cell-status {
+    text-align: center;
+    width: 30px;
+    padding-right: 0;
+}
+
+.providers-table .cell-status .provider-health-dot {
+    display: inline-block;
+}
+
+.providers-table .cell-name {
+    font-weight: 500;
+    cursor: default;
+}
+
+.providers-table .cell-weight .weight-badge {
+    display: inline-block;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+}
+
+.providers-table .cell-updated .time-text {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+}
+
+.providers-table .cell-actions {
+    white-space: nowrap;
+}
+
+.providers-table .cell-actions .toggle-switch {
+    vertical-align: middle;
+    margin-right: 6px;
+}
+
+.providers-table .cell-actions .btn {
+    padding: 4px 8px;
+    margin-left: 4px;
+}
+
+.providers-table .cell-actions .btn i {
+    font-size: 14px;
+}
+
+/* 视图切换按钮图标样式 */
+.view-control .toggle-btn {
+    padding: 5px 10px;
+}
+
+.view-control .toggle-btn i {
+    font-size: 14px;
+}
+
+/* 行视图模型标签 */
+.row-model-tags .model-tag {
+    padding: 2px 8px;
+    font-size: 11px;
 }

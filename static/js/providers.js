@@ -6,9 +6,12 @@ const Providers = {
     providers: [],
     isUpdatingAll: false,  // 防止重复点击"更新全部渠道"按钮
     availableProtocols: [],  // 可用协议类型缓存
-    
+
     // 排序相关
     sortMode: 'weight', // 'weight' (权重递减) | 'default' (默认排序)
+
+    // 视图模式
+    viewMode: 'card', // 'card' | 'row'
     
     async init() {
         await this.loadProtocols();  // 加载协议类型
@@ -77,6 +80,20 @@ const Providers = {
     },
 
     /**
+     * 切换视图模式
+     */
+    toggleViewMode(mode) {
+        if (this.viewMode === mode) return;
+        this.viewMode = mode;
+
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+
+        this.render();
+    },
+
+    /**
      * 切换排序模式
      */
     toggleSortMode(mode) {
@@ -122,29 +139,263 @@ const Providers = {
         }
 
         const sortedProviders = this.getSortedProviders();
-        container.innerHTML = sortedProviders.map(provider => this.renderProviderCard(provider)).join('');
+
+        if (this.viewMode === 'row') {
+            container.innerHTML = this.renderProvidersTable(sortedProviders);
+            // 后处理：计算隐藏的模型数量并添加 "+n more"
+            this.postProcessRowModelTags();
+        } else {
+            container.innerHTML = sortedProviders.map(provider => this.renderProviderCard(provider)).join('');
+        }
+    },
+
+    /**
+     * 后处理行视图模型标签，限制显示两行并添加展开/收起功能
+     */
+    postProcessRowModelTags() {
+        document.querySelectorAll('.row-model-tags').forEach(container => {
+            const tags = Array.from(container.querySelectorAll('.model-tag'));
+            if (tags.length === 0) return;
+
+            // 获取 provider ID
+            const row = container.closest('tr');
+            const providerUuid = row?.dataset.providerId;
+            if (!providerUuid) return;
+            const providerDomId = this.escapeId(providerUuid);
+
+            // 获取每个标签的行号（基于 offsetTop）
+            const firstTagTop = tags[0].offsetTop;
+            const tagHeight = tags[0].offsetHeight;
+            const lineGap = 6; // flex gap
+
+            const getLineNumber = (el) => {
+                return Math.round((el.offsetTop - firstTagTop) / (tagHeight + lineGap)) + 1;
+            };
+
+            // 找出第三行及以后的标签
+            let thirdLineStartIndex = -1;
+            for (let i = 0; i < tags.length; i++) {
+                if (getLineNumber(tags[i]) > 2) {
+                    thirdLineStartIndex = i;
+                    break;
+                }
+            }
+
+            // 如果所有标签都在两行内，无需处理
+            if (thirdLineStartIndex === -1) return;
+
+            // 创建 visible 和 hidden 容器
+            const visibleContainer = document.createElement('div');
+            visibleContainer.className = 'model-tags-visible';
+
+            const hiddenContainer = document.createElement('div');
+            hiddenContainer.className = 'model-tags-hidden';
+            hiddenContainer.id = `models-hidden-${providerDomId}`;
+            hiddenContainer.style.display = 'none';
+
+            // 创建 "+n more" 按钮（先添加到 visible 容器计算位置）
+            const moreBtn = document.createElement('span');
+            moreBtn.className = 'model-tag model-more-btn';
+            moreBtn.onclick = () => this.toggleRowModelExpand(providerDomId);
+
+            // 创建 "收起" 按钮
+            const lessBtn = document.createElement('span');
+            lessBtn.className = 'model-tag model-less-btn';
+            lessBtn.textContent = '收起';
+            lessBtn.onclick = () => this.toggleRowModelExpand(providerDomId);
+
+            // 将标签分配到 visible 和 hidden 容器
+            let hiddenCount = 0;
+            let cutIndex = thirdLineStartIndex;
+
+            // 先将所有标签移到 visible 容器
+            tags.forEach(tag => visibleContainer.appendChild(tag));
+            visibleContainer.appendChild(moreBtn);
+
+            // 清空原容器并添加新结构
+            container.innerHTML = '';
+            container.appendChild(visibleContainer);
+            container.appendChild(hiddenContainer);
+
+            // 计算需要隐藏的标签
+            for (let i = cutIndex; i < tags.length; i++) {
+                hiddenContainer.appendChild(tags[i]);
+                hiddenCount++;
+            }
+            moreBtn.textContent = `+${hiddenCount} more`;
+
+            // 循环检查：如果 "+n more" 在第三行，继续移动标签到 hidden
+            while (getLineNumber(moreBtn) > 2 && cutIndex > 0) {
+                cutIndex--;
+                hiddenContainer.insertBefore(tags[cutIndex], hiddenContainer.firstChild);
+                hiddenCount++;
+                moreBtn.textContent = `+${hiddenCount} more`;
+            }
+
+            // 添加 "收起" 按钮到 hidden 容器末尾
+            hiddenContainer.appendChild(lessBtn);
+        });
+    },
+
+    /**
+     * 切换行视图模型列表展开/收起
+     */
+    toggleRowModelExpand(providerDomId) {
+        const hiddenContainer = document.getElementById(`models-hidden-${providerDomId}`);
+        if (!hiddenContainer) return;
+
+        const row = hiddenContainer.closest('tr');
+        const visibleContainer = row?.querySelector('.model-tags-visible');
+        const moreBtn = visibleContainer?.querySelector('.model-more-btn');
+
+        if (hiddenContainer.style.display === 'none') {
+            // 展开
+            hiddenContainer.style.display = 'flex';
+            if (moreBtn) moreBtn.style.display = 'none';
+        } else {
+            // 收起
+            hiddenContainer.style.display = 'none';
+            if (moreBtn) moreBtn.style.display = 'inline-flex';
+        }
+    },
+
+    /**
+     * 渲染服务站表格（行视图）
+     */
+    renderProvidersTable(providers) {
+        const rows = providers.map(provider => this.renderProviderRow(provider)).join('');
+        return `
+            <div class="providers-table-container" style="grid-column: 1 / -1;">
+                <table class="data-table providers-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 30px;"></th>
+                            <th style="width: 200px;">名称</th>
+                            <th>模型</th>
+                            <th style="width: 70px;">权重</th>
+                            <th style="width: 90px;">更新时间</th>
+                            <th style="width: 180px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    /**
+     * 渲染单个服务站行
+     */
+    renderProviderRow(provider) {
+        const providerUuid = provider.id;
+        const isEnabled = provider.enabled !== false;
+        const allowModelUpdate = provider.allow_model_update !== false;
+
+        // 健康状态小圆点（使用自定义 tooltip）
+        const healthDotHtml = ProviderHealth.renderDot(provider, { showHealthyTooltip: true });
+
+        const normalized = ProviderHealth.normalize(provider);
+        const isPassivelyDisabled = normalized.enabled && (normalized.status === 'permanently_disabled' || normalized.status === 'cooling');
+
+        const updateModelBtn = allowModelUpdate
+            ? `<button class="btn btn-sm btn-secondary" onclick="Providers.fetchModels('${providerUuid}')" title="更新模型"><i class="ri-refresh-line"></i></button>`
+            : '';
+        const resetBtn = isPassivelyDisabled
+            ? `<button class="btn btn-sm btn-secondary" onclick="Providers.reset('${providerUuid}')" title="重置状态"><i class="ri-restart-line"></i></button>`
+            : '';
+
+        const updatedAt = provider.models_updated_at
+            ? `<span class="time-text" title="${Utils.formatDateTime(new Date(provider.models_updated_at))}">${Utils.formatRelativeTime(provider.models_updated_at)}</span>`
+            : '-';
+
+        // 渲染模型标签
+        const modelTagsHtml = this.renderRowModelTags(provider);
+
+        return `
+            <tr class="${!isEnabled ? 'row-disabled' : ''}" data-provider-id="${providerUuid}">
+                <td class="cell-status">${healthDotHtml}</td>
+                <td class="cell-name" data-tooltip-content="${provider.base_url}">
+                    ${provider.name}
+                    ${Utils.renderProtocolTag(provider.default_protocol)}
+                </td>
+                <td class="cell-models">${modelTagsHtml}</td>
+                <td class="cell-weight"><span class="weight-badge">${provider.weight}</span></td>
+                <td class="cell-updated">${updatedAt}</td>
+                <td class="cell-actions">
+                    <label class="toggle-switch" title="${isEnabled ? '点击禁用' : '点击启用'}">
+                        <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="Providers.toggleEnabled('${providerUuid}', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <button class="btn btn-sm btn-secondary" onclick="Providers.showEditModal('${providerUuid}')" title="编辑"><i class="ri-edit-line"></i></button>
+                    ${updateModelBtn}
+                    ${resetBtn}
+                    <button class="btn btn-sm btn-danger" onclick="Providers.confirmDelete('${providerUuid}')" title="删除"><i class="ri-delete-bin-line"></i></button>
+                </td>
+            </tr>
+        `;
+    },
+
+    /**
+     * 渲染行视图的模型标签（最多显示两行）
+     */
+    renderRowModelTags(provider) {
+        const supportedModels = provider.supported_models || [];
+        const mappedSet = new Set(provider.mapped_models || []);
+        const providerUuid = provider.id;
+
+        if (supportedModels.length === 0) {
+            return '<span class="model-tag">暂无模型</span>';
+        }
+
+        // 构造模型对象列表并排序（已映射的前置）
+        const models = supportedModels.map(id => ({ id, is_mapped: mappedSet.has(id) }));
+        models.sort((a, b) => {
+            if (a.is_mapped && !b.is_mapped) return -1;
+            if (!a.is_mapped && b.is_mapped) return 1;
+            return a.id.localeCompare(b.id);
+        });
+
+        const createTag = (m) => {
+            const tooltip = this.getModelTooltip(providerUuid, m.id);
+            const tooltipAttr = tooltip ? `data-tooltip-content="${tooltip}"` : '';
+            const mappedClass = m.is_mapped ? 'mapped-model' : '';
+            return `<span class="model-tag ${mappedClass}" ${tooltipAttr}>${m.id}</span>`;
+        };
+
+        const allTags = models.map(createTag).join('');
+        return `<div class="model-tags row-model-tags">${allTags}</div>`;
     },
 
     renderSortControls() {
         const headerActions = document.querySelector('#page-providers .header-actions');
         if (!headerActions) return;
-        
-        // 检查是否已存在排序控件
+
+        // 检查是否已存在控件
         if (headerActions.querySelector('.sort-control')) return;
-        
-        const sortControlHtml = `
+
+        const controlsHtml = `
+            <div class="view-control toggle-group">
+                <button class="toggle-btn view-btn ${this.viewMode === 'card' ? 'active' : ''}" data-mode="card" onclick="Providers.toggleViewMode('card')" title="卡片视图">
+                    <i class="ri-layout-grid-line"></i>
+                </button>
+                <button class="toggle-btn view-btn ${this.viewMode === 'row' ? 'active' : ''}" data-mode="row" onclick="Providers.toggleViewMode('row')" title="行视图">
+                    <i class="ri-list-check"></i>
+                </button>
+            </div>
             <div class="sort-control toggle-group">
-                <button class="toggle-btn sort-btn active" data-mode="weight" onclick="Providers.toggleSortMode('weight')">
+                <button class="toggle-btn sort-btn ${this.sortMode === 'weight' ? 'active' : ''}" data-mode="weight" onclick="Providers.toggleSortMode('weight')">
                     权重排序
                 </button>
-                <button class="toggle-btn sort-btn" data-mode="default" onclick="Providers.toggleSortMode('default')">
+                <button class="toggle-btn sort-btn ${this.sortMode === 'default' ? 'active' : ''}" data-mode="default" onclick="Providers.toggleSortMode('default')">
                     默认排序
                 </button>
             </div>
         `;
-        
+
         // 插入到第一个位置
-        headerActions.insertAdjacentHTML('afterbegin', sortControlHtml);
+        headerActions.insertAdjacentHTML('afterbegin', controlsHtml);
     },
     // 模型显示阈值
     MODEL_DISPLAY_LIMIT: 5,

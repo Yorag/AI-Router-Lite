@@ -53,7 +53,7 @@ const ProviderHealth = {
 
     renderDot(input, options) {
         options = options || {};
-        var healthyTooltip = options.healthyTooltip || '运行正常';
+        var healthyTooltip = options.healthyTooltip || '';
         var unknownTooltip = options.unknownTooltip || '状态未知';
         var disabledTooltip = options.disabledTooltip || '已禁用';
         var showHealthyTooltip = options.showHealthyTooltip !== false;
