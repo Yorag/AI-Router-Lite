@@ -55,10 +55,10 @@ const Utils = {
         const diff = now - tsInSeconds;
         
         if (diff < TIME_CONSTANTS.SECONDS_PER_MINUTE) return '刚刚';
-        if (diff < TIME_CONSTANTS.SECONDS_PER_HOUR) return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_MINUTE)} 分钟前`;
-        if (diff < TIME_CONSTANTS.SECONDS_PER_DAY) return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_HOUR)} 小时前`;
-        if (diff < TIME_CONSTANTS.SECONDS_PER_MONTH) return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_DAY)} 天前`;
-        return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_MONTH)} 个月前`;
+        if (diff < TIME_CONSTANTS.SECONDS_PER_HOUR) return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_MINUTE)}分钟前`;
+        if (diff < TIME_CONSTANTS.SECONDS_PER_DAY) return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_HOUR)}小时前`;
+        if (diff < TIME_CONSTANTS.SECONDS_PER_MONTH) return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_DAY)}天前`;
+        return `${Math.floor(diff / TIME_CONSTANTS.SECONDS_PER_MONTH)}个月前`;
     },
 
     // 复制到剪贴板（带 fallback）

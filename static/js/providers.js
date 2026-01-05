@@ -10,8 +10,8 @@ const Providers = {
     // 排序相关
     sortMode: 'weight', // 'weight' (权重递减) | 'default' (默认排序)
 
-    // 视图模式
-    viewMode: 'card', // 'card' | 'row'
+    // 视图模式（从 localStorage 读取，默认 'card'）
+    viewMode: localStorage.getItem('providers_view_mode') || 'card',
     
     async init() {
         await this.loadProtocols();  // 加载协议类型
@@ -85,6 +85,7 @@ const Providers = {
     toggleViewMode(mode) {
         if (this.viewMode === mode) return;
         this.viewMode = mode;
+        localStorage.setItem('providers_view_mode', mode);
 
         document.querySelectorAll('.view-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
