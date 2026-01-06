@@ -46,59 +46,57 @@ class StreamContext:
     total_tokens: Optional[int] = None
 
 
-class ProxyError(Exception):
-    """代理错误"""
-    
+class UpstreamError(Exception):
+    """
+    上游服务错误
+
+    当上游 AI 服务返回错误响应时抛出（401/403/404/429/5xx）。
+    行为：触发熔断，尝试下一个渠道。
+    """
+
     def __init__(
         self,
         message: str,
-        status_code: Optional[int] = None,
-        provider_name: Optional[str] = None,
+        status_code: int,
+        provider_name: str,
+        provider_id: str,
         actual_model: Optional[str] = None,
-        response_body: Optional[Dict[str, Any]] = None,
-        skip_retry: bool = False,
-        provider_id: Optional[str] = None,
-        log_type: str = "proxy"
+        response_body: Optional[Dict[str, Any]] = None
     ):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
         self.provider_name = provider_name
+        self.provider_id = provider_id
         self.actual_model = actual_model
         self.response_body = response_body
-        self.skip_retry = skip_retry
+
+
+class SystemError(Exception):
+    """
+    系统级网络错误
+
+    当发生网络层错误时抛出（超时、连接错误、SSL 错误等）。
+    行为：直接抛出，不熔断，不重试。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        provider_name: str,
+        provider_id: str,
+        actual_model: Optional[str] = None
+    ):
+        super().__init__(message)
+        self.message = message
+        self.provider_name = provider_name
         self.provider_id = provider_id
-        self.log_type = log_type
+        self.actual_model = actual_model
 
 
 class RoutingError(Exception):
     """路由错误（无可用 Provider）"""
     pass
-
-
-def _create_network_error(
-    e: Exception,
-    provider_name: str,
-    actual_model: Optional[str] = None,
-    provider_id: Optional[str] = None
-) -> ProxyError:
-    """根据网络异常类型创建对应的 ProxyError"""
-    error_msg = str(e) or type(e).__name__
-    # SSL EOF 错误：系统级错误（503），不重试、不冷却
-    # 其他网络错误：上游服务器问题（502），可重试
-    lower_msg = error_msg.lower()
-    is_ssl_eof = "ssl" in lower_msg and "eof" in lower_msg
-    
-    # 所有网络层错误（超时、连接重置、SSL错误等）都归类为 system 错误
-    return ProxyError(
-        error_msg,
-        status_code=503 if is_ssl_eof else 502,
-        provider_name=provider_name,
-        actual_model=actual_model,
-        skip_retry=is_ssl_eof,
-        provider_id=provider_id,
-        log_type="system"
-    )
 
 
 class RequestProxy:
@@ -144,7 +142,6 @@ class RequestProxy:
         api_key_name: Optional[str] = None,
         api_key_id: Optional[str] = None,
         provider_id: Optional[str] = None,
-        log_type: str = "proxy",
         protocol: Optional[str] = None
     ) -> None:
         """记录代理请求错误日志（用于统计）"""
@@ -152,7 +149,7 @@ class RequestProxy:
         prefix = "流式请求失败" if is_stream else "请求失败"
         log_manager.log(
             level=LogLevel.ERROR,
-            log_type=log_type,
+            log_type="proxy",
             method="POST",
             path=path,
             model=original_model,
@@ -265,7 +262,7 @@ class RequestProxy:
         client_headers: Optional[Dict[str, str]] = None
     ) -> AsyncIterator[Any]:
         """统一的重试执行逻辑 (作为异步生成器) - 两阶段选择"""
-        last_error: Optional[ProxyError] = None
+        last_error: Optional[UpstreamError] = None
         req_protocol = required_protocol or protocol_handler.protocol_type
 
         # 第一阶段：获取候选渠道列表
@@ -341,22 +338,31 @@ class RequestProxy:
                     )
                     return  # 成功，结束生成器
 
-            except ProxyError as e:
+            except SystemError:
+                # 系统级错误：直接抛出，不熔断，不重试
+                raise
+
+            except UpstreamError as e:
+                # 客户端错误：直接抛出，不熔断，不重试
+                # 413: 请求体过大
+                if e.status_code == 413:
+                    raise
+
+                # 上游错误：触发熔断，尝试下一个渠道
                 last_error = e
                 last_error.actual_model = actual_model
 
-                if e.skip_retry:
-                    raise e
-
-                # 清除 sticky 并触发熔断，然后切换到下一个渠道
+                # 清除 sticky
                 self.provider_manager.clear_sticky_model(sticky_key, original_model, provider.config.id)
+
+                # 触发熔断
                 self.provider_manager.mark_failure(provider.config.id, model_name=actual_model, status_code=e.status_code, error_message=e.message)
 
                 self._log_proxy_error(
                     provider.config.name, original_model, actual_model,
                     e.status_code, e.message, is_stream=is_stream,
                     api_key_name=api_key_name, api_key_id=api_key_id,
-                    provider_id=provider.config.id, log_type=e.log_type, protocol=req_protocol
+                    provider_id=provider.config.id, protocol=req_protocol
                 )
 
                 model_health_manager.record_passive_result(provider.config.id, actual_model, success=False, error=e.message, response_body=e.response_body)
@@ -365,7 +371,7 @@ class RequestProxy:
         if last_error:
             raise last_error
 
-        raise ProxyError(f"为模型 '{original_model}' 尝试所有候选后{'流式' if is_stream else ''}请求失败", status_code=500)
+        raise UpstreamError(f"为模型 '{original_model}' 尝试所有候选后{'流式' if is_stream else ''}请求失败", status_code=500, provider_name="", provider_id="")
 
     async def forward_request(
         self,
@@ -389,7 +395,7 @@ class RequestProxy:
         ):
             return result
         # This part should not be reached if logic is correct
-        raise ProxyError("Request forwarding failed unexpectedly.")
+        raise UpstreamError("Request forwarding failed unexpectedly.", status_code=500, provider_name="", provider_id="")
 
     async def forward_stream(
         self,
@@ -418,27 +424,27 @@ class RequestProxy:
     def _get_timeout(self, provider: ProviderState) -> float:
         return provider.config.timeout if provider.config.timeout is not None else self.config.request_timeout
     
-    async def _create_http_error(self, response: httpx.Response, provider: ProviderState, actual_model: str) -> ProxyError:
-        """创建 HTTP 错误异常"""
+    async def _create_upstream_error(self, response: httpx.Response, provider: ProviderState, actual_model: str) -> UpstreamError:
+        """创建上游服务错误异常"""
         error_body_bytes = await response.aread()
         error_body_text = error_body_bytes.decode(errors='replace')
-        
+
         error_body_oneline = error_body_text.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
         if len(error_body_oneline) > PROXY_ERROR_MESSAGE_MAX_LENGTH:
             error_body_oneline = error_body_oneline[:PROXY_ERROR_MESSAGE_MAX_LENGTH] + "..."
-            
+
         try:
             error_response_body = json.loads(error_body_text)
         except Exception:
             error_response_body = {"raw_text": error_body_text[:500]}
-            
-        return ProxyError(
+
+        return UpstreamError(
             f"HTTP {response.status_code}: {error_body_oneline}",
             status_code=response.status_code,
             provider_name=provider.config.name,
+            provider_id=provider.config.id,
             actual_model=actual_model,
-            response_body=error_response_body,
-            provider_id=provider.config.id
+            response_body=error_response_body
         )
 
     async def _do_request(
@@ -461,7 +467,7 @@ class RequestProxy:
             actual_model,
             client_headers
         )
-        
+
         try:
             response = await client.post(
                 protocol_request.url,
@@ -469,10 +475,10 @@ class RequestProxy:
                 headers=protocol_request.headers,
                 timeout=self._get_timeout(provider)
             )
-            
+
             if response.status_code != 200:
-                raise await self._create_http_error(response, provider, actual_model)
-            
+                raise await self._create_upstream_error(response, provider, actual_model)
+
             try:
                 raw_response = response.json()
             except Exception:
@@ -480,21 +486,22 @@ class RequestProxy:
                 error_msg = error_body.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ').strip()
                 if len(error_msg) > PROXY_ERROR_MESSAGE_MAX_LENGTH:
                     error_msg = error_msg[:PROXY_ERROR_MESSAGE_MAX_LENGTH] + "..."
-                    
-                raise ProxyError(
+
+                raise UpstreamError(
                     f"无效的响应格式: {error_msg or '空响应'}",
                     status_code=502,
                     provider_name=provider.config.name,
+                    provider_id=provider.config.id,
                     actual_model=actual_model,
-                    response_body={"raw": error_body[:1000]},
-                    provider_id=provider.config.id
+                    response_body={"raw": error_body[:1000]}
                 )
-            
+
             protocol_response = protocol_handler.transform_response(raw_response, original_model)
             return raw_response, protocol_response
-            
+
         except (httpx.TimeoutException, ssl.SSLError, ConnectionResetError, BrokenPipeError, httpx.RequestError) as e:
-            raise _create_network_error(e, provider.config.name, provider_id=provider.config.id)
+            error_msg = str(e) or type(e).__name__
+            raise SystemError(error_msg, provider.config.name, provider.config.id, actual_model)
     
     async def _do_stream_request(
         self,
@@ -517,7 +524,7 @@ class RequestProxy:
             actual_model,
             client_headers
         )
-        
+
         try:
             async with client.stream(
                 "POST",
@@ -527,12 +534,12 @@ class RequestProxy:
                 timeout=self._get_timeout(provider)
             ) as response:
                 if response.status_code != 200:
-                    raise await self._create_http_error(response, provider, actual_model)
-                
+                    raise await self._create_upstream_error(response, provider, actual_model)
+
                 async for line in response.aiter_lines():
                     if not line:
                         continue
-                    
+
                     # 使用协议处理器转换流式块
                     try:
                         transformed, usage = protocol_handler.transform_stream_chunk(line, original_model)
@@ -547,23 +554,19 @@ class RequestProxy:
                                 stream_context.request_tokens = usage["prompt_tokens"]
                             if "completion_tokens" in usage:
                                 stream_context.response_tokens = usage["completion_tokens"]
-                            
+
                             if "total_tokens" in usage:
                                 stream_context.total_tokens = usage["total_tokens"]
                             elif stream_context.request_tokens is not None or stream_context.response_tokens is not None:
                                 stream_context.total_tokens = (stream_context.request_tokens or 0) + (stream_context.response_tokens or 0)
-                        
+
                         yield transformed
-                        
+
         except (httpx.TimeoutException, ssl.SSLError, ConnectionResetError, BrokenPipeError, httpx.RequestError) as e:
-            raise _create_network_error(e, provider.config.name, actual_model, provider_id=provider.config.id)
+            error_msg = str(e) or type(e).__name__
+            raise SystemError(error_msg, provider.config.name, provider.config.id, actual_model)
     
     @staticmethod
     def _log_info(message: str) -> None:
         """输出信息日志"""
-        print(f"[PROXY] {message}")
-    
-    @staticmethod
-    def _log_warning(message: str) -> None:
-        """输出警告日志"""
         print(f"[PROXY] {message}")

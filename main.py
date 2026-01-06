@@ -47,7 +47,7 @@ from src.schemas import (
 )
 from src.provider import provider_manager
 from src.router import ModelRouter
-from src.proxy import RequestProxy, ProxyError, RoutingError, ProxyResult, StreamContext
+from src.proxy import RequestProxy, UpstreamError, SystemError, RoutingError, ProxyResult, StreamContext
 from src.api_keys import api_key_manager, APIKey
 from src.logger import log_manager, LogLevel, get_today_str
 from src.admin import admin_manager
@@ -546,12 +546,12 @@ async def process_request(
                         total_tokens=stream_context.total_tokens,
                         message="",
                     )
-                except ProxyError as e:
+                except (UpstreamError, SystemError) as e:
                     error_response = {
                         "error": {
                             "message": e.message,
-                            "type": "proxy_error",
-                            "code": str(e.status_code or 500),
+                            "type": "upstream_error" if isinstance(e, UpstreamError) else "system_error",
+                            "code": str(e.status_code if isinstance(e, UpstreamError) else 502),
                             "provider": e.provider_name,
                             "model": e.actual_model,
                         }
@@ -617,12 +617,18 @@ async def process_request(
         )
         return JSONResponse(content=result.response)
 
-    except ProxyError as e:
-        status_code = e.status_code or 500
+    except UpstreamError as e:
         return JSONResponse(
-            status_code=status_code,
+            status_code=e.status_code,
             content=ErrorResponse(
-                error=ErrorDetail(message=e.message, type="proxy_error", code=str(status_code))
+                error=ErrorDetail(message=e.message, type="upstream_error", code=str(e.status_code))
+            ).model_dump(),
+        )
+    except SystemError as e:
+        return JSONResponse(
+            status_code=502,
+            content=ErrorResponse(
+                error=ErrorDetail(message=e.message, type="system_error", code="502")
             ).model_dump(),
         )
     except RoutingError as e:

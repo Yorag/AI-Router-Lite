@@ -41,6 +41,7 @@ class CooldownReason(Enum):
     AUTH_FAILED = "auth_failed"         # 401/403 鉴权失败（永久）-> 渠道级
     NETWORK_ERROR = "network_error"     # 网络错误 -> 渠道级
     MODEL_NOT_FOUND = "model_not_found" # 404 模型不存在 -> 模型级
+    UNKNOWN = "unknown"                 # 未知错误 -> 模型级
 
 
 # 冷却时间配置（秒）- 从配置文件动态获取
@@ -54,6 +55,7 @@ def _get_cooldown_times() -> dict:
         CooldownReason.AUTH_FAILED: COOLDOWN_PERMANENT,
         CooldownReason.NETWORK_ERROR: config.cooldown.network_error,
         CooldownReason.MODEL_NOT_FOUND: COOLDOWN_PERMANENT,
+        CooldownReason.UNKNOWN: config.cooldown.server_error,  # 未知错误使用 server_error 的冷却时间
     }
 
 
@@ -69,6 +71,7 @@ MODEL_LEVEL_ERRORS = {
     CooldownReason.RATE_LIMITED,
     CooldownReason.SERVER_ERROR,
     CooldownReason.MODEL_NOT_FOUND,
+    CooldownReason.UNKNOWN,
 }
 
 
@@ -398,13 +401,13 @@ class ProviderManager:
         error_message: Optional[str]
     ) -> CooldownReason:
         """根据状态码和错误消息确定冷却原因"""
-        if status_code in (401, 403):
+        if status_code == 401:
             return CooldownReason.AUTH_FAILED
         elif status_code == 404:
             return CooldownReason.MODEL_NOT_FOUND
         elif status_code == 429:
             return CooldownReason.RATE_LIMITED
-        elif status_code and 500 <= status_code < 600:
+        elif status_code and status_code in (403, 422, 500, 503): # 上游 new-api 报错
             return CooldownReason.SERVER_ERROR
         elif error_message:
             lower_msg = error_message.lower()
@@ -412,7 +415,7 @@ class ProviderManager:
                 return CooldownReason.TIMEOUT
             elif "network" in lower_msg or "connection" in lower_msg:
                 return CooldownReason.NETWORK_ERROR
-        return CooldownReason.SERVER_ERROR
+        return CooldownReason.UNKNOWN
     
     def _apply_provider_cooldown(self, provider: ProviderState, reason: CooldownReason) -> None:
         """应用渠道级冷却"""

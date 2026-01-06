@@ -10,7 +10,7 @@
     <a href="https://python.org"><img alt="Python" src="https://img.shields.io/badge/Python-3.8+-blue?logo=python&logoColor=white"></a>
     <a href="https://fastapi.tiangolo.com/"><img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.104+-05998b?logo=fastapi&logoColor=white"></a>
     <a href="https://github.com/Yorag/AI-Router-Lite/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/Yorag/AI-Router-Lite?color=blue"></a>
-    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.9.1-brightgreen"></a>
+    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.9.2-brightgreen"></a>
   </p>
 </div>
 
@@ -70,8 +70,9 @@
 
 ### 2) 双层指数熔断机制（渠道级 + 模型级）
 
-- **渠道级熔断**：影响整个服务站（Provider）。典型场景包括鉴权失败（如 401/403）触发永久禁用、超时/网络错误触发短期冷却；冷却到期后自动恢复可用。
-- **模型级熔断**：仅影响特定的 `(Provider, Model)` 组合。典型场景包括 429 超频、5xx 服务错误、404 模型不存在、健康检测失败等；在不牺牲整个服务站的情况下，精确隔离问题模型。
+- **渠道级熔断**：影响整个服务站（Provider）。典型场景包括鉴权失败（401）触发永久禁用、超时/网络错误触发短期冷却；冷却到期后自动恢复可用。
+- **模型级熔断**：仅影响特定的 `(Provider, Model)` 组合。典型场景包括 429 超频、上游服务错误（403/422/500/503）、404 模型不存在、健康检测失败等；在不牺牲整个服务站的情况下，精确隔离问题模型。
+- **不触发熔断**：客户端错误（400 请求格式错误、413 请求体过大）和系统级网络错误直接返回，不触发熔断也不重试。
 - **指数退避策略**：连续失败时，冷却时间按 `基础冷却 × 2^(失败次数-1)` 指数增长（默认上限 16 倍），避免频繁重试加重上游压力；请求成功后立即重置退避因子，快速恢复正常状态。
 - 冷却策略与时间统一由配置文件集中管理，确保行为可预期且易于调参。
 
