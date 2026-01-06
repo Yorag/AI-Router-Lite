@@ -4,6 +4,7 @@
   "request_timeout": 120,
   "timezone_offset": 8,
   "log_retention_days": 15,
+  "retry_on_empty_response": false,
   "cooldown": {
     "rate_limited": 180,
     "server_error": 600,
