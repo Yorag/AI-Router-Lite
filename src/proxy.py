@@ -99,6 +99,30 @@ class RoutingError(Exception):
     pass
 
 
+class EmptyResponseError(Exception):
+    """
+    空响应错误
+
+    当上游服务返回 HTTP 200 但响应内容为空时抛出。
+    行为：不触发熔断，清除 sticky，尝试下一个渠道。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        provider_name: str,
+        provider_id: str,
+        actual_model: str,
+        raw_response: Any = None
+    ):
+        super().__init__(message)
+        self.message = message
+        self.provider_name = provider_name
+        self.provider_id = provider_id
+        self.actual_model = actual_model
+        self.raw_response = raw_response
+
+
 class RequestProxy:
     """
     请求代理
@@ -263,7 +287,11 @@ class RequestProxy:
     ) -> AsyncIterator[Any]:
         """统一的重试执行逻辑 (作为异步生成器) - 两阶段选择"""
         last_error: Optional[UpstreamError] = None
+        last_empty_response: Optional[EmptyResponseError] = None
         req_protocol = required_protocol or protocol_handler.protocol_type
+
+        # 是否检测空响应
+        check_empty = self.config.retry_on_empty_response
 
         # 第一阶段：获取候选渠道列表
         all_providers, is_fallback = self.router.find_candidate_providers(original_model, required_protocol=req_protocol)
@@ -296,7 +324,7 @@ class RequestProxy:
 
             try:
                 if is_stream:
-                    async for chunk in self._do_stream_request(provider, request_body, protocol_handler, actual_model, original_model, stream_context, client_headers):
+                    async for chunk in self._do_stream_request(provider, request_body, protocol_handler, actual_model, original_model, stream_context, client_headers, check_empty=check_empty):
                         yield chunk
 
                     # 成功完成流式传输
@@ -317,7 +345,7 @@ class RequestProxy:
                     return  # 成功，结束生成器
 
                 else:  # not is_stream
-                    _, protocol_resp = await self._do_request(provider, request_body, protocol_handler, actual_model, original_model, client_headers)
+                    _, protocol_resp = await self._do_request(provider, request_body, protocol_handler, actual_model, original_model, client_headers, check_empty=check_empty)
 
                     self.provider_manager.mark_success(provider.config.id, model_name=actual_model, tokens=protocol_resp.total_tokens or 0)
                     self.provider_manager.set_sticky_model(sticky_key, original_model, provider.config.id, actual_model)
@@ -341,6 +369,29 @@ class RequestProxy:
             except SystemError:
                 # 系统级错误：直接抛出，不熔断，不重试
                 raise
+
+            except EmptyResponseError as e:
+                # 空响应错误：不触发熔断，清除 sticky，尝试下一个渠道
+                last_empty_response = e
+                self._log_info(f"[空响应] Provider: {provider.config.name}, 模型: {actual_model}")
+                # 记录结构化日志
+                log_manager.log(
+                    level=LogLevel.WARNING,
+                    log_type="proxy",
+                    method="POST",
+                    path="/proxy/stream" if is_stream else "/proxy",
+                    model=original_model,
+                    provider=provider.config.name,
+                    provider_id=provider.config.id,
+                    actual_model=actual_model,
+                    message=f"空响应重试 [{provider.config.name}:{actual_model}]",
+                    api_key_name=api_key_name,
+                    api_key_id=api_key_id,
+                    protocol=req_protocol
+                )
+                # 清除 sticky
+                self.provider_manager.clear_sticky_model(sticky_key, original_model, provider.config.id)
+                continue
 
             except UpstreamError as e:
                 # 客户端错误：直接抛出，不熔断，不重试
@@ -368,8 +419,13 @@ class RequestProxy:
                 model_health_manager.record_passive_result(provider.config.id, actual_model, success=False, error=e.message, response_body=e.response_body)
                 continue
 
+        # 优先抛出上游错误
         if last_error:
             raise last_error
+
+        # 如果所有渠道都返回空响应，抛出最后一个空响应错误
+        if last_empty_response:
+            raise last_empty_response
 
         raise UpstreamError(f"为模型 '{original_model}' 尝试所有候选后{'流式' if is_stream else ''}请求失败", status_code=500, provider_name="", provider_id="")
 
@@ -454,7 +510,8 @@ class RequestProxy:
         protocol_handler: BaseProtocol,
         actual_model: str,
         original_model: str,
-        client_headers: Optional[Dict[str, str]] = None
+        client_headers: Optional[Dict[str, str]] = None,
+        check_empty: bool = False
     ) -> Any:
         """执行单次非流式请求"""
         client = await self.get_client()
@@ -496,6 +553,16 @@ class RequestProxy:
                     response_body={"raw": error_body[:1000]}
                 )
 
+            # 检测空响应
+            if check_empty and protocol_handler.is_empty_response(raw_response):
+                raise EmptyResponseError(
+                    f"上游返回空响应",
+                    provider_name=provider.config.name,
+                    provider_id=provider.config.id,
+                    actual_model=actual_model,
+                    raw_response=raw_response
+                )
+
             protocol_response = protocol_handler.transform_response(raw_response, original_model)
             return raw_response, protocol_response
 
@@ -511,7 +578,8 @@ class RequestProxy:
         actual_model: str,
         original_model: str,
         stream_context: Optional[StreamContext] = None,
-        client_headers: Optional[Dict[str, str]] = None
+        client_headers: Optional[Dict[str, str]] = None,
+        check_empty: bool = False
     ) -> AsyncIterator[str]:
         """执行单次流式请求"""
         client = await self.get_client()
@@ -536,35 +604,90 @@ class RequestProxy:
                 if response.status_code != 200:
                     raise await self._create_upstream_error(response, provider, actual_model)
 
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
+                if check_empty:
+                    # 缓冲模式：先缓冲数据直到检测到有效内容
+                    buffer: list[tuple[str, Optional[Dict[str, int]]]] = []
+                    has_content = False
 
-                    # 使用协议处理器转换流式块
-                    try:
-                        transformed, usage = protocol_handler.transform_stream_chunk(line, original_model)
-                    except Exception:
-                        # 忽略无法解析的行（可能是心跳包或非标准格式）
-                        continue
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
 
-                    if transformed:
-                        if stream_context and usage:
-                            # 累加或更新 usage
-                            if "prompt_tokens" in usage:
-                                stream_context.request_tokens = usage["prompt_tokens"]
-                            if "completion_tokens" in usage:
-                                stream_context.response_tokens = usage["completion_tokens"]
+                        try:
+                            transformed, usage = protocol_handler.transform_stream_chunk(line, original_model)
+                        except Exception:
+                            continue
 
-                            if "total_tokens" in usage:
-                                stream_context.total_tokens = usage["total_tokens"]
-                            elif stream_context.request_tokens is not None or stream_context.response_tokens is not None:
-                                stream_context.total_tokens = (stream_context.request_tokens or 0) + (stream_context.response_tokens or 0)
+                        if transformed:
+                            # 检测是否有实际内容
+                            if not has_content:
+                                has_content = protocol_handler.stream_chunk_has_content(line)
 
-                        yield transformed
+                            buffer.append((transformed, usage))
+
+                            # 一旦检测到有效内容，立即 flush 缓冲区并切换到直接输出模式
+                            if has_content:
+                                for buffered_chunk, buffered_usage in buffer:
+                                    if stream_context and buffered_usage:
+                                        self._update_stream_context(stream_context, buffered_usage)
+                                    yield buffered_chunk
+                                buffer.clear()
+                                break
+
+                    # 如果缓冲区还有数据但没有有效内容，说明是空响应
+                    if not has_content:
+                        raise EmptyResponseError(
+                            f"流式响应无有效内容",
+                            provider_name=provider.config.name,
+                            provider_id=provider.config.id,
+                            actual_model=actual_model
+                        )
+
+                    # 继续处理剩余的流数据（直接输出模式）
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+
+                        try:
+                            transformed, usage = protocol_handler.transform_stream_chunk(line, original_model)
+                        except Exception:
+                            continue
+
+                        if transformed:
+                            if stream_context and usage:
+                                self._update_stream_context(stream_context, usage)
+                            yield transformed
+                else:
+                    # 非检测模式：直接输出
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+
+                        try:
+                            transformed, usage = protocol_handler.transform_stream_chunk(line, original_model)
+                        except Exception:
+                            continue
+
+                        if transformed:
+                            if stream_context and usage:
+                                self._update_stream_context(stream_context, usage)
+                            yield transformed
 
         except (httpx.TimeoutException, ssl.SSLError, ConnectionResetError, BrokenPipeError, httpx.RequestError) as e:
             error_msg = str(e) or type(e).__name__
             raise SystemError(error_msg, provider.config.name, provider.config.id, actual_model)
+
+    def _update_stream_context(self, stream_context: StreamContext, usage: Dict[str, int]) -> None:
+        """更新流式上下文的 usage 信息"""
+        if "prompt_tokens" in usage:
+            stream_context.request_tokens = usage["prompt_tokens"]
+        if "completion_tokens" in usage:
+            stream_context.response_tokens = usage["completion_tokens"]
+
+        if "total_tokens" in usage:
+            stream_context.total_tokens = usage["total_tokens"]
+        elif stream_context.request_tokens is not None or stream_context.response_tokens is not None:
+            stream_context.total_tokens = (stream_context.request_tokens or 0) + (stream_context.response_tokens or 0)
     
     @staticmethod
     def _log_info(message: str) -> None:

@@ -66,6 +66,9 @@ class AppConfig(BaseModel):
     # 认证配置
     auth: AuthConfig = Field(default_factory=AuthConfig)
 
+    # 空响应重试配置
+    retry_on_empty_response: bool = Field(default=False, description="是否对空响应进行重试")
+
 def load_config_file(config_path: str = "config.json") -> dict:
     """
     加载配置文件并返回原始字典。

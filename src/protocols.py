@@ -12,7 +12,6 @@
 import json
 import time
 import uuid
-import re
 from abc import ABC, abstractmethod
 from typing import Optional, Any, Tuple, Dict, Union
 from dataclasses import dataclass
@@ -112,11 +111,35 @@ class BaseProtocol(ABC):
     def transform_stream_chunk(self, chunk: str, original_model: str) -> Tuple[str, Optional[Dict[str, int]]]:
         """
         处理流式响应块（默认透传）
-        
+
         Returns:
             (processed_chunk, usage_info)
         """
         return chunk, None
+
+    def is_empty_response(self, raw_response: Any) -> bool:
+        """
+        检查响应是否为空（无有效生成内容）
+
+        Args:
+            raw_response: 原始响应数据
+
+        Returns:
+            True 如果响应为空，False 否则
+        """
+        return False
+
+    def stream_chunk_has_content(self, line: str) -> bool:
+        """
+        检查流式块是否包含实际内容
+
+        Args:
+            line: 原始流式行数据
+
+        Returns:
+            True 如果包含有效内容，False 否则
+        """
+        return False
 
     @staticmethod
     def generate_response_id() -> str:
@@ -196,23 +219,63 @@ class OpenAIProtocol(BaseProtocol):
     def transform_stream_chunk(self, raw_line: str, original_model: str) -> Tuple[str, Optional[Dict[str, int]]]:
         if not raw_line.startswith("data: "):
             return raw_line + "\n", None
-        
+
         data = raw_line[6:]
         if data.strip() == "[DONE]":
             return raw_line + "\n", None
-            
+
         try:
             chunk = json.loads(data)
             if "model" in chunk:
                 chunk["model"] = original_model
-                
+
             usage = None
             if "usage" in chunk and chunk["usage"]:
                 usage = chunk["usage"]
-                
+
             return f"data: {json.dumps(chunk)}\n\n", usage
         except json.JSONDecodeError:
             return raw_line + "\n", None
+
+    def is_empty_response(self, raw_response: Any) -> bool:
+        """检查 OpenAI 响应是否为空"""
+        if not isinstance(raw_response, dict):
+            return True
+        choices = raw_response.get("choices", [])
+        if not choices:
+            return True
+        for choice in choices:
+            message = choice.get("message", {})
+            content = message.get("content")
+            if content and content.strip():
+                return False
+            # 检查 tool_calls
+            if message.get("tool_calls"):
+                return False
+            # 检查 function_call (旧版)
+            if message.get("function_call"):
+                return False
+        return True
+
+    def stream_chunk_has_content(self, line: str) -> bool:
+        """检查 OpenAI 流式块是否包含实际内容"""
+        if not line.startswith("data: "):
+            return False
+        data = line[6:]
+        if data.strip() == "[DONE]":
+            return False
+        try:
+            chunk = json.loads(data)
+            choices = chunk.get("choices", [])
+            for choice in choices:
+                delta = choice.get("delta", {})
+                if delta.get("content"):
+                    return True
+                if delta.get("tool_calls"):
+                    return True
+            return False
+        except json.JSONDecodeError:
+            return False
 
 
 class OpenAIResponseProtocol(BaseProtocol):
@@ -305,6 +368,45 @@ class OpenAIResponseProtocol(BaseProtocol):
             return f"data: {json.dumps(chunk)}\n\n", usage
         except json.JSONDecodeError:
             return raw_line + "\n", None
+
+    def is_empty_response(self, raw_response: Any) -> bool:
+        """检查 OpenAI Responses API 响应是否为空"""
+        if not isinstance(raw_response, dict):
+            return True
+        output = raw_response.get("output", [])
+        if not output:
+            return True
+        for item in output:
+            if item.get("type") == "message":
+                content = item.get("content", [])
+                for c in content:
+                    if c.get("type") == "output_text" and c.get("text", "").strip():
+                        return False
+            # 其他类型的 output 也视为非空
+            elif item.get("type") in ("function_call", "tool_use"):
+                return False
+        return True
+
+    def stream_chunk_has_content(self, line: str) -> bool:
+        """检查 OpenAI Responses API 流式块是否包含实际内容"""
+        if not line.startswith("data: "):
+            return False
+        data = line[6:]
+        if data.strip() == "[DONE]":
+            return False
+        try:
+            chunk = json.loads(data)
+            # Responses API 流式格式检测
+            choices = chunk.get("choices", [])
+            for choice in choices:
+                delta = choice.get("delta", {})
+                if delta.get("content"):
+                    return True
+                if delta.get("tool_calls"):
+                    return True
+            return False
+        except json.JSONDecodeError:
+            return False
 
 
 class AnthropicProtocol(BaseProtocol):
@@ -410,8 +512,39 @@ class AnthropicProtocol(BaseProtocol):
                 return f"data: {json.dumps(chunk)}\n\n", usage
             except json.JSONDecodeError:
                 pass
-                
+
         return raw_line + "\n", None
+
+    def is_empty_response(self, raw_response: Any) -> bool:
+        """检查 Anthropic 响应是否为空"""
+        if not isinstance(raw_response, dict):
+            return True
+        content = raw_response.get("content", [])
+        if not content:
+            return True
+        for block in content:
+            if block.get("type") == "text" and block.get("text", "").strip():
+                return False
+            # tool_use 也视为非空
+            if block.get("type") == "tool_use":
+                return False
+        return True
+
+    def stream_chunk_has_content(self, line: str) -> bool:
+        """检查 Anthropic 流式块是否包含实际内容"""
+        if not line.startswith("data: "):
+            return False
+        try:
+            chunk = json.loads(line[6:])
+            if chunk.get("type") == "content_block_delta":
+                delta = chunk.get("delta", {})
+                if delta.get("type") == "text_delta" and delta.get("text"):
+                    return True
+                if delta.get("type") == "input_json_delta":
+                    return True
+            return False
+        except json.JSONDecodeError:
+            return False
 
 
 class GeminiProtocol(BaseProtocol):
@@ -464,6 +597,41 @@ class GeminiProtocol(BaseProtocol):
     def transform_response(self, raw_response: Any, original_model: str) -> ProtocolResponse:
         # Gemini 响应处理
         return ProtocolResponse(response=raw_response)
+
+    def is_empty_response(self, raw_response: Any) -> bool:
+        """检查 Gemini 响应是否为空"""
+        if not isinstance(raw_response, dict):
+            return True
+        candidates = raw_response.get("candidates", [])
+        if not candidates:
+            return True
+        for candidate in candidates:
+            content = candidate.get("content", {})
+            parts = content.get("parts", [])
+            for part in parts:
+                if part.get("text", "").strip():
+                    return False
+                # functionCall 也视为非空
+                if part.get("functionCall"):
+                    return False
+        return True
+
+    def stream_chunk_has_content(self, line: str) -> bool:
+        """检查 Gemini 流式块是否包含实际内容"""
+        try:
+            chunk = json.loads(line)
+            candidates = chunk.get("candidates", [])
+            for candidate in candidates:
+                content = candidate.get("content", {})
+                parts = content.get("parts", [])
+                for part in parts:
+                    if part.get("text"):
+                        return True
+                    if part.get("functionCall"):
+                        return True
+            return False
+        except json.JSONDecodeError:
+            return False
 
 
 # ==================== 协议工厂 ====================
