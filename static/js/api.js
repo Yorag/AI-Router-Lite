@@ -76,7 +76,7 @@ const API = {
     },
 
     async getSystemStats() {
-        return this.request('GET', '/api/admin/stats');
+        return this.request('GET', '/api/system/stats');
     },
 
     async getStats(tag = null) {
@@ -209,11 +209,11 @@ const API = {
      * @param {string} providerId - Provider ID (UUID) 或 name（兼容）
      */
     async resetProvider(providerId) {
-        return this.request('POST', `/api/admin/actions/reset-provider/${encodeURIComponent(providerId)}`);
+        return this.request('POST', `/api/providers/${encodeURIComponent(providerId)}/actions/reset`);
     },
 
     async resetAllProviders() {
-        return this.request('POST', '/api/admin/actions/reset-all');
+        return this.request('POST', '/api/providers/actions/reset-all');
     },
 
     // ==================== 模型映射（增强型） ====================

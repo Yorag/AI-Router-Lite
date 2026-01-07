@@ -1193,7 +1193,7 @@ async def delete_provider(provider_id: str, _: None = Depends(require_admin_auth
     return APIResponse(data=None, message=message).model_dump()
 
 
-@app.post("/api/admin/actions/reset-provider/{provider_id}")
+@app.post("/api/providers/{provider_id}/actions/reset")
 async def reset_provider(provider_id: str, _: None = Depends(require_admin_auth)):
     provider = admin_manager.get_provider_by_id(provider_id)
 
@@ -1203,13 +1203,13 @@ async def reset_provider(provider_id: str, _: None = Depends(require_admin_auth)
     raise NotFoundException("Provider", provider_id)
 
 
-@app.post("/api/admin/actions/reset-all")
+@app.post("/api/providers/actions/reset-all")
 async def reset_all_providers(_: None = Depends(require_admin_auth)):
     provider_manager.reset_all()
     return APIResponse(data=None, message="All providers reset").model_dump()
 
 
-@app.get("/api/admin/stats")
+@app.get("/api/system/stats")
 async def get_system_stats(_: None = Depends(require_admin_auth)):
     model_mapping_manager.load()
     return APIResponse(data={
