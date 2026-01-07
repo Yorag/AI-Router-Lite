@@ -14,7 +14,7 @@ from typing import Optional, Dict
 
 import uvicorn
 import httpx
-from fastapi import FastAPI, HTTPException, Request, Query, Depends, Response
+from fastapi import FastAPI, Request, Query, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -43,7 +43,17 @@ from src.schemas import (
     SyncConfigRequest,
     ReorderModelMappingsRequest,
     TestSingleModelRequest,
-    UpdateModelProtocolRequest
+    UpdateModelProtocolRequest,
+    APIError,
+    APIErrorResponse,
+    APIResponse,
+)
+from src.exceptions import (
+    APIException,
+    NotFoundException,
+    ValidationException,
+    UnauthorizedException,
+    ServiceUnavailableException,
 )
 from src.provider import provider_manager
 from src.router import ModelRouter
@@ -329,6 +339,23 @@ app.add_middleware(
 )
 
 
+# ==================== Global Exception Handler ====================
+
+@app.exception_handler(APIException)
+async def api_exception_handler(request: Request, exc: APIException):
+    """Handle custom API exceptions with standardized response format"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=APIErrorResponse(
+            error=APIError(
+                code=exc.code,
+                message=exc.message,
+                field=exc.field
+            )
+        ).model_dump()
+    )
+
+
 @app.get("/")
 async def root():
     return {
@@ -361,15 +388,14 @@ async def verify_api_key(raw_request: Request) -> APIKey:
     api_key = get_api_key_from_header(raw_request)
 
     if not api_key:
-        raise HTTPException(
-            status_code=401,
-            detail="缺少 API 密钥，请在 Authorization 头(Bearer)、x-api-key 头或 key 查询参数中提供",
+        raise UnauthorizedException(
+            "Missing API key. Provide it in Authorization header (Bearer), x-api-key header, or key query parameter"
         )
 
     key_obj = api_key_manager.validate_key(api_key)
 
     if not key_obj:
-        raise HTTPException(status_code=401, detail="无效的 API 密钥或密钥已被禁用")
+        raise UnauthorizedException("Invalid API key or key is disabled")
 
     return key_obj
 
@@ -394,16 +420,16 @@ async def auth_status(request: Request):
     """检查认证状态"""
     is_initialized = admin_auth_manager.is_initialized()
     is_authenticated = False
-    
+
     if is_initialized:
         token = admin_auth_manager.get_token_from_request(request)
         if token:
             is_authenticated = admin_auth_manager.verify_token(token)
-    
-    return {
+
+    return APIResponse(data={
         "initialized": is_initialized,
         "authenticated": is_authenticated
-    }
+    }).model_dump()
 
 
 @app.post("/api/auth/init")
@@ -411,18 +437,18 @@ async def init_admin(request: InitAdminRequest, response: Response):
     """初始化管理员账户（首次设置密码）"""
     success, message = admin_auth_manager.initialize_admin(request.password)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
-    
+        raise ValidationException(message)
+
     # 自动登录
     admin_auth_manager.login(request.password, response)
-    return {"status": "success", "message": message}
+    return APIResponse(data=None, message=message).model_dump()
 
 
 @app.post("/api/auth/login")
 async def login(request: LoginRequest, response: Response, raw_request: Request):
     """管理员登录"""
     if not admin_auth_manager.is_initialized():
-        raise HTTPException(status_code=400, detail="管理员账户未初始化，请先设置密码")
+        raise ValidationException("Admin account not initialized. Please set a password first")
 
     success, message = admin_auth_manager.login(request.password, response)
     client_ip = raw_request.client.host if raw_request.client else "unknown"
@@ -430,37 +456,37 @@ async def login(request: LoginRequest, response: Response, raw_request: Request)
         log_manager.log_event(
             level=LogLevel.WARNING,
             log_type="auth",
-            message=f"登录失败: {message}",
+            message=f"Login failed: {message}",
             client_ip=client_ip
         )
-        raise HTTPException(status_code=401, detail=message)
+        raise UnauthorizedException(message)
 
     log_manager.log_event(
         level=LogLevel.INFO,
         log_type="auth",
-        message="登录成功",
+        message="Login successful",
         client_ip=client_ip
     )
-    return {"status": "success", "message": message}
+    return APIResponse(data=None, message=message).model_dump()
 
 
 @app.post("/api/auth/logout")
 async def logout(response: Response):
     """管理员登出"""
     admin_auth_manager.logout(response)
-    return {"status": "success", "message": "已登出"}
+    return APIResponse(data=None, message="Logged out").model_dump()
 
 
 @app.post("/api/auth/change-password")
 async def change_password(request: ChangePasswordRequest, raw_request: Request):
     """修改管理员密码"""
     admin_auth_manager.require_auth(raw_request)
-    
+
     success, message = admin_auth_manager.change_password(request.old_password, request.new_password)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
-    
-    return {"status": "success", "message": message}
+        raise ValidationException(message)
+
+    return APIResponse(data=None, message=message).model_dump()
 
 
 # ==================== 认证依赖 ====================
@@ -486,19 +512,19 @@ async def process_request(
 ):
     protocol_handler = get_protocol(protocol_type)
     if not protocol_handler:
-        raise HTTPException(status_code=500, detail=f"不支持的协议类型: {protocol_type}")
+        raise ValidationException(f"Unsupported protocol type: {protocol_type}")
 
     try:
         body = await request.json()
     except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="无效的 JSON 请求体")
+        raise ValidationException("Invalid JSON request body")
 
     if path_params:
         body.update(path_params)
 
     original_model, is_stream = protocol_handler.parse_request(body)
     if not original_model:
-        raise HTTPException(status_code=400, detail="无法从请求中提取模型名称")
+        raise ValidationException("Could not extract model name from request")
 
     # 提取客户端请求头用于穿透
     client_headers = dict(request.headers)
@@ -694,62 +720,62 @@ async def gemini_stream_generate_content(model: str, request: Request, api_key: 
     return await process_request(request, "gemini", api_key, {"model": model, "stream": True})
 
 
-@app.get("/health")
+@app.get("/api/health")
 async def health_check():
     stats = provider_manager.get_stats()
-    return {
+    return APIResponse(data={
         "status": "healthy",
         "available_providers": stats["available_providers"],
         "total_providers": stats["total_providers"],
-    }
+    }).model_dump()
 
 
-@app.get("/stats")
+@app.get("/api/stats")
 async def get_stats(tag: Optional[str] = None):
-    return provider_manager.get_stats(tag=tag)
+    return APIResponse(data=provider_manager.get_stats(tag=tag)).model_dump()
 
 
 @app.get("/api/keys")
 async def list_api_keys(_: None = Depends(require_admin_auth)):
-    return {"keys": api_key_manager.list_keys(), "stats": api_key_manager.get_stats()}
+    return APIResponse(data={"keys": api_key_manager.list_keys(), "stats": api_key_manager.get_stats()}).model_dump()
 
 
 @app.post("/api/keys")
 async def create_api_key(request: CreateAPIKeyRequest, _: None = Depends(require_admin_auth)):
     full_key, key_info = api_key_manager.create_key(name=request.name)
-    return {"key": full_key, "info": key_info}
+    return APIResponse(data={"key": full_key, "info": key_info}, message="API key created").model_dump()
 
 
 @app.get("/api/keys/{key_id}")
 async def get_api_key(key_id: str, _: None = Depends(require_admin_auth)):
     key_info = api_key_manager.get_key(key_id)
     if not key_info:
-        raise HTTPException(status_code=404, detail="密钥不存在")
-    return key_info
+        raise NotFoundException("API key", key_id)
+    return APIResponse(data=key_info).model_dump()
 
 
 @app.put("/api/keys/{key_id}")
 async def update_api_key(key_id: str, request: UpdateAPIKeyRequest, _: None = Depends(require_admin_auth)):
     success = api_key_manager.update_key(key_id=key_id, name=request.name, enabled=request.enabled)
     if not success:
-        raise HTTPException(status_code=404, detail="密钥不存在")
-    return {"status": "success", "message": "更新成功"}
+        raise NotFoundException("API key", key_id)
+    return APIResponse(data=None, message="Updated successfully").model_dump()
 
 
 @app.delete("/api/keys/{key_id}")
 async def delete_api_key(key_id: str, _: None = Depends(require_admin_auth)):
     success = api_key_manager.delete_key(key_id)
     if not success:
-        raise HTTPException(status_code=404, detail="密钥不存在")
-    return {"status": "success", "message": "删除成功"}
+        raise NotFoundException("API key", key_id)
+    return APIResponse(data=None, message="Deleted successfully").model_dump()
 
 
-@app.post("/api/keys/{key_id}/reset")
+@app.post("/api/keys/{key_id}/actions/reset")
 async def reset_api_key(key_id: str, _: None = Depends(require_admin_auth)):
     new_key = api_key_manager.reset_key(key_id)
     if not new_key:
-        raise HTTPException(status_code=404, detail="密钥不存在")
-    return {"key": new_key, "message": "密钥已重置"}
+        raise NotFoundException("API key", key_id)
+    return APIResponse(data={"key": new_key}, message="API key reset").model_dump()
 
 
 @app.get("/api/logs")
@@ -761,11 +787,11 @@ async def get_logs(
     provider: Optional[str] = None,
     _: None = Depends(require_admin_auth),
 ):
-    return {
+    return APIResponse(data={
         "logs": log_manager.get_recent_logs(
             limit=limit, level=level, log_type=log_type, keyword=keyword, provider=provider
         )
-    }
+    }).model_dump()
 
 
 @app.get("/api/logs/stream")
@@ -783,12 +809,12 @@ async def stream_logs(_: None = Depends(require_admin_auth)):
 
 @app.get("/api/logs/stats")
 async def get_log_stats(date: Optional[str] = None, tag: Optional[str] = None, _: None = Depends(require_admin_auth)):
-    return log_manager.get_stats(date, tag=tag)
+    return APIResponse(data=log_manager.get_stats(date, tag=tag)).model_dump()
 
 
 @app.get("/api/logs/daily")
 async def get_daily_stats(days: int = Query(7, ge=1, le=30), tag: Optional[str] = None, _: None = Depends(require_admin_auth)):
-    return log_manager.get_daily_stats(days, tag=tag)
+    return APIResponse(data=log_manager.get_daily_stats(days, tag=tag)).model_dump()
 
 
 @app.get("/api/providers")
@@ -799,7 +825,7 @@ async def list_providers(_: None = Depends(require_admin_auth)):
         provider_id = p.get("id")
         if provider_id and provider_id in runtime_states.get("providers", {}):
             p["runtime_status"] = runtime_states["providers"][provider_id]
-    return {"providers": providers}
+    return APIResponse(data={"providers": providers}).model_dump()
 
 
 @app.post("/api/providers")
@@ -813,28 +839,28 @@ async def add_provider(request: ProviderRequest, _: None = Depends(require_admin
 
     success, message, provider_id = admin_manager.add_provider(provider_data)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
-    
+        raise ValidationException(message)
+
     log_manager.log_event(
         level=LogLevel.INFO,
         log_type="admin",
-        message=f"添加 Provider: {request.name} (ID: {provider_id})",
+        message=f"Added provider: {request.name} (ID: {provider_id})",
     )
-    return {"status": "success", "message": message, "provider_id": provider_id}
+    return APIResponse(data={"provider_id": provider_id}, message=message).model_dump()
 
 
-@app.get("/api/providers/all-models")
+@app.get("/api/providers/models")
 async def get_all_provider_models(_: None = Depends(require_admin_auth)):
     """获取所有 Provider 的模型列表 (DB SSOT)"""
     all_providers = admin_manager.list_providers()
     # Get full provider models info (including owned_by, endpoints, etc.)
     all_providers_models = provider_models_manager.get_all_providers()
-    
+
     response_data = {}
     for p in all_providers:
         pid = p["id"]
         provider_models = all_providers_models.get(pid)
-        
+
         models_list = []
         if provider_models:
             # Convert ModelInfo objects to dicts
@@ -842,37 +868,37 @@ async def get_all_provider_models(_: None = Depends(require_admin_auth)):
                 model_dict = m_info.to_dict()
                 model_dict['id'] = m_info.model_id
                 models_list.append(model_dict)
-        
+
         response_data[pid] = {
             "provider_name": p["name"],
             "models": models_list
         }
-        
-    return {"provider_models": response_data}
+
+    return APIResponse(data={"provider_models": response_data}).model_dump()
 
 
-@app.post("/api/providers/sync-all-models")
+@app.post("/api/providers/actions/sync")
 async def sync_all_models(_: None = Depends(require_admin_auth)):
     """手动触发全量同步"""
     result = await sync_all_provider_models_logic()
-    return result
+    return APIResponse(data=result).model_dump()
 
 
-@app.post("/api/providers/{provider_id}/sync-models")
+@app.post("/api/providers/{provider_id}/actions/sync")
 async def sync_single_provider_models(provider_id: str, _: None = Depends(require_admin_auth)):
     provider = admin_manager.get_provider_by_id(provider_id)
     if not provider:
-        raise HTTPException(status_code=404, detail="Provider not found")
+        raise NotFoundException("Provider", provider_id)
 
     if not provider.get("allow_model_update", True):
-        raise HTTPException(status_code=400, detail="该渠道已禁用模型更新")
+        raise ValidationException("Model updates disabled for this provider")
 
     pname = provider["name"]
     api_key = provider.get("api_key")
     base_url = provider.get("base_url")
 
     if not api_key or not base_url:
-        raise HTTPException(status_code=400, detail="Provider is not configured with API key or base URL")
+        raise ValidationException("Provider is not configured with API key or base URL")
 
     remote_models = await fetch_remote_models(base_url, api_key, provider_id, pname)
 
@@ -880,11 +906,11 @@ async def sync_single_provider_models(provider_id: str, _: None = Depends(requir
         added, updated, removed, _, _, _ = provider_models_manager.update_models_from_remote(
             provider_id, remote_models, pname
         )
-        
+
         # Update the timestamp
         from src.sqlite_repos import ProviderRepo
         ProviderRepo().update_models_updated_at(provider_id)
-        
+
         updated_provider_models_info = provider_models_manager.get_provider(provider_id)
         models_list = []
         if updated_provider_models_info:
@@ -893,28 +919,28 @@ async def sync_single_provider_models(provider_id: str, _: None = Depends(requir
                 model_dict['id'] = m_info.model_id
                 models_list.append(model_dict)
 
-        return {
+        return APIResponse(data={
             "models": models_list,
             "sync_stats": {
                 "added": added,
                 "updated": updated,
                 "removed": removed,
             }
-        }
+        }).model_dump()
     else:
-        raise HTTPException(status_code=500, detail="从远程服务站获取模型列表失败")
+        raise ServiceUnavailableException("Failed to fetch model list from remote provider")
 
 
-@app.get("/api/providers/runtime-states")
+@app.get("/api/providers/states")
 async def get_runtime_states(_: None = Depends(require_admin_auth)):
     """获取 Provider 和模型的运行时状态"""
-    return provider_manager.get_runtime_states()
+    return APIResponse(data=provider_manager.get_runtime_states()).model_dump()
 
 
 @app.get("/api/model-health/results")
 async def get_all_health_results(_: None = Depends(require_admin_auth)):
     """获取所有健康检测结果"""
-    return {"results": {k: v.to_dict() for k, v in model_health_manager.get_all_results().items()}}
+    return APIResponse(data={"results": {k: v.to_dict() for k, v in model_health_manager.get_all_results().items()}}).model_dump()
 
 
 @app.get("/api/model-health/results/{unified_name}")
@@ -922,52 +948,51 @@ async def get_mapping_health_results(unified_name: str, _: None = Depends(requir
     """获取指定映射的健康检测结果"""
     mapping = model_mapping_manager.get_mapping(unified_name)
     if not mapping:
-        raise HTTPException(status_code=404, detail="映射不存在")
-    
+        raise NotFoundException("Model mapping", unified_name)
+
     results = model_health_manager.get_results_for_models(mapping.resolved_models)
-    return {"unified_name": unified_name, "results": {k: v.to_dict() for k, v in results.items()}}
+    return APIResponse(data={"unified_name": unified_name, "results": {k: v.to_dict() for k, v in results.items()}}).model_dump()
 
 
-@app.post("/api/model-health/test/{unified_name}")
+@app.post("/api/model-health/actions/test/{unified_name}")
 async def test_mapping_health(unified_name: str, _: None = Depends(require_admin_auth)):
     """检测指定映射下的所有模型"""
     mapping = model_mapping_manager.get_mapping(unified_name)
     if not mapping:
-        raise HTTPException(status_code=404, detail="映射不存在")
-    
+        raise NotFoundException("Model mapping", unified_name)
+
     results = await model_health_manager.test_mapping_models(mapping.resolved_models)
 
     success_count = sum(1 for r in results if r.success)
-    
-    return {
-        "status": "success",
+
+    return APIResponse(data={
         "tested_count": len(results),
         "success_count": success_count,
         "results": [r.to_dict() for r in results]
-    }
+    }).model_dump()
 
 
-@app.post("/api/model-health/test-single")
+@app.post("/api/model-health/actions/test-single")
 async def test_single_model_health(request: TestSingleModelRequest, _: None = Depends(require_admin_auth)):
     """检测单个模型"""
     result = await model_health_manager.test_single_model(request.provider_id, request.model)
-    return result.to_dict()
+    return APIResponse(data=result.to_dict()).model_dump()
 
 
 @app.get("/api/protocols")
 async def get_protocols(_: None = Depends(require_admin_auth)):
     from src.protocols import _protocols
-    return {"protocols": [{"value": k, "label": k} for k in _protocols.keys()]}
+    return APIResponse(data={"protocols": [{"value": k, "label": k} for k in _protocols.keys()]}).model_dump()
 
 
 @app.get("/api/model-mappings")
 async def list_model_mappings(_: None = Depends(require_admin_auth)):
     mappings = model_mapping_manager.get_all_mappings()
     sync_config = model_mapping_manager.get_sync_config()
-    return {
+    return APIResponse(data={
         "mappings": {k: v.to_dict() for k, v in mappings.items()},
         "sync_config": sync_config.to_dict()
-    }
+    }).model_dump()
 
 
 @app.post("/api/model-mappings")
@@ -981,12 +1006,12 @@ async def create_model_mapping(request: CreateModelMappingRequest, _: None = Dep
         enabled=request.enabled
     )
     if not success:
-        raise HTTPException(status_code=400, detail=message)
-    return {"status": "success", "message": message}
+        raise ValidationException(message)
+    return APIResponse(data=None, message=message).model_dump()
 
 
 # 具体路径路由必须在通用路径参数路由之前定义
-@app.post("/api/model-mappings/preview")
+@app.post("/api/model-mappings/actions/preview")
 async def preview_model_mapping(request: PreviewResolveRequest, _: None = Depends(require_admin_auth)):
     provider_models_map = provider_models_manager.get_all_provider_models_map()
     matched = model_mapping_manager.preview_resolve(
@@ -996,14 +1021,14 @@ async def preview_model_mapping(request: PreviewResolveRequest, _: None = Depend
         request.excluded_providers
     )
     total = sum(len(ms) for ms in matched.values())
-    return {
+    return APIResponse(data={
         "matched_models": matched,
         "total_count": total,
         "provider_count": len(matched)
-    }
+    }).model_dump()
 
 
-@app.post("/api/model-mappings/sync")
+@app.post("/api/model-mappings/actions/sync")
 async def sync_model_mappings(unified_name: Optional[str] = Query(None), _: None = Depends(require_admin_auth)):
     provider_models_map = provider_models_manager.get_all_provider_models_map()
     provider_id_name_map = admin_manager.get_provider_id_name_map()
@@ -1017,28 +1042,28 @@ async def sync_model_mappings(unified_name: Optional[str] = Query(None), _: None
             provider_protocols
         )
         if not success:
-            raise HTTPException(status_code=400, detail=message)
-        return {"status": "success", "message": message, "synced_count": 1}
+            raise ValidationException(message)
+        return APIResponse(data={"synced_count": 1}, message=message).model_dump()
     else:
         results = model_mapping_manager.sync_all_mappings(
             provider_models_map,
             provider_id_name_map,
             provider_protocols
         )
-        return {"status": "success", "synced_count": len(results), "results": results}
+        return APIResponse(data={"synced_count": len(results), "results": results}).model_dump()
 
 
-@app.post("/api/model-mappings/reorder")
+@app.post("/api/model-mappings/actions/reorder")
 async def reorder_model_mappings(request: ReorderModelMappingsRequest, _: None = Depends(require_admin_auth)):
     success, message = model_mapping_manager.reorder_mappings(request.ordered_names)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
-    return {"status": "success", "message": message}
+        raise ValidationException(message)
+    return APIResponse(data=None, message=message).model_dump()
 
 
 @app.get("/api/model-mappings/sync-config")
 async def get_sync_config(_: None = Depends(require_admin_auth)):
-    return model_mapping_manager.get_sync_config().to_dict()
+    return APIResponse(data=model_mapping_manager.get_sync_config().to_dict()).model_dump()
 
 
 @app.put("/api/model-mappings/sync-config")
@@ -1048,8 +1073,8 @@ async def update_sync_config(request: SyncConfigRequest, _: None = Depends(requi
         auto_sync_interval_hours=request.auto_sync_interval_hours
     )
     if not success:
-        raise HTTPException(status_code=400, detail=message)
-    return {"status": "success", "message": message}
+        raise ValidationException(message)
+    return APIResponse(data=None, message=message).model_dump()
 
 
 # 通用路径参数路由必须在具体路径路由之后定义
@@ -1057,8 +1082,8 @@ async def update_sync_config(request: SyncConfigRequest, _: None = Depends(requi
 async def get_model_mapping(unified_name: str, _: None = Depends(require_admin_auth)):
     mapping = model_mapping_manager.get_mapping(unified_name)
     if not mapping:
-        raise HTTPException(status_code=404, detail="映射不存在")
-    return mapping.to_dict()
+        raise NotFoundException("Model mapping", unified_name)
+    return APIResponse(data=mapping.to_dict()).model_dump()
 
 
 @app.put("/api/model-mappings/{unified_name}")
@@ -1066,7 +1091,7 @@ async def update_model_mapping(unified_name: str, request: UpdateModelMappingReq
     if request.new_unified_name and request.new_unified_name != unified_name:
         success, message = model_mapping_manager.rename_mapping(unified_name, request.new_unified_name)
         if not success:
-            raise HTTPException(status_code=400, detail=message)
+            raise ValidationException(message)
         unified_name = request.new_unified_name
 
     success, message = model_mapping_manager.update_mapping(
@@ -1078,31 +1103,31 @@ async def update_model_mapping(unified_name: str, request: UpdateModelMappingReq
         enabled=request.enabled
     )
     if not success:
-        raise HTTPException(status_code=400, detail=message)
-    return {"status": "success", "message": message, "unified_name": unified_name}
+        raise ValidationException(message)
+    return APIResponse(data={"unified_name": unified_name}, message=message).model_dump()
 
 
 @app.delete("/api/model-mappings/{unified_name}")
 async def delete_model_mapping(unified_name: str, _: None = Depends(require_admin_auth)):
     success, message = model_mapping_manager.delete_mapping(unified_name)
     if not success:
-        raise HTTPException(status_code=404, detail=message)
-    return {"status": "success", "message": message}
+        raise NotFoundException("Model mapping", unified_name)
+    return APIResponse(data=None, message=message).model_dump()
 
 
-@app.get("/api/model-mappings/{unified_name}/model-settings")
+@app.get("/api/model-mappings/{unified_name}/settings")
 async def get_model_settings(unified_name: str, _: None = Depends(require_admin_auth)):
     mapping = model_mapping_manager.get_mapping(unified_name)
     if not mapping:
-        raise HTTPException(status_code=404, detail="映射不存在")
-    return {"unified_name": unified_name, "model_settings": mapping.model_settings}
+        raise NotFoundException("Model mapping", unified_name)
+    return APIResponse(data={"unified_name": unified_name, "model_settings": mapping.model_settings}).model_dump()
 
 
-@app.put("/api/model-mappings/{unified_name}/model-settings")
+@app.put("/api/model-mappings/{unified_name}/settings")
 async def update_model_protocol(unified_name: str, request: UpdateModelProtocolRequest, _: None = Depends(require_admin_auth)):
     if request.protocol and not is_supported_protocol(request.protocol):
-        raise HTTPException(status_code=400, detail=f"不支持的协议: {request.protocol}")
-        
+        raise ValidationException(f"Unsupported protocol: {request.protocol}")
+
     success, message = model_mapping_manager.set_model_protocol(
         unified_name,
         request.provider_id,
@@ -1110,11 +1135,11 @@ async def update_model_protocol(unified_name: str, request: UpdateModelProtocolR
         request.protocol
     )
     if not success:
-        raise HTTPException(status_code=400, detail=message)
-    return {"status": "success", "message": message}
+        raise ValidationException(message)
+    return APIResponse(data=None, message=message).model_dump()
 
 
-@app.delete("/api/model-mappings/{unified_name}/model-settings/{provider_id}/{model_id}")
+@app.delete("/api/model-mappings/{unified_name}/settings/{provider_id}/{model_id}")
 async def delete_model_protocol(unified_name: str, provider_id: str, model_id: str, _: None = Depends(require_admin_auth)):
     success, message = model_mapping_manager.set_model_protocol(
         unified_name,
@@ -1123,32 +1148,32 @@ async def delete_model_protocol(unified_name: str, provider_id: str, model_id: s
         None
     )
     if not success:
-        raise HTTPException(status_code=400, detail=message)
-    return {"status": "success", "message": message}
+        raise ValidationException(message)
+    return APIResponse(data=None, message=message).model_dump()
 
 
 @app.get("/api/providers/{provider_id}")
 async def get_provider(provider_id: str, _: None = Depends(require_admin_auth)):
     provider = admin_manager.get_provider_by_id(provider_id)
     if not provider:
-        raise HTTPException(status_code=404, detail="Provider 不存在")
-    return provider
+        raise NotFoundException("Provider", provider_id)
+    return APIResponse(data=provider).model_dump()
 
 
 @app.put("/api/providers/{provider_id}")
 async def update_provider(provider_id: str, request: UpdateProviderRequest, _: None = Depends(require_admin_auth)):
     provider = admin_manager.get_provider_by_id(provider_id)
     if not provider:
-        raise HTTPException(status_code=404, detail="Provider 不存在")
+        raise NotFoundException("Provider", provider_id)
 
     update_data = request.model_dump(exclude_unset=True)
     provider.update(update_data)
 
     success, message = admin_manager.update_provider(provider_id, provider)
     if not success:
-        raise HTTPException(status_code=400, detail=message)
+        raise ValidationException(message)
 
-    return {"status": "success", "message": message}
+    return APIResponse(data=None, message=message).model_dump()
 
 
 @app.delete("/api/providers/{provider_id}")
@@ -1157,43 +1182,43 @@ async def delete_provider(provider_id: str, _: None = Depends(require_admin_auth
 
     success, message = admin_manager.delete_provider(provider_id)
     if not success:
-        raise HTTPException(status_code=404, detail=message)
+        raise NotFoundException("Provider", provider_id)
 
     provider_name = provider.get("name", provider_id) if provider else provider_id
     log_manager.log_event(
         level=LogLevel.WARNING,
         log_type="admin",
-        message=f"删除 Provider: {provider_name}",
+        message=f"Deleted provider: {provider_name}",
     )
-    return {"status": "success", "message": message}
+    return APIResponse(data=None, message=message).model_dump()
 
 
-@app.post("/api/admin/reset/{provider_id}")
+@app.post("/api/admin/actions/reset-provider/{provider_id}")
 async def reset_provider(provider_id: str, _: None = Depends(require_admin_auth)):
     provider = admin_manager.get_provider_by_id(provider_id)
 
     if provider_manager.reset(provider_id):
         provider_name = provider.get("name", provider_id) if provider else provider_id
-        return {"status": "success", "message": f"Provider '{provider_name}' 已重置"}
-    raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' 不存在")
+        return APIResponse(data=None, message=f"Provider '{provider_name}' reset").model_dump()
+    raise NotFoundException("Provider", provider_id)
 
 
-@app.post("/api/admin/reset-all")
+@app.post("/api/admin/actions/reset-all")
 async def reset_all_providers(_: None = Depends(require_admin_auth)):
     provider_manager.reset_all()
-    return {"status": "success", "message": "所有 Provider 已重置"}
+    return APIResponse(data=None, message="All providers reset").model_dump()
 
 
-@app.get("/api/admin/system-stats")
+@app.get("/api/admin/stats")
 async def get_system_stats(_: None = Depends(require_admin_auth)):
     model_mapping_manager.load()
-    return {
+    return APIResponse(data={
         "providers": provider_manager.get_stats(),
         "api_keys": api_key_manager.get_stats(),
         "logs": log_manager.get_stats(),
         "model_mappings": len(model_mapping_manager.get_all_mappings()),
         "today": get_today_str(),
-    }
+    }).model_dump()
 
 
 from pathlib import Path

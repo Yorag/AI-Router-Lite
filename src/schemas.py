@@ -2,12 +2,37 @@
 API 数据模型定义
 """
 
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, TypeVar, Generic
 from pydantic import BaseModel, Field
 from .constants import MODEL_OWNED_BY
 
 
-# ==================== 错误模型 ====================
+T = TypeVar('T')
+
+
+# ==================== Standard API Response ====================
+
+class APIError(BaseModel):
+    """Standard API error detail"""
+    code: str = Field(..., description="Machine-readable error code")
+    message: str = Field(..., description="Human-readable error message")
+    field: Optional[str] = Field(None, description="Field that caused the error")
+
+
+class APIErrorResponse(BaseModel):
+    """Standard error response"""
+    success: bool = False
+    error: APIError
+
+
+class APIResponse(BaseModel, Generic[T]):
+    """Standard success response wrapper"""
+    success: bool = True
+    data: T
+    message: Optional[str] = None
+
+
+# ==================== 错误模型 (OpenAI Compatible) ====================
 
 class ErrorDetail(BaseModel):
     """错误详情"""

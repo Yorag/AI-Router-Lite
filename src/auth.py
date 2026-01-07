@@ -14,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 
 import bcrypt
 import jwt
-from fastapi import Request, HTTPException, Response
+from fastapi import Request, Response
 
 from .constants import (
     AUTH_COOKIE_NAME,
@@ -24,6 +24,7 @@ from .constants import (
 from .config import get_config
 from .sqlite_repos import get_db_cursor
 from .db import get_db_paths
+from .exceptions import UnauthorizedException
 
 
 def _now_ms() -> int:
@@ -68,10 +69,10 @@ class AdminAuthManager:
     def initialize_admin(self, password: str) -> tuple[bool, str]:
         """初始化管理员账户（首次设置密码）"""
         if len(password) < AUTH_PASSWORD_MIN_LENGTH:
-            return False, f"密码长度至少 {AUTH_PASSWORD_MIN_LENGTH} 位"
+            return False, f"Password must be at least {AUTH_PASSWORD_MIN_LENGTH} characters"
 
         if self.is_initialized():
-            return False, "管理员账户已存在"
+            return False, "Admin account already exists"
 
         now_ms = _now_ms()
         password_hash = self._hash_password(password)
@@ -84,7 +85,7 @@ class AdminAuthManager:
                 """,
                 (password_hash, now_ms, now_ms),
             )
-        return True, "管理员账户创建成功"
+        return True, "Admin account created successfully"
 
     def verify_credentials(self, password: str) -> bool:
         """验证管理员密码"""
@@ -98,10 +99,10 @@ class AdminAuthManager:
     def change_password(self, old_password: str, new_password: str) -> tuple[bool, str]:
         """修改管理员密码"""
         if not self.verify_credentials(old_password):
-            return False, "原密码错误"
+            return False, "Incorrect current password"
 
         if len(new_password) < AUTH_PASSWORD_MIN_LENGTH:
-            return False, f"新密码长度至少 {AUTH_PASSWORD_MIN_LENGTH} 位"
+            return False, f"New password must be at least {AUTH_PASSWORD_MIN_LENGTH} characters"
 
         password_hash = self._hash_password(new_password)
         now_ms = _now_ms()
@@ -111,7 +112,7 @@ class AdminAuthManager:
                 "UPDATE admin_users SET password_hash = ?, updated_at_ms = ? WHERE id = 1",
                 (password_hash, now_ms),
             )
-        return True, "密码修改成功"
+        return True, "Password changed successfully"
 
     def create_token(self) -> str:
         """创建 JWT 令牌"""
@@ -157,15 +158,15 @@ class AdminAuthManager:
         """登录并设置 Cookie"""
         if self._is_locked_out():
             remaining = int(self._lockout_until - time.time())
-            return False, f"登录尝试次数过多，请 {remaining} 秒后重试"
+            return False, f"Too many login attempts. Please try again in {remaining} seconds"
 
         config = get_config()
         if not self.verify_credentials(password):
             self._record_failed_attempt()
             remaining_attempts = AUTH_MAX_LOGIN_ATTEMPTS - self._failed_attempts
             if remaining_attempts > 0:
-                return False, f"密码错误，剩余 {remaining_attempts} 次尝试"
-            return False, f"登录尝试次数过多，请 {config.auth.lockout_duration_seconds} 秒后重试"
+                return False, f"Incorrect password. {remaining_attempts} attempts remaining"
+            return False, f"Too many login attempts. Please try again in {config.auth.lockout_duration_seconds} seconds"
 
         self._reset_failed_attempts()
         token = self.create_token()
@@ -177,7 +178,7 @@ class AdminAuthManager:
             samesite="lax",
             path="/",
         )
-        return True, "登录成功"
+        return True, "Login successful"
 
     def logout(self, response: Response) -> None:
         """登出并清除 Cookie"""
@@ -201,7 +202,7 @@ class AdminAuthManager:
         """验证请求是否已认证，未认证则抛出异常"""
         token = self.get_token_from_request(request)
         if not token or not self.verify_token(token):
-            raise HTTPException(status_code=401, detail="未登录或会话已过期")
+            raise UnauthorizedException("Not authenticated or session expired")
 
 
 admin_auth_manager = AdminAuthManager()

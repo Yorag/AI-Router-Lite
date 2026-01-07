@@ -23,20 +23,29 @@ const API = {
 
         try {
             const response = await fetch(`${this.baseUrl}${endpoint}`, options);
-            
+
             // 处理 401 未认证错误 - 跳转到登录页
             if (response.status === 401) {
                 window.location.href = '/admin/login.html';
                 throw new Error('未登录或会话已过期');
             }
-            
-            const result = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(result.detail || result.message || '请求失败');
+
+            // 安全解析 JSON 响应
+            let result;
+            try {
+                result = await response.json();
+            } catch {
+                throw new Error('服务器响应格式错误');
             }
-            
-            return result;
+
+            if (!response.ok) {
+                // Handle new APIErrorResponse format: {success: false, error: {code, message}}
+                const errorMsg = result.error?.message || result.detail || result.message || '请求失败';
+                throw new Error(errorMsg);
+            }
+
+            // Unwrap APIResponse.data if present (handles null/false as valid values)
+            return result.data !== undefined ? result.data : result;
         } catch (error) {
             console.error(`API Error [${method} ${endpoint}]:`, error);
             throw error;
@@ -63,16 +72,16 @@ const API = {
     // ==================== 系统 ====================
 
     async getHealth() {
-        return this.request('GET', '/health');
+        return this.request('GET', '/api/health');
     },
 
     async getSystemStats() {
-        return this.request('GET', '/api/admin/system-stats');
+        return this.request('GET', '/api/admin/stats');
     },
 
     async getStats(tag = null) {
         const params = tag ? `?tag=${encodeURIComponent(tag)}` : '';
-        return this.request('GET', `/stats${params}`);
+        return this.request('GET', `/api/stats${params}`);
     },
 
     // ==================== API 密钥 ====================
@@ -86,19 +95,19 @@ const API = {
     },
 
     async getAPIKey(keyId) {
-        return this.request('GET', `/api/keys/${keyId}`);
+        return this.request('GET', `/api/keys/${encodeURIComponent(keyId)}`);
     },
 
     async updateAPIKey(keyId, data) {
-        return this.request('PUT', `/api/keys/${keyId}`, data);
+        return this.request('PUT', `/api/keys/${encodeURIComponent(keyId)}`, data);
     },
 
     async deleteAPIKey(keyId) {
-        return this.request('DELETE', `/api/keys/${keyId}`);
+        return this.request('DELETE', `/api/keys/${encodeURIComponent(keyId)}`);
     },
 
     async resetAPIKey(keyId) {
-        return this.request('POST', `/api/keys/${keyId}/reset`);
+        return this.request('POST', `/api/keys/${encodeURIComponent(keyId)}/actions/reset`);
     },
 
     // ==================== 日志 ====================
@@ -128,7 +137,7 @@ const API = {
         params.append('days', days);
         if (tag) params.append('tag', tag);
         const query = params.toString();
-        return this.request('GET', `/api/logs/daily?${query}`);
+        return this.request('GET', `/api/logs/daily${query ? '?' + query : ''}`);
     },
 
     // ==================== Provider ====================
@@ -171,11 +180,11 @@ const API = {
      * @param {string} providerId - Provider ID (UUID) 或 name（兼容）
      */
     async fetchProviderModels(providerId) {
-        return this.request('POST', `/api/providers/${encodeURIComponent(providerId)}/sync-models`);
+        return this.request('POST', `/api/providers/${encodeURIComponent(providerId)}/actions/sync`);
     },
 
     async fetchAllProviderModels() {
-        return this.request('GET', '/api/providers/all-models');
+        return this.request('GET', '/api/providers/models');
     },
 
     /**
@@ -183,7 +192,7 @@ const API = {
      * 后端使用 asyncio.gather 并发请求，比串行调用更高效
      */
     async syncAllProviderModels() {
-        return this.request('POST', '/api/providers/sync-all-models');
+        return this.request('POST', '/api/providers/actions/sync');
     },
 
     /**
@@ -192,7 +201,7 @@ const API = {
      * @returns {Promise<{providers: Object, models: Object}>}
      */
     async getRuntimeStates() {
-        return this.request('GET', '/api/providers/runtime-states');
+        return this.request('GET', '/api/providers/states');
     },
 
     /**
@@ -200,11 +209,11 @@ const API = {
      * @param {string} providerId - Provider ID (UUID) 或 name（兼容）
      */
     async resetProvider(providerId) {
-        return this.request('POST', `/api/admin/reset/${encodeURIComponent(providerId)}`);
+        return this.request('POST', `/api/admin/actions/reset-provider/${encodeURIComponent(providerId)}`);
     },
 
     async resetAllProviders() {
-        return this.request('POST', '/api/admin/reset-all');
+        return this.request('POST', '/api/admin/actions/reset-all');
     },
 
     // ==================== 模型映射（增强型） ====================
@@ -255,7 +264,7 @@ const API = {
      */
     async syncModelMappings(unifiedName = null) {
         const params = unifiedName ? `?unified_name=${encodeURIComponent(unifiedName)}` : '';
-        return this.request('POST', `/api/model-mappings/sync${params}`);
+        return this.request('POST', `/api/model-mappings/actions/sync${params}`);
     },
 
     /**
@@ -263,7 +272,7 @@ const API = {
      * @param {Object} data - {rules, manual_includes, excluded_providers}
      */
     async previewModelMapping(data) {
-        return this.request('POST', '/api/model-mappings/preview', data);
+        return this.request('POST', '/api/model-mappings/actions/preview', data);
     },
 
     /**
@@ -286,7 +295,7 @@ const API = {
      * @param {Array<string>} orderedNames - 按顺序排列的统一模型名称列表
      */
     async reorderModelMappings(orderedNames) {
-        return this.request('POST', '/api/model-mappings/reorder', { ordered_names: orderedNames });
+        return this.request('POST', '/api/model-mappings/actions/reorder', { ordered_names: orderedNames });
     },
 
     // ==================== 协议配置 ====================
@@ -305,7 +314,7 @@ const API = {
      * @returns {Promise<{unified_name: string, model_settings: Object}>}
      */
     async getModelSettings(unifiedName) {
-        return this.request('GET', `/api/model-mappings/${encodeURIComponent(unifiedName)}/model-settings`);
+        return this.request('GET', `/api/model-mappings/${encodeURIComponent(unifiedName)}/settings`);
     },
 
     /**
@@ -315,7 +324,7 @@ const API = {
      * @returns {Promise<{status: string, message: string}>}
      */
     async updateModelProtocol(unifiedName, data) {
-        return this.request('PUT', `/api/model-mappings/${encodeURIComponent(unifiedName)}/model-settings`, data);
+        return this.request('PUT', `/api/model-mappings/${encodeURIComponent(unifiedName)}/settings`, data);
     },
 
     /**
@@ -326,7 +335,7 @@ const API = {
      * @returns {Promise<{status: string, message: string}>}
      */
     async deleteModelProtocol(unifiedName, providerId, modelId) {
-        return this.request('DELETE', `/api/model-mappings/${encodeURIComponent(unifiedName)}/model-settings/${encodeURIComponent(providerId)}/${encodeURIComponent(modelId)}`);
+        return this.request('DELETE', `/api/model-mappings/${encodeURIComponent(unifiedName)}/settings/${encodeURIComponent(providerId)}/${encodeURIComponent(modelId)}`);
     },
 
     // ==================== 模型健康检测 ====================
@@ -354,7 +363,7 @@ const API = {
      * @returns {Promise<{status: string, tested_count: number, success_count: number, results: Array}>}
      */
     async testMappingHealth(unifiedName) {
-        return this.request('POST', `/api/model-health/test/${encodeURIComponent(unifiedName)}`);
+        return this.request('POST', `/api/model-health/actions/test/${encodeURIComponent(unifiedName)}`);
     },
 
     /**
@@ -364,6 +373,6 @@ const API = {
      * @returns {Promise<Object>} - ModelHealthResult
      */
     async testSingleModelHealth(providerId, model) {
-        return this.request('POST', '/api/model-health/test-single', { provider_id: providerId, model });
+        return this.request('POST', '/api/model-health/actions/test-single', { provider_id: providerId, model });
     }
 };
