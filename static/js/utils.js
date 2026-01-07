@@ -9,6 +9,101 @@ const TIME_CONSTANTS = {
     SECONDS_PER_MONTH: 2592000
 };
 
+/**
+ * 协议相关工具函数
+ */
+const ProtocolUtils = {
+    // 默认协议列表（API 加载失败时的 fallback）
+    DEFAULT_PROTOCOLS: [
+        { value: 'openai', label: 'openai', description: 'OpenAI Chat Completions API' },
+        { value: 'openai-response', label: 'openai-response', description: 'OpenAI Responses API' },
+        { value: 'anthropic', label: 'anthropic', description: 'Anthropic Messages API' },
+        { value: 'gemini', label: 'gemini', description: 'Google Gemini API' }
+    ],
+
+    /**
+     * 从 API 加载可用协议类型
+     * @returns {Promise<Array>} 协议列表
+     */
+    async loadProtocols() {
+        try {
+            const result = await API.getAvailableProtocols();
+            const protocols = result.protocols;
+            return protocols && protocols.length > 0 ? protocols : [...this.DEFAULT_PROTOCOLS];
+        } catch (err) {
+            console.warn('加载协议类型失败:', err);
+            return [...this.DEFAULT_PROTOCOLS];
+        }
+    },
+
+    /**
+     * 生成协议选择下拉框的选项 HTML
+     * @param {Array} protocols - 协议列表
+     * @param {string} selectedValue - 当前选中的值
+     * @returns {string} HTML 字符串
+     */
+    renderProtocolOptions(protocols, selectedValue = '') {
+        const options = protocols.map(p => {
+            const selected = p.value === selectedValue ? 'selected' : '';
+            return `<option value="${p.value}" ${selected}>${p.label}</option>`;
+        }).join('');
+
+        const emptySelected = !selectedValue ? 'selected' : '';
+        return `<option value="" ${emptySelected}>Empty (Not Specified)</option>${options}`;
+    }
+};
+
+/**
+ * Provider 模型数据处理工具
+ */
+const ProviderModelUtils = {
+    /**
+     * 处理从 API 返回的 provider_models 数据
+     * @param {Object} rawData - { provider_id: { provider_name: "xxx", models: [...] } }
+     * @returns {Object} { providerModels, providerIdNameMap }
+     */
+    processProviderModelsData(rawData) {
+        const providerModels = {};
+        const providerIdNameMap = {};
+
+        for (const [providerId, providerData] of Object.entries(rawData)) {
+            const providerName = providerData.provider_name || providerId;
+            const models = providerData.models || [];
+
+            providerIdNameMap[providerId] = providerName;
+            providerModels[providerId] = models;
+        }
+
+        return { providerModels, providerIdNameMap };
+    },
+
+    /**
+     * 更新模型详情缓存
+     * @param {Object} providerModels - 支持两种格式:
+     *   - API 原始格式: { provider_id: { models: [...], provider_name: "xxx" } }
+     *   - 处理后格式: { provider_id: [...] } (模型数组)
+     * @param {Object} targetCache - 目标缓存对象
+     */
+    updateModelDetailsCache(providerModels, targetCache) {
+        for (const [providerId, providerData] of Object.entries(providerModels)) {
+            // 兼容两种数据格式
+            const models = Array.isArray(providerData) ? providerData : (providerData.models || []);
+            if (models.length > 0) {
+                targetCache[providerId] = {};
+                models.forEach(m => {
+                    // 模型可能是字符串或对象
+                    const modelObj = typeof m === 'string' ? { id: m } : m;
+                    targetCache[providerId][modelObj.id] = {
+                        id: modelObj.id,
+                        owned_by: modelObj.owned_by || '',
+                        supported_endpoint_types: modelObj.supported_endpoint_types || []
+                    };
+                });
+            }
+        }
+    }
+};
+
 const Utils = {
     // 格式化时间戳 (秒 -> 本地时间字符串)
     formatTime(timestamp) {

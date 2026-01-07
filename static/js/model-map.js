@@ -33,27 +33,9 @@ const ModelMap = {
     ],
 
     async init() {
-        await this.loadProtocols();  // 加载协议类型
+        this.availableProtocols = await ProtocolUtils.loadProtocols();
         await this.loadProviderProtocols();  // 加载 Provider 默认协议
         await this.load();
-    },
-
-    /**
-     * 加载可用协议类型
-     */
-    async loadProtocols() {
-        try {
-            const result = await API.getAvailableProtocols();
-            this.availableProtocols = result.protocols || [];
-        } catch (err) {
-            console.warn('加载协议类型失败:', err);
-            this.availableProtocols = [
-                { value: 'openai', label: 'openai', description: 'OpenAI Chat Completions API' },
-                { value: 'openai-response', label: 'openai-response', description: 'OpenAI Responses API' },
-                { value: 'anthropic', label: 'anthropic', description: 'Anthropic Messages API' },
-                { value: 'gemini', label: 'gemini', description: 'Google Gemini API' }
-            ];
-        }
     },
 
     /**
@@ -742,16 +724,9 @@ const ModelMap = {
      * 新格式: { provider_id: { provider_name: "xxx", models: [...] } }
      */
     processProviderModelsData(rawData) {
-        this.providerModels = {};
-        this.providerIdNameMap = {};
-        
-        for (const [providerId, providerData] of Object.entries(rawData)) {
-            const providerName = providerData.provider_name || providerId;
-            const models = providerData.models || [];
-            
-            this.providerIdNameMap[providerId] = providerName;
-            this.providerModels[providerId] = models;
-        }
+        const result = ProviderModelUtils.processProviderModelsData(rawData);
+        this.providerModels = result.providerModels;
+        this.providerIdNameMap = result.providerIdNameMap;
     },
 
     buildModalContent(unifiedName, mapping = null) {

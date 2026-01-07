@@ -14,29 +14,10 @@ const Providers = {
     viewMode: localStorage.getItem('providers_view_mode') || 'card',
     
     async init() {
-        await this.loadProtocols();  // 加载协议类型
+        this.availableProtocols = await ProtocolUtils.loadProtocols();
         await this.load();
         // 页面初始化时从后端加载模型详情缓存（支持 ToolTip 显示）
         await this.loadModelDetailsCache();
-    },
-
-    /**
-     * 加载可用协议类型
-     */
-    async loadProtocols() {
-        try {
-            const result = await API.getAvailableProtocols();
-            this.availableProtocols = result.protocols || [];
-        } catch (err) {
-            console.warn('加载协议类型失败:', err);
-            // 使用默认值
-            this.availableProtocols = [
-                { value: 'openai', label: 'openai', description: 'OpenAI Chat Completions API' },
-                { value: 'openai-response', label: 'openai-response', description: 'OpenAI Responses API' },
-                { value: 'anthropic', label: 'anthropic', description: 'Anthropic Messages API' },
-                { value: 'gemini', label: 'gemini', description: 'Google Gemini API' }
-            ];
-        }
     },
 
     /**
@@ -47,21 +28,7 @@ const Providers = {
         try {
             const allModelsData = await API.fetchAllProviderModels();
             const providerModels = allModelsData.provider_models || {};
-            
-            // 更新本地模型详情缓存
-            for (const [providerId, providerData] of Object.entries(providerModels)) {
-                const models = providerData.models || [];
-                if (models.length > 0) {
-                    this.modelDetails[providerId] = {};
-                    models.forEach(m => {
-                        this.modelDetails[providerId][m.id] = {
-                            id: m.id,
-                            owned_by: m.owned_by || '',
-                            supported_endpoint_types: m.supported_endpoint_types || []
-                        };
-                    });
-                }
-            }
+            ProviderModelUtils.updateModelDetailsCache(providerModels, this.modelDetails);
         } catch (err) {
             // 静默失败，不影响页面加载
             console.warn('加载模型详情缓存失败:', err);
@@ -553,14 +520,7 @@ const Providers = {
      * 生成协议选择下拉框的选项 HTML
      */
     renderProtocolOptions(selectedValue = '') {
-        const options = this.availableProtocols.map(p => {
-            const selected = p.value === selectedValue ? 'selected' : '';
-            return `<option value="${p.value}" ${selected}>${p.label}</option>`;
-        }).join('');
-        
-        // 添加"Empty"选项（空值）
-        const mixedSelected = !selectedValue ? 'selected' : '';
-        return `<option value="" ${mixedSelected}>Empty (Not Specified)</option>${options}`;
+        return ProtocolUtils.renderProtocolOptions(this.availableProtocols, selectedValue);
     },
 
     showCreateModal() {
@@ -1053,31 +1013,21 @@ const Providers = {
 
     async updateAllModels() {
         // 使用后端并发API批量更新所有服务站的模型列表
-        
+
         try {
             // 调用后端并发同步API（后端使用 asyncio.gather 并发请求）
             const result = await API.syncAllProviderModels();
-            
+
             // 一次性获取所有模型详情（从 provider_models.json 读取，无需再次网络请求各中转站）
             try {
                 const allModelsData = await API.fetchAllProviderModels();
                 const providerModels = allModelsData.provider_models || {};
-                
-                // 更新本地模型详情缓存
-                for (const [providerId, providerData] of Object.entries(providerModels)) {
-                    const models = providerData.models || [];
-                    if (models.length > 0) {
-                        this.modelDetails[providerId] = {};
-                        models.forEach(m => {
-                            this.modelDetails[providerId][m.id] = m;
-                        });
-                    }
-                }
+                ProviderModelUtils.updateModelDetailsCache(providerModels, this.modelDetails);
             } catch (err) {
                 // 缓存更新失败不影响整体流程
                 console.warn('更新模型详情缓存失败:', err);
             }
-            
+
             Toast.success(`已并发同步 ${result.synced_count || 0} 个服务站，共 ${result.total_models || 0} 个模型`);
             await this.load();
         } catch (error) {
