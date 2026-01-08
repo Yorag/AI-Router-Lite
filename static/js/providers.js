@@ -268,7 +268,7 @@ const Providers = {
         const isPassivelyDisabled = normalized.enabled && (normalized.status === 'permanently_disabled' || normalized.status === 'cooling');
 
         const updateModelBtn = allowModelUpdate
-            ? `<button class="btn btn-sm btn-secondary" onclick="Providers.fetchModels('${providerUuid}')" title="更新模型"><i class="ri-refresh-line"></i></button>`
+            ? `<button class="btn btn-sm btn-secondary btn-fetch-models" onclick="Providers.fetchModels('${providerUuid}')" title="更新模型"><i class="ri-refresh-line"></i></button>`
             : '';
         const resetBtn = isPassivelyDisabled
             ? `<button class="btn btn-sm btn-secondary" onclick="Providers.reset('${providerUuid}')" title="重置状态"><i class="ri-restart-line"></i></button>`
@@ -923,34 +923,29 @@ const Providers = {
     modelDetails: {},
 
     async fetchModels(providerId) {
-        // 获取对应的按钮用于防重复控制
-        const providerDomId = this.escapeId(providerId);
-        const providerCard = document.getElementById(`provider-${providerDomId}`);
-        const btn = providerCard?.querySelector('.provider-card-actions .btn-fetch-models');
-        
+        // 通过 data-provider-id 属性查找按钮，兼容卡片视图和表格行视图
+        const btn = document.querySelector(`[data-provider-id="${providerId}"] .btn-fetch-models`);
+
         // 防止重复点击
-        if (btn && btn.disabled) {
+        if (btn?.disabled) {
             return;
         }
-        
-        const originalText = btn?.innerHTML;
-        
+
         try {
             if (btn) {
                 btn.disabled = true;
-                btn.innerHTML = '更新中...';
             }
-            
+
             const result = await API.fetchProviderModels(providerId);
             const models = result.models || [];
             const syncStats = result.sync_stats || {};
-            
+
             // 存储模型详细信息，使用 providerId 作为 key
             this.modelDetails[providerId] = {};
             models.forEach(m => {
                 this.modelDetails[providerId][m.id] = m;
             });
-            
+
             const statsMsg = `(新增: ${syncStats.added}, 更新: ${syncStats.updated}, 移除: ${syncStats.removed})`;
             Toast.success(`已同步 ${models.length} 个模型 ${statsMsg}`);
             await this.load();
@@ -959,7 +954,6 @@ const Providers = {
         } finally {
             if (btn) {
                 btn.disabled = false;
-                btn.innerHTML = originalText;
             }
         }
     },
