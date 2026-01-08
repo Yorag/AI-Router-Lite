@@ -1293,7 +1293,9 @@ const ModelMap = {
             } else {
                 delete this.mappings[unifiedName].model_settings[key];
             }
-            
+
+            delete this.healthResults[key];
+
             Modal.close();
             Toast.success(protocol ? `已设置协议为 ${protocol}` : '已清除模型协议配置');
             this.render();
