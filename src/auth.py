@@ -25,6 +25,7 @@ from .config import get_config
 from .sqlite_repos import get_db_cursor
 from .db import get_db_paths
 from .exceptions import UnauthorizedException
+from .key_manager import get_jwt_secret
 
 
 def _now_ms() -> int:
@@ -41,15 +42,11 @@ class AdminAuthManager:
         self._lockout_until: float = 0
 
     def _get_jwt_secret(self) -> str:
-        """获取或生成 JWT 密钥"""
+        """获取 JWT 密钥"""
         if self._jwt_secret:
             return self._jwt_secret
-        
-        # 从数据库加密密钥派生 JWT 密钥
-        from .db import get_fernet
-        fernet = get_fernet()
-        # 使用 fernet key 的一部分作为 JWT secret
-        self._jwt_secret = fernet._signing_key.hex()[:32]
+
+        self._jwt_secret = get_jwt_secret()
         return self._jwt_secret
 
     def _hash_password(self, password: str) -> str:

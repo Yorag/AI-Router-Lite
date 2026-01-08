@@ -98,37 +98,20 @@ services:
     container_name: ai-router-lite
     ports:
       - "8000:8000"
-    environment:
-      - AI_ROUTER_ENCRYPTION_KEY=
     volumes:
       - ./data:/app/data
     restart: unless-stopped
 ```
 
-#### 2. 首次启动获取密钥
-
-```bash
-docker-compose up
-```
-
-容器会生成密钥并打印到日志，然后退出。复制密钥。
-
-#### 3. 配置密钥并启动
-
-将密钥填入 docker-compose.yml：
-
-```yaml
-environment:
-  - AI_ROUTER_ENCRYPTION_KEY=你复制的密钥
-```
-
-重启：
+#### 2. 启动服务
 
 ```bash
 docker-compose up -d
 ```
 
-#### 4. 访问服务
+首次启动时，系统会自动生成加密密钥并保存到 `data/.encryption_key` 文件。
+
+#### 3. 访问服务
 
 - API：`http://localhost:8000`
 - 管理面板：`http://localhost:8000/admin`
@@ -157,34 +140,24 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-#### 3. 生成加密密钥并设置环境变量
-```bash
-python scripts/gen_fernet_key.py
-```
-将输出的密钥设置为环境变量：
-```bash
-# Windows PowerShell
-$env:AI_ROUTER_ENCRYPTION_KEY = "生成的密钥"
-
-# Unix/Mac
-export AI_ROUTER_ENCRYPTION_KEY="生成的密钥"
-```
-> ⚠️ **请务必妥善保管此密钥**，它是解密数据库中 API Key 的唯一凭证。
-
-#### 4. 创建配置文件（可选）
+#### 3. 创建配置文件（可选）
 ```bash
 cp config.example.json config.json
 ```
 
-#### 5. 初始化数据库
+#### 4. 初始化数据库
 ```bash
 python scripts/init_db.py
 ```
 
-#### 6. 启动服务
+首次运行时，系统会自动生成加密密钥并保存到 `data/.encryption_key` 文件。
+
+#### 5. 启动服务
 ```bash
 python main.py
 ```
+
+> 💡 **生产环境建议**：对于生产部署，建议通过环境变量 `AI_ROUTER_ENCRYPTION_KEY` 显式设置加密密钥，以便在多实例部署时保持一致。
 
 ---
 
@@ -209,9 +182,16 @@ python scripts/reset_admin.py
 
 | 变量名 | 必填 | 说明 |
 | :--- | :---: | :--- |
-| `AI_ROUTER_ENCRYPTION_KEY` | ✅ | Fernet 加密密钥，用于加密数据库中的敏感信息（API Key 等） |
+| `AI_ROUTER_ENCRYPTION_KEY` | ❌ | Fernet 加密密钥。不设置则自动生成并保存到 `data/.encryption_key` |
 | `AI_ROUTER_PORT` | ❌ | 服务端口，覆盖配置文件中的 `server_port` |
 | `AI_ROUTER_HOST` | ❌ | 服务主机，覆盖配置文件中的 `server_host` |
+
+> ⚠️ **密钥管理注意事项**：
+> - 自动生成的加密密钥保存在 `data/.encryption_key`，请妥善备份
+> - 删除 `data/.encryption_key` 会导致已加密的 API Key 无法解密
+> - 多实例部署时，必须通过环境变量设置相同的密钥
+>
+> 💡 **生产环境推荐**：首次运行后，可将 `data/.encryption_key` 中的密钥复制到环境变量 `AI_ROUTER_ENCRYPTION_KEY`，然后删除该文件。这样更安全，密钥不会以明文形式存储在文件系统中。
 
 ### 配置文件 (`config.json`)
 

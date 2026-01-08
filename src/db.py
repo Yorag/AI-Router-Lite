@@ -5,6 +5,8 @@ from typing import Optional, Sequence
 
 from cryptography.fernet import Fernet
 
+from .key_manager import get_encryption_key
+
 DEFAULT_APP_DB_PATH = "data/app.db"
 DEFAULT_LOGS_DB_PATH = "data/logs.db"
 
@@ -26,43 +28,40 @@ def get_db_paths() -> DbPaths:
     return DbPaths()
 
 
-def init_fernet(key: str) -> None:
+def init_fernet(key: Optional[str] = None) -> None:
     """
-    初始化 Fernet 加密实例。必须在应用启动时调用一次。
-    
+    初始化 Fernet 加密实例。
+
+    如果未提供 key，将自动从 key_manager 获取（支持环境变量、文件、自动生成）。
+
     Args:
-        key: Fernet 加密密钥字符串
-        
+        key: Fernet 加密密钥字符串（可选）
+
     Raises:
-        ValueError: 密钥为空或格式无效
+        ValueError: 密钥格式无效
     """
     global _fernet_instance
-    if not key:
-        raise ValueError("加密密钥不能为空。请设置环境变量 AI_ROUTER_ENCRYPTION_KEY。")
+    if key is None:
+        key = get_encryption_key()
     try:
         _fernet_instance = Fernet(key.encode("utf-8"))
     except Exception:
         raise ValueError(
             "加密密钥格式无效。\n"
-            "请运行 `python scripts/gen_fernet_key.py` 生成有效密钥，\n"
-            "然后设置环境变量 AI_ROUTER_ENCRYPTION_KEY。"
+            "请删除 data/.encryption_key 文件后重试，或设置有效的环境变量 AI_ROUTER_ENCRYPTION_KEY。"
         )
 
 
 def get_fernet() -> Fernet:
     """
-    获取已初始化的 Fernet 实例。
-    
+    获取 Fernet 实例。如未初始化则自动初始化。
+
     Returns:
         Fernet 实例
-        
-    Raises:
-        RuntimeError: 如果 Fernet 尚未初始化
     """
+    global _fernet_instance
     if _fernet_instance is None:
-        raise RuntimeError(
-            "Fernet 尚未初始化。请确保已设置环境变量 AI_ROUTER_ENCRYPTION_KEY。"
-        )
+        init_fernet()
     return _fernet_instance
 
 

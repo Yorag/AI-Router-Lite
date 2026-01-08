@@ -45,9 +45,6 @@ class AppConfig(BaseModel):
     server_port: int = Field(default=8000, ge=1, le=65535)
     server_host: str = Field(default="0.0.0.0")
 
-    # 加密密钥（仅从环境变量读取）
-    db_encryption_key: str = Field(..., min_length=1, description="用于数据库加密的 Fernet 密钥，必须通过环境变量 AI_ROUTER_ENCRYPTION_KEY 设置")
-
     # 请求配置
     request_timeout: float = Field(default=120.0, ge=1.0)
 
@@ -114,23 +111,14 @@ class ConfigManager:
         加载配置，优先级：环境变量 > 配置文件 > 默认值
 
         环境变量：
-        - AI_ROUTER_ENCRYPTION_KEY: 数据库加密密钥（必须设置）
         - AI_ROUTER_PORT: 服务端口
         - AI_ROUTER_HOST: 服务主机
+        - AI_ROUTER_ENCRYPTION_KEY: 数据库加密密钥（可选，不设置则自动生成）
 
         Returns:
             AppConfig: 应用配置对象
         """
         config_data = load_config_file(self.config_path)
-
-        # 加密密钥必须从环境变量读取
-        env_encryption_key = os.getenv(ENV_ENCRYPTION_KEY)
-        if not env_encryption_key:
-            raise RuntimeError(
-                f"环境变量 {ENV_ENCRYPTION_KEY} 未设置。\n"
-                f"请使用 python scripts/gen_fernet_key.py 生成密钥，然后设置环境变量。"
-            )
-        config_data["db_encryption_key"] = env_encryption_key
 
         # 可选环境变量覆盖
         env_port = os.getenv(ENV_SERVER_PORT)
@@ -143,10 +131,10 @@ class ConfigManager:
 
         self._config = AppConfig(**config_data)
 
-        # 初始化 Fernet 加密实例
+        # 初始化 Fernet 加密实例（自动获取或生成密钥）
         if not self._fernet_initialized:
             from .db import init_fernet
-            init_fernet(self._config.db_encryption_key)
+            init_fernet()
             self._fernet_initialized = True
 
         return self._config
