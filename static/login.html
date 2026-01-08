@@ -144,8 +144,8 @@
                 }
 
                 const { initialized, authenticated } = result.data;
-                document.getElementById(!initialized ? 'init-form' : authenticated ? '' : 'login-form').style.display = 'block';
-                if (initialized && authenticated) window.location.href = '/admin/';
+                if (initialized && authenticated) return window.location.href = '/admin/';
+                document.getElementById(initialized ? 'login-form' : 'init-form').style.display = 'block';
             },
 
             async handleInit(event) {
