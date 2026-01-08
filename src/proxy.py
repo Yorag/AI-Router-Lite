@@ -609,7 +609,10 @@ class RequestProxy:
                     buffer: list[tuple[str, Optional[Dict[str, int]]]] = []
                     has_content = False
 
-                    async for line in response.aiter_lines():
+                    # 只创建一次迭代器，避免流被重复读取
+                    lines_iter = response.aiter_lines()
+
+                    async for line in lines_iter:
                         if not line:
                             continue
 
@@ -643,8 +646,8 @@ class RequestProxy:
                             actual_model=actual_model
                         )
 
-                    # 继续处理剩余的流数据（直接输出模式）
-                    async for line in response.aiter_lines():
+                    # 继续处理剩余的流数据（复用同一个迭代器）
+                    async for line in lines_iter:
                         if not line:
                             continue
 

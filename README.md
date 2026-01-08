@@ -10,7 +10,7 @@
     <a href="https://python.org"><img alt="Python" src="https://img.shields.io/badge/Python-3.8+-blue?logo=python&logoColor=white"></a>
     <a href="https://fastapi.tiangolo.com/"><img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.104+-05998b?logo=fastapi&logoColor=white"></a>
     <a href="https://github.com/Yorag/AI-Router-Lite/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/Yorag/AI-Router-Lite?color=blue"></a>
-    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.9.2-brightgreen"></a>
+    <a href="#"><img alt="Version" src="https://img.shields.io/badge/version-0.9.3-brightgreen"></a>
   </p>
 </div>
 
@@ -294,6 +294,9 @@ python scripts/reset_admin.py
   - **错误类型细分**: 区分上游错误（触发熔断重试）与系统错误（直接返回），优化熔断策略。
   - **管理面板 UX**: API 密钥页面改用开关切换、服务站支持行/卡片视图、时间戳显示为相对时间。
   - **前端重构**: 统一 API 响应格式处理，登录页面代码优化。
+- [x] **v0.9.3 (Zero-Config & Refactor)**:
+  - **零配置部署**: 首次运行时自动生成加密密钥，无需手动配置环境变量。
+  - **前端稳定性**: 修复协议切换后模型健康状态未重置的问题，为刷新按钮添加防抖保护。
 - [ ] **v1.0 (Protocol Conversion)**: 引入协议转换层，实现将多种 API 格式（如 Anthropic, Gemini）统一为 OpenAI Chat Completions 格式输出。完整稳定版本，包含负载均衡优化、完善的文档和测试覆盖。
 
 ## 📄 许可
