@@ -582,8 +582,8 @@ class RequestProxy:
         except Exception:
             error_response_body = {"raw_text": error_body_text[:500]}
 
-        # 判断是否为可重试错误
-        if _is_retryable_error(error_response_body):
+        # 只有 500 错误才检查是否为可重试错误（不熔断但重试）
+        if response.status_code == 500 and _is_retryable_error(error_response_body):
             return RetryableUpstreamError(
                 f"HTTP {response.status_code}: {error_body_oneline}",
                 status_code=response.status_code,
