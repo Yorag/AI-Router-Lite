@@ -20,7 +20,7 @@ from .provider_models import provider_models_manager
 from .protocols import BaseProtocol
 from .logger import log_manager, LogLevel
 from .model_health import model_health_manager
-from .constants import PROXY_ERROR_MESSAGE_MAX_LENGTH
+from .constants import PROXY_ERROR_MESSAGE_MAX_LENGTH, RETRYABLE_ERROR_PATTERNS
 
 
 @dataclass
@@ -121,6 +121,62 @@ class EmptyResponseError(Exception):
         self.provider_id = provider_id
         self.actual_model = actual_model
         self.raw_response = raw_response
+
+
+class RetryableUpstreamError(Exception):
+    """
+    可重试的上游错误
+
+    当上游返回临时性错误（如过载、容量不足、流被关闭）时抛出。
+    行为：不触发熔断，清除 sticky，尝试下一个渠道。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int,
+        provider_name: str,
+        provider_id: str,
+        actual_model: Optional[str] = None,
+        response_body: Optional[Dict[str, Any]] = None
+    ):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+        self.provider_name = provider_name
+        self.provider_id = provider_id
+        self.actual_model = actual_model
+        self.response_body = response_body
+
+
+def _is_retryable_error(response_body: Optional[Dict[str, Any]]) -> bool:
+    """
+    判断错误是否为可重试错误（不熔断）
+
+    Args:
+        response_body: 上游返回的错误响应体
+
+    Returns:
+        True 表示可重试（不熔断），False 表示需要熔断
+    """
+    if not response_body:
+        return False
+
+    error = response_body.get("error", {})
+    if isinstance(error, str):
+        return False
+
+    error_type = error.get("type", "")
+    error_message = error.get("message", "")
+
+    for pattern_type, pattern_message in RETRYABLE_ERROR_PATTERNS:
+        if error_type == pattern_type:
+            if pattern_message is None:
+                return True
+            if pattern_message in error_message:
+                return True
+
+    return False
 
 
 class RequestProxy:
@@ -287,6 +343,7 @@ class RequestProxy:
     ) -> AsyncIterator[Any]:
         """统一的重试执行逻辑 (作为异步生成器) - 两阶段选择"""
         last_error: Optional[UpstreamError] = None
+        last_retryable_error: Optional[RetryableUpstreamError] = None
         last_empty_response: Optional[EmptyResponseError] = None
         req_protocol = required_protocol or protocol_handler.protocol_type
 
@@ -373,7 +430,7 @@ class RequestProxy:
             except EmptyResponseError as e:
                 # 空响应错误：不触发熔断，清除 sticky，尝试下一个渠道
                 last_empty_response = e
-                self._log_info(f"[空响应] Provider: {provider.config.name}, 模型: {actual_model}")
+                self._log_info(f"[空响应] Provider: {provider.config.name}, 模型: {actual_model}, 错误: {e.message}")
                 # 记录结构化日志
                 log_manager.log(
                     level=LogLevel.WARNING,
@@ -384,7 +441,34 @@ class RequestProxy:
                     provider=provider.config.name,
                     provider_id=provider.config.id,
                     actual_model=actual_model,
-                    message=f"空响应重试 [{provider.config.name}:{actual_model}]",
+                    error=e.message,
+                    message=f"空响应重试 [{provider.config.name}:{actual_model}] {e.message}",
+                    api_key_name=api_key_name,
+                    api_key_id=api_key_id,
+                    protocol=req_protocol
+                )
+                # 清除 sticky
+                self.provider_manager.clear_sticky_model(sticky_key, original_model, provider.config.id)
+                continue
+
+            except RetryableUpstreamError as e:
+                # 可重试上游错误：不触发熔断，清除 sticky，尝试下一个渠道
+                last_retryable_error = e
+                last_retryable_error.actual_model = actual_model
+                self._log_info(f"[可重试错误] Provider: {provider.config.name}, 模型: {actual_model}, 错误: {e.message}")
+                # 记录结构化日志
+                log_manager.log(
+                    level=LogLevel.WARNING,
+                    log_type="proxy",
+                    method="POST",
+                    path="/proxy/stream" if is_stream else "/proxy",
+                    model=original_model,
+                    provider=provider.config.name,
+                    provider_id=provider.config.id,
+                    actual_model=actual_model,
+                    status_code=e.status_code,
+                    error=e.message,
+                    message=f"可重试错误 [{provider.config.name}:{actual_model}] {e.message}",
                     api_key_name=api_key_name,
                     api_key_id=api_key_id,
                     protocol=req_protocol
@@ -419,9 +503,13 @@ class RequestProxy:
                 model_health_manager.record_passive_result(provider.config.id, actual_model, success=False, error=e.message, response_body=e.response_body)
                 continue
 
-        # 优先抛出上游错误
+        # 优先抛出上游错误（触发熔断的错误）
         if last_error:
             raise last_error
+
+        # 其次抛出可重试错误（不触发熔断的错误）
+        if last_retryable_error:
+            raise last_retryable_error
 
         # 如果所有渠道都返回空响应，抛出最后一个空响应错误
         if last_empty_response:
@@ -480,8 +568,8 @@ class RequestProxy:
     def _get_timeout(self, provider: ProviderState) -> float:
         return provider.config.timeout if provider.config.timeout is not None else self.config.request_timeout
     
-    async def _create_upstream_error(self, response: httpx.Response, provider: ProviderState, actual_model: str) -> UpstreamError:
-        """创建上游服务错误异常"""
+    async def _create_upstream_error(self, response: httpx.Response, provider: ProviderState, actual_model: str) -> Exception:
+        """创建上游服务错误异常（根据错误类型返回 UpstreamError 或 RetryableUpstreamError）"""
         error_body_bytes = await response.aread()
         error_body_text = error_body_bytes.decode(errors='replace')
 
@@ -493,6 +581,17 @@ class RequestProxy:
             error_response_body = json.loads(error_body_text)
         except Exception:
             error_response_body = {"raw_text": error_body_text[:500]}
+
+        # 判断是否为可重试错误
+        if _is_retryable_error(error_response_body):
+            return RetryableUpstreamError(
+                f"HTTP {response.status_code}: {error_body_oneline}",
+                status_code=response.status_code,
+                provider_name=provider.config.name,
+                provider_id=provider.config.id,
+                actual_model=actual_model,
+                response_body=error_response_body
+            )
 
         return UpstreamError(
             f"HTTP {response.status_code}: {error_body_oneline}",

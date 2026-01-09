@@ -53,6 +53,15 @@ LOG_HOURLY_STATS_DEFAULT_DAYS: int = 7
 # 代理错误消息最大长度（字符），超过将被截断
 PROXY_ERROR_MESSAGE_MAX_LENGTH: int = 300
 
+# 可重试错误的匹配规则（不熔断，只重试切换渠道）
+# 格式: (error_type, message_keyword) - message_keyword 为 None 时只匹配 type
+# 匹配上游返回的 {"error": {"type": "...", "message": "..."}} 结构
+RETRYABLE_ERROR_PATTERNS: list[tuple[str, "str | None"]] = [
+    ("overloaded_error", None),                      # 过载错误
+    ("cw_error", "INSUFFICIENT_MODEL_CAPACITY"),     # 容量不足
+    ("UPSTREAM_ERROR", "stream has been closed"),    # 流被关闭
+]
+
 
 # ==================== 模型映射配置 ====================
 
