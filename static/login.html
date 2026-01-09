@@ -16,7 +16,7 @@
         <div class="login-card">
             <div class="login-header">
                 <h1>AI-Router</h1>
-                <span class="version">v0.9.2</span>
+                <span class="version" id="app-version"></span>
             </div>
             
             <!-- 初始化表单（首次设置密码） -->
@@ -130,7 +130,25 @@
                 el.style.display = 'block';
             },
 
+            /** 加载版本号 */
+            async loadVersion() {
+                try {
+                    const result = await this.request('/api/version');
+                    if (result.ok && result.data.version) {
+                        const versionEl = document.getElementById('app-version');
+                        if (versionEl) {
+                            versionEl.textContent = 'v' + result.data.version;
+                        }
+                    }
+                } catch (error) {
+                    console.error('加载版本号失败:', error);
+                }
+            },
+
             async init() {
+                // 加载版本号
+                this.loadVersion();
+
                 const result = await this.request('/api/auth/status');
                 const loadingState = document.getElementById('loading-state');
 

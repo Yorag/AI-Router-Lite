@@ -720,6 +720,14 @@ async def gemini_stream_generate_content(model: str, request: Request, api_key: 
     return await process_request(request, "gemini", api_key, {"model": model, "stream": True})
 
 
+@app.get("/api/version")
+async def get_version():
+    return APIResponse(data={
+        "version": APP_VERSION,
+        "name": APP_NAME,
+    }).model_dump()
+
+
 @app.get("/api/health")
 async def health_check():
     stats = provider_manager.get_stats()

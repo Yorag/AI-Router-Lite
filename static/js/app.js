@@ -19,6 +19,9 @@ const App = {
             return;
         }
 
+        // 加载版本号
+        this.loadVersion();
+
         // 初始化导航
         this.initNavigation();
 
@@ -48,6 +51,18 @@ const App = {
             }
         });
         
+    },
+
+    async loadVersion() {
+        try {
+            const data = await API.getVersion();
+            const versionEl = document.getElementById('app-version');
+            if (versionEl && data.version) {
+                versionEl.textContent = 'v' + data.version;
+            }
+        } catch (error) {
+            console.error('加载版本号失败:', error);
+        }
     },
 
     initNavigation() {

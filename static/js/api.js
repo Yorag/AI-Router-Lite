@@ -71,6 +71,10 @@ const API = {
 
     // ==================== 系统 ====================
 
+    async getVersion() {
+        return this.request('GET', '/api/version');
+    },
+
     async getHealth() {
         return this.request('GET', '/api/health');
     },
